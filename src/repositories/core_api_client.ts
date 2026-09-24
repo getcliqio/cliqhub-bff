@@ -7,7 +7,8 @@ const log = get_logger('core-api-client');
 /**
  * HTTP client for Hub Core API (BACKEND_URL / internal :4000).
  * Public clients use Hub BFF; this runs only inside the BFF process.
- * Responses are flat `{ ok, ...fields }` (not BFF `{ ok, data }` envelope).
+ * Responses are forwarded as returned by Hub Core (often flat `{ ok, …fields }`;
+ * agents/notifications Controllers use `{ ok, data }`).
  */
 export class CoreApiClient {
     private _base_url: string;

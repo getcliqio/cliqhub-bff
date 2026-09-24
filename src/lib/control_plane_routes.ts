@@ -1,5 +1,7 @@
 /**
- * Control-plane /v1 paths proxied flat to Hub Core API.
+ * Control-plane /v1 paths proxied to Hub Core (response body forwarded as-is).
+ * Agents + notifications return `{ ok, data }`; many other routes remain flat
+ * `{ ok, …fields }`. SPA uses hub_envelope to prefer `data` with flat fallbacks.
  * Product routes (auth login, teams catalog, orgs, drafts, builder, admin)
  * stay BFF-owned and must NOT appear here.
  */
