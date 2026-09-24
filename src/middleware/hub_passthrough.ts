@@ -1,6 +1,9 @@
 /**
- * Authenticated pass-through to Hub Core API for control-plane routes that
- * speak flat `{ ok, ... }` — do not wrap in BFF `{ ok, data }`.
+ * Authenticated pass-through to Hub Core API for control-plane routes.
+ *
+ * Most Core controllers still return flat `{ ok, …fields }`. Agents and
+ * notifications Controllers use BaseController.ok → `{ ok, data }` (SPA
+ * unwraps via hub_envelope). Do not wrap again in a BFF `{ ok, data }` layer.
  *
  * Credential forwarding:
  *   1. Authorization: Bearer … from the client (daemon / CLI / machine)
