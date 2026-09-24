@@ -10,9 +10,11 @@ import { describe, it, expect } from 'vitest';
 import { CONTROL_PLANE_PASSTHROUGH_PATHS } from '../../src/lib/control_plane_routes.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repo_root = path.resolve(here, '../../../..');
-const bff_app = path.join(repo_root, 'services/bff/src/app.ts');
-const spa_src = path.join(repo_root, 'src');
+/** Split-repo BFF root (`cliqhub-bff/`), not the old monorepo `services/bff`. */
+const bff_root = path.resolve(here, '../..');
+const bff_app = path.join(bff_root, 'src/app.ts');
+/** SPA lives in sibling `cliqhub-frontend` after the repo cut. */
+const spa_src = path.resolve(bff_root, '../cliqhub-frontend/src');
 
 function list_files(dir: string): string[] {
 	const out: string[] = [];

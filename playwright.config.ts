@@ -51,8 +51,12 @@ const app_port = port_from_url(APP_URL, 3010);
 const bff_port = port_from_url(BFF_URL, 3001);
 const backend_port = port_from_url(BACKEND_URL, 4100);
 
+/** Split-repo layout: Core + BFF + Frontend are sibling checkouts. */
+const core_root = path.resolve(__dirname, '../cliqhub-core');
+const frontend_root = path.resolve(__dirname, '../cliqhub-frontend');
+
 const backend_env = load_dotenv(
-    path.join(__dirname, '../backend/.env'),
+    path.join(core_root, '.env'),
     {
         PORT: String(backend_port),
         DATABASE_URL,
@@ -105,24 +109,24 @@ export default defineConfig({
             url: `${BACKEND_URL}/v1/health`,
             // Never reuse: local .env often points at Railway; e2e must use E2E_DATABASE_URL.
             reuseExistingServer: false,
-            timeout: 60_000,
-            cwd: '../backend',
+            timeout: 90_000,
+            cwd: core_root,
             env: { ...process.env, ...backend_env },
         },
         {
             command: 'node dist/server.js',
             url: `${BFF_URL}/bff-health`,
             reuseExistingServer: false,
-            timeout: 60_000,
-            cwd: '.',
+            timeout: 90_000,
+            cwd: __dirname,
             env: { ...process.env, ...bff_env },
         },
         {
             command: `npx vite --port ${app_port} --strictPort`,
             url: APP_URL,
             reuseExistingServer: false,
-            timeout: 60_000,
-            cwd: '../..',
+            timeout: 90_000,
+            cwd: frontend_root,
         },
     ],
 });
