@@ -39,7 +39,7 @@ export const CONTROL_PLANE_PASSTHROUGH_PATHS: readonly string[] = [
 	'/v1/control/scopes/remove',
 	'/v1/control/scopes/resolve',
 	'/v1/agents/get',
-	'/v1/agents/get_by_id',
+	'/v1/agents/get_details',
 	'/v1/agents/register',
 	'/v1/agents/deregister',
 	'/v1/agents/get_settings',
