@@ -21,15 +21,15 @@ async function ensure_admin_org(page: import('@playwright/test').Page): Promise<
         display_name: `E2E Org ${slug}`,
         admin_username: TEST_ADMIN.username,
     }));
-    const org = ((created.org ?? created.data) as { id?: number });
+    const org = ((created.org ?? created.data) as { id?: string | number });
     expect(org?.id).toBeTruthy();
-    return Number(org!.id);
+    return String(org!.id);
 }
 
 async function open_first_org(page: import('@playwright/test').Page): Promise<void> {
     const org_id = await ensure_admin_org(page);
     await page.goto(`/orgs/${org_id}`);
-    await page.waitForURL(/\/orgs\/\d+/);
+    await page.waitForURL(/\/orgs\/[^/]+/);
 }
 
 test.describe('Orgs UI — positive', () => {
