@@ -13,8 +13,18 @@ const MINIMAL_TEAM = {
 
 async function open_builder_canvas(page: import('@playwright/test').Page): Promise<void> {
     const me = await expect_api_ok(await api_post(page, '/v1/session/get', {}));
-    const me_data = (me.data ?? me) as { user?: { username?: string }; scopes?: Array<{ slug: string }> };
-    const scope = me_data.scopes?.[0]?.slug ?? me_data.user?.username ?? 'admin';
+    const me_data = (me.data ?? me) as {
+        user?: { username?: string };
+        scopes?: Array<{ slug?: string; scope_type?: string }>;
+    };
+    const username = me_data.user?.username ?? '';
+    const scopes = me_data.scopes ?? [];
+    // Prefer personal/user scope — first listed scope can be an org the PAT cannot write.
+    const scope =
+        scopes.find((s) => s.slug === username)?.slug
+        ?? scopes.find((s) => s.scope_type === 'user' || s.scope_type === 'personal')?.slug
+        ?? scopes[0]?.slug;
+    expect(scope, `writable scope missing: ${JSON.stringify(me)}`).toBeTruthy();
     const body = await expect_api_ok(await api_post(page, '/v1/teams/create', {
         name: `e2e-builder-${Date.now()}`,
         scope,
