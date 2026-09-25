@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import {
     api_login,
     api_create_realm,
+    api_current_org_id,
     expect_alert,
     expect_login_redirect,
     open_create_realm,
@@ -255,10 +256,12 @@ test.describe('Daemons — positive / negative', () => {
 
     test('dashboard daemon counts match daemons list for the same user', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
+        // DASH-ORG / DAE-ORG invent: body org_id required (never invent from header).
+        const org_id = await api_current_org_id(page);
 
         const summary_res = await page.request.post('/v1/dashboard/summary', {
             headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            data: {},
+            data: { org_id },
         });
         expect(summary_res.ok()).toBe(true);
         const summary = await summary_res.json();
@@ -266,7 +269,7 @@ test.describe('Daemons — positive / negative', () => {
 
         const list_res = await page.request.post('/v1/daemons/get', {
             headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            data: {},
+            data: { org_id },
         });
         expect(list_res.ok()).toBe(true);
         const list = await list_res.json();
