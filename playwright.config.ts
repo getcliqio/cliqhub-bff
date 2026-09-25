@@ -62,6 +62,8 @@ const backend_env = load_dotenv(
         DATABASE_URL,
         ALLOWED_ORIGINS: `${APP_URL},${BFF_URL},http://localhost:3000,http://localhost:3001,http://localhost:3010`,
         NODE_ENV: 'development',
+        // E2E fixtures use stable ids; remint races with concurrent boots.
+        CLIQHUB_SKIP_UUID_REMINT: '1',
     },
 );
 
