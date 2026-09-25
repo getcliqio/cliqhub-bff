@@ -147,6 +147,16 @@ export function labeled_input(page: Page, label: string) {
     return page.locator(`xpath=//label[normalize-space()=${JSON.stringify(label)}]/following-sibling::input[1]`);
 }
 
+/** Current user's first org UUID (body org_id for realms/create). */
+export async function api_current_org_id(page: Page): Promise<string> {
+    const listed = await expect_api_ok(await api_post(page, '/v1/orgs/get', { mine: true }));
+    const data = (listed.data ?? listed) as { orgs?: Array<{ id?: string | number }> };
+    const orgs = data.orgs ?? [];
+    expect(orgs.length, `expected at least one org: ${JSON.stringify(listed)}`).toBeGreaterThan(0);
+    expect(orgs[0]?.id, `org id missing: ${JSON.stringify(listed)}`).toBeTruthy();
+    return String(orgs[0]!.id);
+}
+
 /** Create a realm via API; returns id/slug/org_slug/name. */
 export async function api_create_realm(
     page: Page,
@@ -155,7 +165,12 @@ export async function api_create_realm(
 ): Promise<Realm_ref> {
     const slug = unique_slug(prefix);
     const name = `${name_prefix} ${slug}`;
-    const created = await expect_api_ok(await api_post(page, '/v1/realms/create', { slug, name }));
+    const org_id = await api_current_org_id(page);
+    const created = await expect_api_ok(await api_post(page, '/v1/realms/create', {
+        org_id,
+        slug,
+        name,
+    }));
     const realm = (created.realm ?? created.data) as Partial<Realm_ref> | undefined;
     expect(realm?.id, `realm id missing: ${JSON.stringify(created)}`).toBeTruthy();
     expect(realm?.slug, `realm slug missing: ${JSON.stringify(created)}`).toBeTruthy();
@@ -189,13 +204,31 @@ export function new_tx_id(): string {
     return randomUUID();
 }
 
+/** Wait until OrgProvider has hydrated `cliqhub_current_org_id` (body org_id SoT). */
+export async function wait_for_active_org(page: Page): Promise<void> {
+    await page.waitForFunction(
+        () => {
+            try {
+                const id = globalThis.localStorage?.getItem('cliqhub_current_org_id');
+                return Boolean(id && id.length > 0);
+            } catch {
+                return false;
+            }
+        },
+        { timeout: 15_000 },
+    );
+}
+
 /** Open the create-realm wizard from /realms. */
 export async function open_create_realm(page: Page): Promise<void> {
     await page.goto('/realms');
     await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible({ timeout: 10_000 });
+    await wait_for_active_org(page);
     await page.getByRole('button', { name: /^create realm$/i }).click();
     await expect(page.getByRole('heading', { name: 'Create realm' })).toBeVisible({ timeout: 5_000 });
     await expect(page).toHaveURL(/create=1/);
+    // Create is disabled until current_id is set.
+    await expect(page.getByRole('button', { name: /^create & continue$/i })).toBeEnabled({ timeout: 10_000 });
 }
 
 /**
@@ -209,6 +242,7 @@ export async function submit_create_realm(
 ): Promise<void> {
     await page.getByPlaceholder('prod-west').fill(slug);
     await page.getByPlaceholder('Prod West').fill(name);
+    await expect(page.getByRole('button', { name: /^create & continue$/i })).toBeEnabled({ timeout: 10_000 });
     await page.getByRole('button', { name: /^create & continue$/i }).click();
 
     await expect(page.getByRole('button', { name: /^skip$/i })).toBeVisible({ timeout: 10_000 });

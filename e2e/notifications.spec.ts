@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import {
+	api_current_org_id,
 	api_login,
 	api_post,
 	expect_api_ok,
@@ -14,7 +15,9 @@ test.describe('In-app notifications — positive', () => {
 		await api_login(page, TEST_USER.username, TEST_USER.password);
 
 		const slug = unique_slug('e2e-notif');
+		const org_id = await api_current_org_id(page);
 		const created = await expect_api_ok(await api_post(page, '/v1/realms/create', {
+			org_id,
 			slug,
 			name: `Notif ${slug}`,
 		}));

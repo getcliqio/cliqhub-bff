@@ -182,6 +182,7 @@ test.describe('Realms — negative', () => {
         await open_create_realm(page);
         await page.getByPlaceholder('prod-west').fill(slug);
         await page.getByPlaceholder('Prod West').fill(`First ${slug}`);
+        await expect(page.getByRole('button', { name: /^create & continue$/i })).toBeEnabled({ timeout: 10_000 });
         await page.getByRole('button', { name: /^create & continue$/i }).click();
         await expect(page.getByRole('button', { name: /^skip$/i })).toBeVisible({ timeout: 10_000 });
         await page.getByRole('button', { name: 'Close wizard' }).click();
@@ -189,6 +190,7 @@ test.describe('Realms — negative', () => {
         await open_create_realm(page);
         await page.getByPlaceholder('prod-west').fill(slug);
         await page.getByPlaceholder('Prod West').fill(`Second ${slug}`);
+        await expect(page.getByRole('button', { name: /^create & continue$/i })).toBeEnabled({ timeout: 10_000 });
         await page.getByRole('button', { name: /^create & continue$/i }).click();
         await expect_alert(page, /already exists/i);
     });
