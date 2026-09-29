@@ -30,8 +30,6 @@ export const CONTROL_PLANE_PASSTHROUGH_PATHS: readonly string[] = [
 	'/v1/teams/uninstall',
 	'/v1/auth/get_dispatch_public_key',
 	'/v1/auth/rotate_dispatch_key',
-	'/v1/auth/validate_token',
-	'/v1/users/get_by_id',
 	'/v1/control/scopes/get',
 	'/v1/control/scopes/get_by_id',
 	'/v1/control/scopes/get_by_slug',

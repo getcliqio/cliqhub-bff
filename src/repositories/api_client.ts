@@ -7,7 +7,35 @@ const log = get_logger('api-client');
 export interface ApiEnvelope<T = unknown> {
     ok: boolean;
     data?: T;
-    error?: { code: string; message: string };
+    /**
+     * Two shapes supported (Hub is inconsistent):
+     *   1. Nested:  { error: { code, message } }              — BFF-owned Hub routes
+     *   2. Flat:    { error: "<message string>", code?: "…" } — Hub Core control_plane_error_handler
+     */
+    error?: { code: string; message: string } | string;
+    code?: string;
+    message?: string;
+}
+
+/**
+ * Extract `{code, message, status}` from either error envelope shape.
+ * Without this, flat envelopes (Hub Core /v1/* services) surface as generic
+ * "unknown / Backend request failed" and swallow real error messages —
+ * e.g. `HUB_PUBLISH_FAILED: Backend request failed` instead of the actual
+ * conflict / auth message from the upstream service.
+ */
+function extract_error(envelope: ApiEnvelope): { code: string; message: string; status: number } {
+    const raw = envelope.error;
+    const nested = (typeof raw === 'object' && raw !== null) ? raw : null;
+
+    const code = nested?.code
+        ?? (typeof envelope.code === 'string' ? envelope.code : 'unknown');
+
+    const message = nested?.message
+        ?? (typeof raw === 'string' ? raw : null)
+        ?? (typeof envelope.message === 'string' ? envelope.message : 'Backend request failed');
+
+    return { code, message, status: status_for_code(code) };
 }
 
 export class ApiClient {
@@ -21,9 +49,8 @@ export class ApiClient {
         const envelope = await this._fetch('POST', path, body, token);
 
         if (!envelope.ok) {
-            const code = envelope.error?.code ?? 'unknown';
-            const message = envelope.error?.message ?? 'Backend request failed';
-            throw new ApiError(code, message, status_for_code(code));
+            const { code, message, status } = extract_error(envelope);
+            throw new ApiError(code, message, status);
         }
 
         return envelope.data as T;
@@ -33,9 +60,8 @@ export class ApiClient {
         const envelope = await this._fetch('GET', path, undefined, token);
 
         if (!envelope.ok) {
-            const code = envelope.error?.code ?? 'unknown';
-            const message = envelope.error?.message ?? 'Backend request failed';
-            throw new ApiError(code, message, status_for_code(code));
+            const { code, message, status } = extract_error(envelope);
+            throw new ApiError(code, message, status);
         }
 
         return envelope.data as T;
@@ -118,13 +144,14 @@ export class ApiClient {
         }
 
         if (!data.ok || res.status >= 400) {
+            const { code, message } = extract_error(data);
             log.warn('upstream_error', {
                 request_id: request_id ?? null,
                 method,
                 path,
                 status: res.status,
-                code: data.error?.code ?? null,
-                error: data.error?.message ?? null,
+                code,
+                error: message,
                 duration_ms: Date.now() - started_at,
             });
         }
