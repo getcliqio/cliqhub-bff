@@ -1,5 +1,5 @@
 import type { ApiClient } from './api_client.js';
-import type { AuditLogResponseVO, AdminUserListResponseVO, AdminUserDetailVO, AdminCreateUserResponseVO, AdminUpdateUserResponseVO, AdminSuspendUserResponseVO, AdminDeleteUserResponseVO, AdminSetUserRoleResponseVO, AdminResetUserPasswordResponseVO, AdminTeamListResponseVO, AdminSetTeamListedResponseVO, AdminScopeListResponseVO, AdminCreateScopeResponseVO, AdminUpdateScopeResponseVO, AdminDeleteScopeResponseVO, AdminOrgListResponseVO, AdminCreateOrgResponseVO, AdminDeleteOrgResponseVO } from '../types/vo.js';
+import type { AuditLogResponseVO, AdminUserListResponseVO, AdminUserDetailVO, AdminCreateUserResponseVO, AdminUpdateUserResponseVO, AdminSuspendUserResponseVO, AdminDeleteUserResponseVO, AdminSetUserRoleResponseVO, AdminResetUserPasswordResponseVO, AdminTeamListResponseVO, AdminSetTeamListedResponseVO, AdminOrgListResponseVO, AdminCreateOrgResponseVO, AdminDeleteOrgResponseVO } from '../types/vo.js';
 
 export class AdminRepository {
     private _client: ApiClient;
@@ -84,54 +84,18 @@ export class AdminRepository {
         );
     }
 
-    async get_scopes(
-        params: { mine?: boolean; search?: string; query?: string; limit?: number; offset?: number },
-        token: string,
-    ): Promise<AdminScopeListResponseVO> {
-        return this._client.post<AdminScopeListResponseVO>('/v1/scopes/get', params, token);
-    }
-
-    async new_scope(
-        params: {
-            slug: string;
-            display_name?: string;
-            owner_username?: string;
-            visibility?: string;
-            scope_type?: string;
-            org_slug?: string;
-            org_id?: string;
-        },
-        token: string,
-    ): Promise<AdminCreateScopeResponseVO> {
-        return this._client.post<AdminCreateScopeResponseVO>('/v1/scopes/new', params, token);
-    }
-
-    async update_scope(
-        params: { scope_id: string; visibility?: string; display_name?: string; owner_id?: string },
-        token: string,
-    ): Promise<AdminUpdateScopeResponseVO> {
-        return this._client.post<AdminUpdateScopeResponseVO>('/v1/scopes/update', params, token);
-    }
-
-    async delete_scope(
-        params: { scope_id: string },
-        token: string,
-    ): Promise<AdminDeleteScopeResponseVO> {
-        return this._client.post<AdminDeleteScopeResponseVO>('/v1/scopes/delete', params, token);
-    }
-
-    async add_scope_user(
-        params: { scope_id: string; user_id: string },
+    async assign_scope_member(
+        params: { org_id: string; scope_id: string; user_id: string },
         token: string,
     ): Promise<{ assigned: boolean }> {
-        return this._client.post<{ assigned: boolean }>('/v1/scopes/add_user', params, token);
+        return this._client.post<{ assigned: boolean }>('/v1/orgs/assign_scope_member', params, token);
     }
 
-    async remove_scope_user(
-        params: { scope_id: string; user_id: string },
+    async unassign_scope_member(
+        params: { org_id: string; scope_id: string; user_id: string },
         token: string,
     ): Promise<{ removed: boolean }> {
-        return this._client.post<{ removed: boolean }>('/v1/scopes/remove_user', params, token);
+        return this._client.post<{ removed: boolean }>('/v1/orgs/unassign_scope_member', params, token);
     }
 
     async get_orgs(

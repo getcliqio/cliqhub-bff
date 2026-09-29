@@ -14,8 +14,7 @@ import {
     to_org_update_response_dto, to_org_leave_response_dto,
     to_org_add_member_response_dto, to_org_remove_member_response_dto,
     to_users_update_role_response_dto, to_org_delete_role_response_dto,
-    to_org_create_scope_response_dto, to_org_delete_scope_response_dto,
-    to_org_assign_scope_member_response_dto, to_org_unassign_scope_member_response_dto,
+    to_org_create_scope_response_dto, to_org_delete_scope_response_dto,    to_org_assign_scope_member_response_dto, to_org_unassign_scope_member_response_dto,
     to_update_profile_response_dto, to_change_password_response_dto,
         to_audit_log_response_dto,
     to_draft_list_response_dto, to_draft_save_response_dto, to_draft_delete_response_dto,
@@ -27,10 +26,6 @@ import {
     to_admin_reset_user_password_response_dto,
     to_admin_team_list_response_dto,
     to_admin_set_team_listed_response_dto,
-    to_admin_scope_list_response_dto,
-    to_admin_create_scope_response_dto,
-    to_admin_update_scope_response_dto,
-    to_admin_delete_scope_response_dto,
     to_admin_org_list_response_dto,
     to_admin_create_org_response_dto,
     to_admin_delete_org_response_dto,
@@ -693,45 +688,6 @@ describe('to_admin_set_team_listed_response_dto', () => {
     it('maps listed false', () => {
         const dto = to_admin_set_team_listed_response_dto({ listed: false });
         expect(dto).toEqual({ listed: false });
-    });
-});
-
-describe('to_admin_scope_list_response_dto', () => {
-    it('maps scopes and pagination', () => {
-        const dto = to_admin_scope_list_response_dto({
-            scopes: [{ id: 1, slug: 'alice', display_name: 'Alice', owner_id: 1, owner_username: 'alice', visibility: 'public', scope_type: 'user', team_count: 3, created_at: '2025-01-01' }],
-            total: 1, limit: 20, offset: 0,
-        });
-        expect(dto.scopes).toHaveLength(1);
-        expect(dto.scopes[0].slug).toBe('alice');
-        expect(dto.total).toBe(1);
-        expect(dto.limit).toBe(20);
-    });
-
-    it('handles empty scopes', () => {
-        const dto = to_admin_scope_list_response_dto({ scopes: [], total: 0, limit: 20, offset: 0 });
-        expect(dto.scopes).toHaveLength(0);
-    });
-});
-
-describe('to_admin_create_scope_response_dto', () => {
-    it('maps id and slug', () => {
-        const dto = to_admin_create_scope_response_dto({ id: 10, slug: 'newscope' });
-        expect(dto).toEqual({ id: 10, slug: 'newscope' });
-    });
-});
-
-describe('to_admin_update_scope_response_dto', () => {
-    it('maps updated flag', () => {
-        const dto = to_admin_update_scope_response_dto({ updated: true });
-        expect(dto).toEqual({ updated: true });
-    });
-});
-
-describe('to_admin_delete_scope_response_dto', () => {
-    it('maps deleted flag', () => {
-        const dto = to_admin_delete_scope_response_dto({ deleted: true });
-        expect(dto).toEqual({ deleted: true });
     });
 });
 

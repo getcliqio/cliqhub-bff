@@ -15,10 +15,6 @@ describe('AdminService', () => {
         reset_user_password: vi.fn(),
         get_teams: vi.fn(),
         set_team_listed: vi.fn(),
-        get_scopes: vi.fn(),
-        new_scope: vi.fn(),
-        update_scope: vi.fn(),
-        delete_scope: vi.fn(),
         get_orgs: vi.fn(),
         new_org: vi.fn(),
         delete_org: vi.fn(),
@@ -170,52 +166,6 @@ describe('AdminService', () => {
             const dto = await service.set_team_listed({ team_id: 1, listed: true }, 'jwt');
 
             expect(dto.listed).toBe(true);
-        });
-    });
-
-    describe('get_scopes', () => {
-        it('returns mapped scope list', async () => {
-            mock_repo.get_scopes.mockResolvedValue({
-                scopes: [{ id: 1, slug: 'alice', display_name: 'Alice', owner_id: 1, owner_username: 'alice', visibility: 'public', scope_type: 'user', team_count: 3, created_at: '2025-01-01' }],
-                total: 1, limit: 20, offset: 0,
-            });
-
-            const dto = await service.get_scopes({ limit: 20, offset: 0 }, 'jwt');
-
-            expect(dto.scopes).toHaveLength(1);
-            expect(dto.total).toBe(1);
-        });
-    });
-
-    describe('new_scope', () => {
-        it('returns mapped created scope', async () => {
-            mock_repo.new_scope.mockResolvedValue({ id: 10, slug: 'newscope' });
-
-            const dto = await service.new_scope(
-                { slug: 'newscope', owner_id: 1, visibility: 'public', scope_type: 'user' }, 'jwt',
-            );
-
-            expect(dto.slug).toBe('newscope');
-        });
-    });
-
-    describe('update_scope', () => {
-        it('returns mapped update result', async () => {
-            mock_repo.update_scope.mockResolvedValue({ updated: true });
-
-            const dto = await service.update_scope({ scope_id: 1, visibility: 'private' }, 'jwt');
-
-            expect(dto.updated).toBe(true);
-        });
-    });
-
-    describe('delete_scope', () => {
-        it('returns mapped delete result', async () => {
-            mock_repo.delete_scope.mockResolvedValue({ deleted: true });
-
-            const dto = await service.delete_scope({ scope_id: 1 }, 'jwt');
-
-            expect(dto.deleted).toBe(true);
         });
     });
 

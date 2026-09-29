@@ -339,12 +339,6 @@ export function create_app(container: Container): express.Express {
     app.post('/v1/users/delete', admin_controller.delete_user);
     app.post('/v1/users/set_role', admin_controller.set_user_role);
     app.post('/v1/users/reset_password', admin_controller.reset_user_password);
-    app.post('/v1/scopes/get', admin_controller.get_scopes);
-    app.post('/v1/scopes/new', admin_controller.new_scope);
-    app.post('/v1/scopes/update', admin_controller.update_scope);
-    app.post('/v1/scopes/delete', admin_controller.delete_scope);
-    app.post('/v1/scopes/add_user', admin_controller.add_scope_user);
-    app.post('/v1/scopes/remove_user', admin_controller.remove_scope_user);
 
     // Unknown /v1/* must return JSON — never fall through to the SPA HTML shell
     // (that produces "Unexpected token '<'" when the UI calls res.json()).

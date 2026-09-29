@@ -565,38 +565,6 @@ export interface AdminSetTeamListedResponseVO {
     listed: boolean;
 }
 
-export interface AdminScopeListItemVO {
-    id: number;
-    slug: string;
-    display_name: string;
-    owner_id: string;
-    owner_username: string;
-    visibility: string;
-    scope_type: string;
-    team_count: number;
-    created_at: string;
-}
-
-export interface AdminScopeListResponseVO {
-    scopes: AdminScopeListItemVO[];
-    total: number;
-    limit: number;
-    offset: number;
-}
-
-export interface AdminCreateScopeResponseVO {
-    id: number;
-    slug: string;
-}
-
-export interface AdminUpdateScopeResponseVO {
-    updated: boolean;
-}
-
-export interface AdminDeleteScopeResponseVO {
-    deleted: boolean;
-}
-
 export interface AdminOrgListItemVO {
     id: number;
     slug: string;

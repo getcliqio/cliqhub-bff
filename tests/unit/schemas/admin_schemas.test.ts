@@ -8,10 +8,7 @@ import {
     admin_delete_user_schema, admin_set_user_role_schema,
     admin_reset_user_password_schema,
     admin_get_teams_schema, admin_set_team_listed_schema,
-    admin_get_scopes_schema, admin_new_scope_schema,
-    admin_update_scope_schema, admin_delete_scope_schema,
-    admin_get_orgs_schema, admin_new_org_schema,
-    admin_delete_org_schema,
+    admin_get_orgs_schema, admin_new_org_schema, admin_delete_org_schema,
 } from '../../../src/schemas/admin_schemas.js';
 
 describe('admin_audit_schema', () => {
@@ -280,94 +277,6 @@ describe('admin_set_team_listed_schema', () => {
 
     it('rejects non-boolean listed', () => {
         expect(admin_set_team_listed_schema.safeParse({ team_id: hub_legacy_uuid(1), listed: 'yes' }).success).toBe(false);
-    });
-});
-
-describe('admin_get_scopes_schema', () => {
-    it('accepts empty object', () => {
-        expect(admin_get_scopes_schema.safeParse({}).success).toBe(true);
-    });
-
-    it('accepts with search', () => {
-        expect(admin_get_scopes_schema.safeParse({ search: 'alice', limit: 20, offset: 0 }).success).toBe(true);
-    });
-
-    it('rejects limit over 100', () => {
-        expect(admin_get_scopes_schema.safeParse({ limit: 101 }).success).toBe(false);
-    });
-});
-
-describe('admin_new_scope_schema', () => {
-    it('accepts valid input', () => {
-        expect(admin_new_scope_schema.safeParse({
-            slug: 'newscope', owner_username: 'alice', visibility: 'public', scope_type: 'user',
-        }).success).toBe(true);
-    });
-
-    it('rejects missing slug', () => {
-        expect(admin_new_scope_schema.safeParse({
-            owner_username: 'alice', visibility: 'public', scope_type: 'user',
-        }).success).toBe(false);
-    });
-
-    it('rejects invalid slug', () => {
-        expect(admin_new_scope_schema.safeParse({
-            slug: '123abc', owner_username: 'alice', visibility: 'public', scope_type: 'user',
-        }).success).toBe(false);
-    });
-
-    it('accepts missing owner_username', () => {
-        expect(admin_new_scope_schema.safeParse({
-            slug: 'newscope', visibility: 'public', scope_type: 'user',
-        }).success).toBe(true);
-    });
-
-    it('accepts missing visibility', () => {
-        expect(admin_new_scope_schema.safeParse({
-            slug: 'newscope', owner_username: 'alice', scope_type: 'user',
-        }).success).toBe(true);
-    });
-
-    it('rejects invalid scope_type', () => {
-        expect(admin_new_scope_schema.safeParse({
-            slug: 'newscope', owner_username: 'alice', visibility: 'public', scope_type: 'invalid',
-        }).success).toBe(false);
-    });
-});
-
-describe('admin_update_scope_schema', () => {
-    it('accepts scope_id + visibility', () => {
-        expect(admin_update_scope_schema.safeParse({
-            scope_id: hub_legacy_uuid(1), visibility: 'private',
-        }).success).toBe(true);
-    });
-
-    it('accepts scope_id + display_name', () => {
-        expect(admin_update_scope_schema.safeParse({
-            scope_id: hub_legacy_uuid(1), display_name: 'New Name',
-        }).success).toBe(true);
-    });
-
-    it('rejects missing scope_id', () => {
-        expect(admin_update_scope_schema.safeParse({
-            visibility: 'private',
-        }).success).toBe(false);
-    });
-
-    it('rejects empty display_name', () => {
-        expect(admin_update_scope_schema.safeParse({
-            scope_id: hub_legacy_uuid(1), display_name: '',
-        }).success).toBe(false);
-    });
-});
-
-describe('admin_delete_scope_schema', () => {
-    it('accepts valid scope_id', () => {
-        expect(admin_delete_scope_schema.safeParse({ scope_id: hub_legacy_uuid(1) }).success).toBe(true);
-    });
-
-    it('rejects missing scope_id', () => {
-        expect(admin_delete_scope_schema.safeParse({}).success).toBe(false);
     });
 });
 

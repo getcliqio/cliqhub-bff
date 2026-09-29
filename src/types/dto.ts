@@ -523,38 +523,6 @@ export interface AdminSetTeamListedResponseDTO {
     listed: boolean;
 }
 
-export interface AdminScopeListItemDTO {
-    id: number;
-    slug: string;
-    display_name: string;
-    owner_id: string;
-    owner_username: string;
-    visibility: string;
-    scope_type: string;
-    team_count: number;
-    created_at: string;
-}
-
-export interface AdminScopeListResponseDTO {
-    scopes: AdminScopeListItemDTO[];
-    total: number;
-    limit: number;
-    offset: number;
-}
-
-export interface AdminCreateScopeResponseDTO {
-    id: number;
-    slug: string;
-}
-
-export interface AdminUpdateScopeResponseDTO {
-    updated: boolean;
-}
-
-export interface AdminDeleteScopeResponseDTO {
-    deleted: boolean;
-}
-
 export interface AdminOrgListItemDTO {
     id: number;
     slug: string;

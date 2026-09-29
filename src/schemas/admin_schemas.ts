@@ -86,40 +86,6 @@ export const admin_set_team_listed_schema = z.object({
     listed: z.boolean(),
 });
 
-export const admin_get_scopes_schema = z.object({
-    mine: z.boolean().optional(),
-    search: z.string().optional(),
-    query: z.string().optional(),
-    limit: z.number().int().min(1).max(100).optional(),
-    offset: z.number().int().min(0).optional(),
-});
-
-export const admin_new_scope_schema = z.object({
-    slug: z.string().min(1, 'slug is required').regex(/^[a-z][a-z0-9-]*$/, 'Slug must start with a letter and contain only lowercase letters, numbers, and hyphens'),
-    display_name: z.string().optional(),
-    owner_username: z.string().min(1).optional(),
-    visibility: z.enum(['public', 'private']).optional(),
-    scope_type: z.enum(['user', 'org']).optional(),
-    org_slug: z.string().optional(),
-    org_id: z.string().uuid().optional(),
-});
-
-export const admin_update_scope_schema = z.object({
-    scope_id: z.string().uuid(),
-    visibility: z.enum(['public', 'private']).optional(),
-    display_name: z.string().min(1).optional(),
-    owner_id: z.string().uuid().optional(),
-});
-
-export const admin_delete_scope_schema = z.object({
-    scope_id: z.string().uuid(),
-});
-
-export const admin_scopes_user_schema = z.object({
-    scope_id: z.string().uuid(),
-    user_id: z.string().uuid(),
-});
-
 export const admin_get_orgs_schema = z.object({
     search: z.string().optional(),
     query: z.string().optional(),

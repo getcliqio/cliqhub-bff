@@ -1,6 +1,6 @@
 import type { AdminRepository } from '../repositories/admin_repository.js';
-import type { AuditLogResponseDTO, AdminUserListResponseDTO, AdminUserDetailDTO, AdminCreateUserResponseDTO, AdminUpdateUserResponseDTO, AdminSuspendUserResponseDTO, AdminDeleteUserResponseDTO, AdminSetUserRoleResponseDTO, AdminResetUserPasswordResponseDTO, AdminTeamListResponseDTO, AdminSetTeamListedResponseDTO, AdminScopeListResponseDTO, AdminCreateScopeResponseDTO, AdminUpdateScopeResponseDTO, AdminDeleteScopeResponseDTO, AdminOrgListResponseDTO, AdminCreateOrgResponseDTO, AdminDeleteOrgResponseDTO } from '../types/dto.js';
-import { to_audit_log_response_dto, to_admin_user_list_response_dto, to_admin_user_detail_dto, to_admin_create_user_response_dto, to_admin_update_user_response_dto, to_admin_suspend_user_response_dto, to_admin_delete_user_response_dto, to_admin_set_user_role_response_dto, to_admin_reset_user_password_response_dto, to_admin_team_list_response_dto, to_admin_set_team_listed_response_dto, to_admin_scope_list_response_dto, to_admin_create_scope_response_dto, to_admin_update_scope_response_dto, to_admin_delete_scope_response_dto, to_admin_org_list_response_dto, to_admin_create_org_response_dto, to_admin_delete_org_response_dto } from '../types/mappers.js';
+import type { AuditLogResponseDTO, AdminUserListResponseDTO, AdminUserDetailDTO, AdminCreateUserResponseDTO, AdminUpdateUserResponseDTO, AdminSuspendUserResponseDTO, AdminDeleteUserResponseDTO, AdminSetUserRoleResponseDTO, AdminResetUserPasswordResponseDTO, AdminTeamListResponseDTO, AdminSetTeamListedResponseDTO, AdminOrgListResponseDTO, AdminCreateOrgResponseDTO, AdminDeleteOrgResponseDTO } from '../types/dto.js';
+import { to_audit_log_response_dto, to_admin_user_list_response_dto, to_admin_user_detail_dto, to_admin_create_user_response_dto, to_admin_update_user_response_dto, to_admin_suspend_user_response_dto, to_admin_delete_user_response_dto, to_admin_set_user_role_response_dto, to_admin_reset_user_password_response_dto, to_admin_team_list_response_dto, to_admin_set_team_listed_response_dto, to_admin_org_list_response_dto, to_admin_create_org_response_dto, to_admin_delete_org_response_dto } from '../types/mappers.js';
 
 export class AdminService {
     private _repo: AdminRepository;
@@ -88,60 +88,6 @@ export class AdminService {
     ): Promise<AdminSetTeamListedResponseDTO> {
         const vo = await this._repo.set_team_listed(params, token);
         return to_admin_set_team_listed_response_dto(vo);
-    }
-
-    async get_scopes(
-        params: { mine?: boolean; search?: string; query?: string; limit?: number; offset?: number },
-        token: string,
-    ): Promise<AdminScopeListResponseDTO> {
-        const vo = await this._repo.get_scopes(params, token);
-        return to_admin_scope_list_response_dto(vo);
-    }
-
-    async new_scope(
-        params: {
-            slug: string;
-            display_name?: string;
-            owner_username?: string;
-            visibility?: string;
-            scope_type?: string;
-            org_slug?: string;
-            org_id?: string;
-        },
-        token: string,
-    ): Promise<AdminCreateScopeResponseDTO> {
-        const vo = await this._repo.new_scope(params, token);
-        return to_admin_create_scope_response_dto(vo);
-    }
-
-    async update_scope(
-        params: { scope_id: string; visibility?: string; display_name?: string; owner_id?: string },
-        token: string,
-    ): Promise<AdminUpdateScopeResponseDTO> {
-        const vo = await this._repo.update_scope(params, token);
-        return to_admin_update_scope_response_dto(vo);
-    }
-
-    async delete_scope(
-        params: { scope_id: string },
-        token: string,
-    ): Promise<AdminDeleteScopeResponseDTO> {
-        const vo = await this._repo.delete_scope(params, token);
-        return to_admin_delete_scope_response_dto(vo);
-    }
-
-    async add_scope_user(
-        params: { scope_id: string; user_id: string },
-        token: string,
-    ): Promise<{ assigned: boolean }> {
-        return this._repo.add_scope_user(params, token);
-    }
-
-    async remove_scope_user(
-        params: { scope_id: string; user_id: string },
-        token: string,
-    ): Promise<{ removed: boolean }> {
-        return this._repo.remove_scope_user(params, token);
     }
 
     async get_orgs(

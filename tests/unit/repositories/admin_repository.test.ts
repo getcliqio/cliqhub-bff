@@ -200,65 +200,6 @@ describe('AdminRepository', () => {
         });
     });
 
-    describe('get_scopes', () => {
-        it('calls POST hub scopes with params and token', async () => {
-            mock_client.post.mockResolvedValue({
-                scopes: [{ id: 1, slug: 'alice', display_name: 'Alice', owner_id: 1, owner_username: 'alice', visibility: 'public', scope_type: 'user', team_count: 3, created_at: '2025-01-01' }],
-                total: 1, limit: 20, offset: 0,
-            });
-
-            const result = await repo.get_scopes({ limit: 20, offset: 0 }, 'jwt-abc');
-
-            expect(mock_client.post).toHaveBeenCalledWith(
-                '/v1/scopes/get', { limit: 20, offset: 0 }, 'jwt-abc',
-            );
-            expect(result.scopes).toHaveLength(1);
-        });
-    });
-
-    describe('new_scope', () => {
-        it('calls POST hub scopes/new with params and token', async () => {
-            mock_client.post.mockResolvedValue({ id: 10, slug: 'newscope' });
-
-            const result = await repo.new_scope(
-                { slug: 'newscope', owner_username: 'alice', visibility: 'public', scope_type: 'user' }, 'jwt-abc',
-            );
-
-            expect(mock_client.post).toHaveBeenCalledWith(
-                '/v1/scopes/new',
-                { slug: 'newscope', owner_username: 'alice', visibility: 'public', scope_type: 'user' },
-                'jwt-abc',
-            );
-            expect(result.slug).toBe('newscope');
-        });
-    });
-
-    describe('update_scope', () => {
-        it('calls POST hub scopes/update with params and token', async () => {
-            mock_client.post.mockResolvedValue({ updated: true });
-
-            const result = await repo.update_scope({ scope_id: 1, visibility: 'private' }, 'jwt-abc');
-
-            expect(mock_client.post).toHaveBeenCalledWith(
-                '/v1/scopes/update', { scope_id: 1, visibility: 'private' }, 'jwt-abc',
-            );
-            expect(result.updated).toBe(true);
-        });
-    });
-
-    describe('delete_scope', () => {
-        it('calls POST hub scopes/delete with params and token', async () => {
-            mock_client.post.mockResolvedValue({ deleted: true });
-
-            const result = await repo.delete_scope({ scope_id: 1 }, 'jwt-abc');
-
-            expect(mock_client.post).toHaveBeenCalledWith(
-                '/v1/scopes/delete', { scope_id: 1 }, 'jwt-abc',
-            );
-            expect(result.deleted).toBe(true);
-        });
-    });
-
     describe('get_orgs', () => {
         it('calls POST hub orgs with params and token', async () => {
             mock_client.post.mockResolvedValue({
