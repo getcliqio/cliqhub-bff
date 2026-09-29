@@ -405,7 +405,7 @@ describe('to_builder_chat_response_dto', () => {
 describe('to_org_list_item_dto', () => {
     it('maps all fields', () => {
         const dto = to_org_list_item_dto({
-            id: 1, slug: 'acme', display_name: 'Acme',
+            id: 'org-uuid-1', slug: 'acme', display_name: 'Acme',
             role: 'admin', member_count: 3, scope_count: 2,
         });
         expect(dto.slug).toBe('acme');
@@ -416,7 +416,7 @@ describe('to_org_list_item_dto', () => {
 describe('to_org_list_response_dto', () => {
     it('maps list of orgs', () => {
         const dto = to_org_list_response_dto({
-            orgs: [{ id: 1, slug: 'acme', display_name: 'Acme', role: 'admin', member_count: 3, scope_count: 2 }],
+            orgs: [{ id: 'org-uuid-1', slug: 'acme', display_name: 'Acme', role: 'admin', member_count: 3, scope_count: 2 }],
         });
         expect(dto.orgs).toHaveLength(1);
     });
@@ -425,12 +425,12 @@ describe('to_org_list_response_dto', () => {
 describe('to_org_detail_dto', () => {
     it('maps org detail with members, scopes, roles, and available_permissions', () => {
         const dto = to_org_detail_dto({
-            id: 1, slug: 'acme', display_name: 'Acme',
+            id: 'org-uuid-1', slug: 'acme', display_name: 'Acme',
             created_at: '2025-01-01', my_role: 'admin',
-            members: [{ user_id: 1, username: 'alice', display_name: 'Alice', role: 'admin', role_id: 2 }],
-            scopes: [{ id: 10, slug: 'acme', display_name: 'Acme', visibility: 'public', member_count: 1, team_count: 0 }],
+            members: [{ user_id: 'user-uuid-1', username: 'alice', display_name: 'Alice', role: 'admin', role_id: 'role-uuid-2' }],
+            scopes: [{ id: 'scope-uuid-10', slug: 'acme', display_name: 'Acme', visibility: 'public', member_count: 1, team_count: 0 }],
             roles: [{
-                id: 2, org_id: 1, slug: 'admin', name: 'Admin',
+                id: 'role-uuid-2', org_id: 'org-uuid-1', slug: 'admin', name: 'Admin',
                 permissions: ['org.settings'], is_system: false, is_default: true, member_count: 1,
             }],
             available_permissions: ['org.settings', 'org.members.manage'],
@@ -438,7 +438,7 @@ describe('to_org_detail_dto', () => {
         expect(dto.my_role).toBe('admin');
         expect(dto.members).toHaveLength(1);
         expect(dto.members[0].username).toBe('alice');
-        expect(dto.members[0].role_id).toBe(2);
+        expect(dto.members[0].role_id).toBe('role-uuid-2');
         expect(dto.scopes).toHaveLength(1);
         expect(dto.roles).toHaveLength(1);
         expect(dto.available_permissions).toEqual(['org.settings', 'org.members.manage']);
@@ -461,8 +461,8 @@ describe('to_org_leave_response_dto', () => {
 
 describe('to_org_add_member_response_dto', () => {
     it('maps user_id, username, and role', () => {
-        const dto = to_org_add_member_response_dto({ user_id: 3, username: 'bob', role: 'member' });
-        expect(dto).toEqual({ user_id: 3, username: 'bob', role: 'member' });
+        const dto = to_org_add_member_response_dto({ user_id: 'user-uuid-3', username: 'bob', role: 'member' });
+        expect(dto).toEqual({ user_id: 'user-uuid-3', username: 'bob', role: 'member' });
     });
 });
 
@@ -476,10 +476,10 @@ describe('to_org_remove_member_response_dto', () => {
 describe('to_users_update_role_response_dto', () => {
     it('maps user role assignment fields', () => {
         const dto = to_users_update_role_response_dto({
-            user_id: 3, org_id: 1, role_id: 2, role_slug: 'admin', role: 'admin',
+            user_id: 'user-uuid-3', org_id: 'org-uuid-1', role_id: 'role-uuid-2', role_slug: 'admin', role: 'admin',
         });
         expect(dto).toEqual({
-            user_id: 3, org_id: 1, role_id: 2, role_slug: 'admin', role: 'admin',
+            user_id: 'user-uuid-3', org_id: 'org-uuid-1', role_id: 'role-uuid-2', role_slug: 'admin', role: 'admin',
         });
     });
 });
@@ -493,8 +493,8 @@ describe('to_org_delete_role_response_dto', () => {
 
 describe('to_org_create_scope_response_dto', () => {
     it('maps id and slug', () => {
-        const dto = to_org_create_scope_response_dto({ id: 20, slug: 'acme-labs' });
-        expect(dto).toEqual({ id: 20, slug: 'acme-labs' });
+        const dto = to_org_create_scope_response_dto({ id: 'scope-uuid-20', slug: 'acme-labs' });
+        expect(dto).toEqual({ id: 'scope-uuid-20', slug: 'acme-labs' });
     });
 });
 

@@ -14,6 +14,8 @@ import type {
     OrgDeleteScopeResponseDTO,
     OrgAssignScopeMemberResponseDTO,
     OrgUnassignScopeMemberResponseDTO,
+    OrgUpdateScopeResponseDTO,
+    OrgGetScopesResponseDTO,
 } from '../types/dto.js';
 import {
     to_org_list_response_dto,
@@ -30,6 +32,8 @@ import {
     to_org_delete_scope_response_dto,
     to_org_assign_scope_member_response_dto,
     to_org_unassign_scope_member_response_dto,
+    to_org_update_scope_response_dto,
+    to_org_get_scopes_response_dto,
 } from '../types/mappers.js';
 
 export class OrgsService {
@@ -157,5 +161,21 @@ export class OrgsService {
     ): Promise<OrgUnassignScopeMemberResponseDTO> {
         const vo = await this._repo.unassign_scope_member(params, token);
         return to_org_unassign_scope_member_response_dto(vo);
+    }
+
+    async update_scope(
+        params: { org_id: string; scope_id: string; display_name?: string; visibility?: 'public' | 'private' },
+        token: string,
+    ): Promise<OrgUpdateScopeResponseDTO> {
+        const vo = await this._repo.update_scope(params, token);
+        return to_org_update_scope_response_dto(vo);
+    }
+
+    async get_scopes(
+        params: { user_id: string; org_id?: string; search?: string; limit?: number; offset?: number },
+        token: string,
+    ): Promise<OrgGetScopesResponseDTO> {
+        const vo = await this._repo.get_scopes(params, token);
+        return to_org_get_scopes_response_dto(vo);
     }
 }

@@ -109,3 +109,21 @@ export type OrgsDeleteScopeInput = z.infer<typeof orgs_delete_scope_schema>;
 export type OrgsAssignScopeMemberInput = z.infer<typeof orgs_assign_scope_member_schema>;
 export type OrgsUnassignScopeMemberInput = z.infer<typeof orgs_unassign_scope_member_schema>;
 export type UsersUpdateRoleInput = z.infer<typeof users_update_role_schema>;
+
+export const orgs_update_scope_schema = z.object({
+    org_id: z.string().uuid(),
+    scope_id: z.string().uuid(),
+    display_name: z.string().optional(),
+    visibility: z.enum(['public', 'private']).optional(),
+});
+
+export const orgs_get_scopes_schema = z.object({
+    user_id: z.string().uuid(),
+    org_id: z.string().uuid().optional(),
+    search: z.string().optional(),
+    limit: z.number().int().min(1).max(100).optional(),
+    offset: z.number().int().min(0).optional(),
+});
+
+export type OrgsUpdateScopeInput = z.infer<typeof orgs_update_scope_schema>;
+export type OrgsGetScopesInput = z.infer<typeof orgs_get_scopes_schema>;

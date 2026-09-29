@@ -186,7 +186,7 @@ describe('AuthRepository', () => {
                     preferences: { theme: 'dark' },
                     orgs: [{ id: '22222222-2222-4222-8222-222222222222', slug: 'acme', display_name: 'Acme', role: 'member' }],
                 })
-                .mockResolvedValueOnce({ scopes: [{ slug: 'alice' }] });
+                .mockResolvedValueOnce({ items: [{ slug: 'alice' }], total: 1, offset: 0, limit: 100 });
 
             const result = await repo.resolve_identity('cliq_tok_session');
 
@@ -213,7 +213,7 @@ describe('AuthRepository', () => {
                     suspended_at: null,
                     created_at: '2025-01-01',
                 })
-                .mockResolvedValueOnce({ scopes: [] });
+                .mockResolvedValueOnce({ items: [], total: 0, offset: 0, limit: 100 });
 
             const result = await repo.resolve_identity('cliq_tok_session');
             expect(result.user.preferences).toEqual({});

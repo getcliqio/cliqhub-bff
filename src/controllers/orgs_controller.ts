@@ -18,6 +18,8 @@ import {
     orgs_delete_scope_schema,
     orgs_assign_scope_member_schema,
     orgs_unassign_scope_member_schema,
+    orgs_update_scope_schema,
+    orgs_get_scopes_schema,
 } from '../schemas/orgs_schemas.js';
 
 export class OrgsController extends BaseController {
@@ -185,6 +187,26 @@ export class OrgsController extends BaseController {
         }
         const body = this.parse_body(orgs_unassign_scope_member_schema, req);
         const dto = await this._orgs_service.unassign_scope_member(body, req.session_data.target_token);
+        this.ok(res, dto);
+    });
+
+    update_scope = this.wrap(async (req: Request, res: Response) => {
+        if (!req.session_data) {
+            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
+            return;
+        }
+        const body = this.parse_body(orgs_update_scope_schema, req);
+        const dto = await this._orgs_service.update_scope(body, req.session_data.target_token);
+        this.ok(res, dto);
+    });
+
+    get_scopes = this.wrap(async (req: Request, res: Response) => {
+        if (!req.session_data) {
+            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
+            return;
+        }
+        const body = this.parse_body(orgs_get_scopes_schema, req);
+        const dto = await this._orgs_service.get_scopes(body, req.session_data.target_token);
         this.ok(res, dto);
     });
 

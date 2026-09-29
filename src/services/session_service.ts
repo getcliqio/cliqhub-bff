@@ -243,7 +243,7 @@ export class SessionService {
         );
         let scopes: string[] = [];
         try {
-            const scopes_res = await this._auth_repo.list_scopes(issued.token);
+            const scopes_res = await this._auth_repo.list_scopes(issued.token, target_user_id);
             scopes = scopes_res.scopes ?? [];
         } catch {
             scopes = [];

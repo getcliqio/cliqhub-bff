@@ -186,9 +186,11 @@ export function create_app(container: Container): express.Express {
     app.post('/v1/orgs/delete_role', orgs_controller.delete_role);
     app.post('/v1/users/update_role', orgs_controller.update_user_role);
     app.post('/v1/orgs/new_scope', orgs_controller.new_scope);
+    app.post('/v1/orgs/update_scope', orgs_controller.update_scope);
     app.post('/v1/orgs/delete_scope', orgs_controller.delete_scope);
     app.post('/v1/orgs/assign_scope_member', orgs_controller.assign_scope_member);
     app.post('/v1/orgs/unassign_scope_member', orgs_controller.unassign_scope_member);
+    app.post('/v1/orgs/get_scopes', orgs_controller.get_scopes);
 
     // --- Invitations (all → Core /v1) ---
     app.post('/v1/invitations/create', invitations_controller.create);

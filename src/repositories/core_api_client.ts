@@ -32,11 +32,6 @@ export class CoreApiClient {
             headers.Authorization = `Bearer ${token}`;
         }
 
-        const internal_token = process.env.INTERNAL_API_TOKEN;
-        if (internal_token && path.startsWith('/internal')) {
-            headers['X-Internal-Token'] = internal_token;
-        }
-
         const request_id = current_request_id();
         if (request_id) {
             headers['x-request-id'] = request_id;

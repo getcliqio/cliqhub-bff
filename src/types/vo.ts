@@ -303,7 +303,7 @@ export interface BuilderChatResponseVO {
 }
 
 export interface OrgListItemVO {
-    id: number;
+    id: string;
     slug: string;
     display_name: string;
     role: string;
@@ -325,7 +325,7 @@ export interface OrgMemberVO {
 }
 
 export interface OrgRoleVO {
-    id: number;
+    id: string;
     org_id: string;
     slug: string;
     name: string;
@@ -337,7 +337,7 @@ export interface OrgRoleVO {
 }
 
 export interface OrgScopeVO {
-    id: number;
+    id: string;
     slug: string;
     display_name: string;
     visibility: string;
@@ -346,7 +346,7 @@ export interface OrgScopeVO {
 }
 
 export interface OrgDetailVO {
-    id: number;
+    id: string;
     slug: string;
     display_name: string;
     created_at: string;
@@ -408,12 +408,34 @@ export interface OrgDeleteRoleResponseVO {
 }
 
 export interface OrgCreateScopeResponseVO {
-    id: number;
+    id: string;
     slug: string;
 }
 
 export interface OrgDeleteScopeResponseVO {
     deleted: boolean;
+}
+
+export interface OrgUpdateScopeResponseVO {
+    updated: boolean;
+}
+
+export interface OrgGetScopesResponseVO {
+    items: Array<{
+        id: string;
+        slug: string;
+        display_name: string | null;
+        visibility: 'public' | 'private';
+        scope_type: 'user' | 'org';
+        owner_id: string;
+        org_id: string | null;
+        member_count?: number;
+        team_count?: number;
+        created_at: string;
+    }>;
+    total: number;
+    offset: number;
+    limit: number;
 }
 
 export interface OrgAssignScopeMemberResponseVO {

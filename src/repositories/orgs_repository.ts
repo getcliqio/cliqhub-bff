@@ -16,6 +16,28 @@ import type {
     OrgUnassignScopeMemberResponseVO,
 } from '../types/vo.js';
 
+export interface GetScopesResponseVO {
+    items: Array<{
+        id: string;
+        slug: string;
+        display_name: string | null;
+        visibility: 'public' | 'private';
+        scope_type: 'user' | 'org';
+        owner_id: string;
+        org_id: string | null;
+        member_count?: number;
+        team_count?: number;
+        created_at: string;
+    }>;
+    total: number;
+    offset: number;
+    limit: number;
+}
+
+export interface UpdateScopeResponseVO {
+    updated: boolean;
+}
+
 /** Reads (get/get_by_id/list_roles) use Core `/v1/orgs/*`; writes stay `/internal/orgs/*`. */
 export class OrgsRepository {
     private _client: ApiClient;
@@ -128,14 +150,19 @@ export class OrgsRepository {
         token: string,
     ): Promise<OrgCreateScopeResponseVO> {
         return this._client.post<OrgCreateScopeResponseVO>(
-            '/v1/scopes/new',
-            {
-                slug: params.slug,
-                display_name: params.display_name,
-                visibility: params.visibility,
-                scope_type: 'org',
-                org_id: params.org_id,
-            },
+            '/v1/orgs/new_scope',
+            { org_id: params.org_id, slug: params.slug, display_name: params.display_name, visibility: params.visibility },
+            token,
+        );
+    }
+
+    async update_scope(
+        params: { org_id: string; scope_id: string; display_name?: string; visibility?: 'public' | 'private' },
+        token: string,
+    ): Promise<UpdateScopeResponseVO> {
+        return this._client.post<UpdateScopeResponseVO>(
+            '/v1/orgs/update_scope',
+            params,
             token,
         );
     }
@@ -145,8 +172,8 @@ export class OrgsRepository {
         token: string,
     ): Promise<OrgDeleteScopeResponseVO> {
         return this._client.post<OrgDeleteScopeResponseVO>(
-            '/v1/scopes/delete',
-            { scope_id: params.scope_id },
+            '/v1/orgs/delete_scope',
+            params,
             token,
         );
     }
@@ -156,8 +183,8 @@ export class OrgsRepository {
         token: string,
     ): Promise<OrgAssignScopeMemberResponseVO> {
         return this._client.post<OrgAssignScopeMemberResponseVO>(
-            '/v1/scopes/add_user',
-            { scope_id: params.scope_id, user_id: params.user_id },
+            '/v1/orgs/assign_scope_member',
+            params,
             token,
         );
     }
@@ -167,8 +194,19 @@ export class OrgsRepository {
         token: string,
     ): Promise<OrgUnassignScopeMemberResponseVO> {
         return this._client.post<OrgUnassignScopeMemberResponseVO>(
-            '/v1/scopes/remove_user',
-            { scope_id: params.scope_id, user_id: params.user_id },
+            '/v1/orgs/unassign_scope_member',
+            params,
+            token,
+        );
+    }
+
+    async get_scopes(
+        params: { user_id: string; org_id?: string; search?: string; limit?: number; offset?: number },
+        token: string,
+    ): Promise<GetScopesResponseVO> {
+        return this._client.post<GetScopesResponseVO>(
+            '/v1/orgs/get_scopes',
+            params,
             token,
         );
     }

@@ -263,7 +263,7 @@ export interface BuilderChatResponseDTO {
 }
 
 export interface OrgListItemDTO {
-    id: number;
+    id: string;
     slug: string;
     display_name: string;
     role: string;
@@ -285,7 +285,7 @@ export interface OrgMemberDTO {
 }
 
 export interface OrgRoleDTO {
-    id: number;
+    id: string;
     org_id: string;
     slug: string;
     name: string;
@@ -297,7 +297,7 @@ export interface OrgRoleDTO {
 }
 
 export interface OrgScopeDTO {
-    id: number;
+    id: string;
     slug: string;
     display_name: string;
     visibility: string;
@@ -306,7 +306,7 @@ export interface OrgScopeDTO {
 }
 
 export interface OrgDetailDTO {
-    id: number;
+    id: string;
     slug: string;
     display_name: string;
     created_at: string;
@@ -368,12 +368,34 @@ export interface OrgDeleteRoleResponseDTO {
 }
 
 export interface OrgCreateScopeResponseDTO {
-    id: number;
+    id: string;
     slug: string;
 }
 
 export interface OrgDeleteScopeResponseDTO {
     deleted: boolean;
+}
+
+export interface OrgUpdateScopeResponseDTO {
+    updated: boolean;
+}
+
+export interface OrgGetScopesResponseDTO {
+    items: Array<{
+        id: string;
+        slug: string;
+        display_name: string | null;
+        visibility: 'public' | 'private';
+        scope_type: 'user' | 'org';
+        owner_id: string;
+        org_id: string | null;
+        member_count?: number;
+        team_count?: number;
+        created_at: string;
+    }>;
+    total: number;
+    offset: number;
+    limit: number;
 }
 
 export interface OrgAssignScopeMemberResponseDTO {

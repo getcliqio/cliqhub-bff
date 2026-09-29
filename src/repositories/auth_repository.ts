@@ -87,7 +87,7 @@ export class AuthRepository {
 
     /**
      * Resolve identity for an opaque user PAT without /v1/auth/me
-     * (validate_token + users/get_by_id + scopes/get).
+     * (validate_token + users/get_by_id + orgs/get_scopes).
      */
     async resolve_identity(token: string): Promise<ResolvedIdentityVO> {
         const validated = await this._client.post<{
@@ -115,11 +115,11 @@ export class AuthRepository {
         }>('/v1/users/get_by_id', { user_id, include_preferences: true }, token);
 
         const scopes_res = await this._client.post<{
-            scopes: Array<{ slug?: string } | string>;
-        }>('/v1/scopes/get', { mine: true }, token);
+            items: Array<{ slug: string }>;
+        }>('/v1/orgs/get_scopes', { user_id }, token);
 
-        const scope_slugs = (scopes_res.scopes ?? [])
-            .map((s) => (typeof s === 'string' ? s : s.slug))
+        const scope_slugs = (scopes_res.items ?? [])
+            .map((s) => s.slug)
             .filter((s): s is string => typeof s === 'string' && s.length > 0);
 
         const user: UserVO = {
@@ -161,12 +161,12 @@ export class AuthRepository {
         );
     }
 
-    async list_scopes(token: string): Promise<{ scopes: string[] }> {
+    async list_scopes(token: string, user_id: string): Promise<{ scopes: string[] }> {
         const res = await this._client.post<{
-            scopes: Array<{ slug?: string } | string>;
-        }>('/v1/scopes/get', { mine: true }, token);
-        const scopes = (res.scopes ?? [])
-            .map((s) => (typeof s === 'string' ? s : s.slug))
+            items: Array<{ slug: string }>;
+        }>('/v1/orgs/get_scopes', { user_id }, token);
+        const scopes = (res.items ?? [])
+            .map((s) => s.slug)
             .filter((s): s is string => typeof s === 'string' && s.length > 0);
         return { scopes };
     }

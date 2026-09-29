@@ -142,21 +142,20 @@ describe('OrgsRepository', () => {
     });
 
     describe('new_scope', () => {
-        it('calls POST /v1/scopes/new with org scope params', async () => {
-            mock_client.post.mockResolvedValue({ id: 20, slug: 'acme-labs' });
+        it('calls POST /v1/orgs/new_scope with org scope params', async () => {
+            mock_client.post.mockResolvedValue({ id: 'scope-uuid-20', slug: 'acme-labs' });
 
             const result = await repo.new_scope(
-                { org_id: 1, slug: 'acme-labs', visibility: 'private' }, 'jwt-abc',
+                { org_id: 'org-uuid-1', slug: 'acme-labs', visibility: 'private' }, 'jwt-abc',
             );
 
             expect(mock_client.post).toHaveBeenCalledWith(
-                '/v1/scopes/new',
+                '/v1/orgs/new_scope',
                 {
+                    org_id: 'org-uuid-1',
                     slug: 'acme-labs',
                     display_name: undefined,
                     visibility: 'private',
-                    scope_type: 'org',
-                    org_id: 1,
                 },
                 'jwt-abc',
             );
@@ -165,29 +164,29 @@ describe('OrgsRepository', () => {
     });
 
     describe('delete_scope', () => {
-        it('calls POST /v1/scopes/delete with scope_id', async () => {
+        it('calls POST /v1/orgs/delete_scope with org_id and scope_id', async () => {
             mock_client.post.mockResolvedValue({ deleted: true });
 
-            const result = await repo.delete_scope({ org_id: 1, scope_id: 11 }, 'jwt-abc');
+            const result = await repo.delete_scope({ org_id: 'org-uuid-1', scope_id: 'scope-uuid-11' }, 'jwt-abc');
 
             expect(mock_client.post).toHaveBeenCalledWith(
-                '/v1/scopes/delete', { scope_id: 11 }, 'jwt-abc',
+                '/v1/orgs/delete_scope', { org_id: 'org-uuid-1', scope_id: 'scope-uuid-11' }, 'jwt-abc',
             );
             expect(result.deleted).toBe(true);
         });
     });
 
     describe('assign_scope_member', () => {
-        it('calls POST /v1/scopes/add_user', async () => {
+        it('calls POST /v1/orgs/assign_scope_member', async () => {
             mock_client.post.mockResolvedValue({ assigned: true });
 
             const result = await repo.assign_scope_member(
-                { org_id: 1, scope_id: 10, user_id: 3 }, 'jwt-abc',
+                { org_id: 'org-uuid-1', scope_id: 'scope-uuid-10', user_id: 'user-uuid-3' }, 'jwt-abc',
             );
 
             expect(mock_client.post).toHaveBeenCalledWith(
-                '/v1/scopes/add_user',
-                { scope_id: 10, user_id: 3 },
+                '/v1/orgs/assign_scope_member',
+                { org_id: 'org-uuid-1', scope_id: 'scope-uuid-10', user_id: 'user-uuid-3' },
                 'jwt-abc',
             );
             expect(result.assigned).toBe(true);
@@ -195,16 +194,16 @@ describe('OrgsRepository', () => {
     });
 
     describe('unassign_scope_member', () => {
-        it('calls POST /v1/scopes/remove_user', async () => {
+        it('calls POST /v1/orgs/unassign_scope_member', async () => {
             mock_client.post.mockResolvedValue({ removed: true });
 
             const result = await repo.unassign_scope_member(
-                { org_id: 1, scope_id: 10, user_id: 3 }, 'jwt-abc',
+                { org_id: 'org-uuid-1', scope_id: 'scope-uuid-10', user_id: 'user-uuid-3' }, 'jwt-abc',
             );
 
             expect(mock_client.post).toHaveBeenCalledWith(
-                '/v1/scopes/remove_user',
-                { scope_id: 10, user_id: 3 },
+                '/v1/orgs/unassign_scope_member',
+                { org_id: 'org-uuid-1', scope_id: 'scope-uuid-10', user_id: 'user-uuid-3' },
                 'jwt-abc',
             );
             expect(result.removed).toBe(true);
