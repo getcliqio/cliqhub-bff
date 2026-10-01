@@ -206,3 +206,10 @@ describe('BFF route surface audit', () => {
 		expect(app_src).toContain('hub_passthrough');
 	});
 });
+
+describe('control-plane passthrough security', () => {
+	it('does not pass Hub settings writes through from the browser (S1)', () => {
+		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).not.toContain('/v1/settings/set');
+		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).not.toContain('/v1/settings/remove');
+	});
+});

@@ -1,4 +1,5 @@
-import { ApiError, status_for_code } from './api_error.js';
+import { ApiError } from './api_error.js';
+import { upstream_error } from './upstream_error.js';
 import { get_logger } from '../lib/log.js';
 import { current_request_id } from '../lib/request_context.js';
 
@@ -7,7 +8,9 @@ const log = get_logger('api-client');
 export interface ApiEnvelope<T = unknown> {
     ok: boolean;
     data?: T;
-    error?: { code: string; message: string };
+    /** Object on most routes; a plain string on Core control-plane routes. */
+    error?: { code: string; message: string } | string;
+    code?: string;
 }
 
 export class ApiClient {
@@ -18,35 +21,30 @@ export class ApiClient {
     }
 
     async post<T>(path: string, body: unknown, token?: string): Promise<T> {
-        const envelope = await this._fetch('POST', path, body, token);
-
-        if (!envelope.ok) {
-            const code = envelope.error?.code ?? 'unknown';
-            const message = envelope.error?.message ?? 'Backend request failed';
-            throw new ApiError(code, message, status_for_code(code));
+        const r = await this._fetch('POST', path, body, token);
+        if (!r.body || r.body.ok !== true || r.status >= 400) {
+            throw upstream_error(r.status, r.body as Record<string, unknown> | null, 'POST', path);
         }
-
-        return envelope.data as T;
+        return r.body.data as T;
     }
 
     async get<T>(path: string, token?: string): Promise<T> {
-        const envelope = await this._fetch('GET', path, undefined, token);
-
-        if (!envelope.ok) {
-            const code = envelope.error?.code ?? 'unknown';
-            const message = envelope.error?.message ?? 'Backend request failed';
-            throw new ApiError(code, message, status_for_code(code));
+        const r = await this._fetch('GET', path, undefined, token);
+        if (!r.body || r.body.ok !== true || r.status >= 400) {
+            throw upstream_error(r.status, r.body as Record<string, unknown> | null, 'GET', path);
         }
-
-        return envelope.data as T;
+        return r.body.data as T;
     }
 
+    /** The envelope as Core sent it (errors included); throws only when there is no JSON. */
     async post_raw(
         path: string,
         body: unknown,
         token?: string,
     ): Promise<ApiEnvelope> {
-        return this._fetch('POST', path, body, token);
+        const r = await this._fetch('POST', path, body, token);
+        if (!r.body) throw upstream_error(r.status, null, 'POST', path);
+        return r.body;
     }
 
     private async _fetch(
@@ -54,7 +52,7 @@ export class ApiClient {
         path: string,
         body: unknown,
         token?: string,
-    ): Promise<ApiEnvelope> {
+    ): Promise<{ status: number; body: ApiEnvelope | null }> {
         const url = `${this._base_url}${path}`;
         const headers: Record<string, string> = {
             'Content-Type': 'application/json',
@@ -93,6 +91,7 @@ export class ApiClient {
             );
         }
 
+        const status = typeof res.status === 'number' ? res.status : 200;
         let data: ApiEnvelope;
         try {
             data = await res.json() as ApiEnvelope;
@@ -101,28 +100,29 @@ export class ApiClient {
                 request_id: request_id ?? null,
                 method,
                 path,
-                status: res.status,
+                status,
                 duration_ms: Date.now() - started_at,
             });
-            throw new ApiError(
-                'parse_error',
-                'Backend returned non-JSON response',
-                502,
-            );
+            return { status, body: null };
         }
 
-        if (!data.ok || res.status >= 400) {
+        if (!data || typeof data !== 'object') {
+            return { status, body: null };
+        }
+
+        if (!data.ok || status >= 400) {
+            const raw = (data as { error?: unknown }).error;
             log.warn('upstream_error', {
                 request_id: request_id ?? null,
                 method,
                 path,
-                status: res.status,
-                code: data.error?.code ?? null,
-                error: data.error?.message ?? null,
+                status,
+                code: (raw && typeof raw === 'object' ? (raw as { code?: string }).code : (data as { code?: string }).code) ?? null,
+                error: (raw && typeof raw === 'object' ? (raw as { message?: string }).message : raw) ?? null,
                 duration_ms: Date.now() - started_at,
             });
         }
 
-        return data;
+        return { status, body: data };
     }
 }

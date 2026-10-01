@@ -4,6 +4,10 @@ export const admin_audit_schema = z.object({
     action: z.string().optional(),
     target_type: z.string().optional(),
     admin_id: z.string().uuid().optional(),
+    /** Core API 3+ (older Core ignores them). */
+    target_id: z.string().max(200).optional(),
+    since_ms: z.number().int().min(0).optional(),
+    until_ms: z.number().int().min(0).optional(),
     limit: z.number().int().min(1).max(100).optional(),
     offset: z.number().int().min(0).optional(),
 });

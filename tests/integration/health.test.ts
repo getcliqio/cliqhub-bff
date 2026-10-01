@@ -17,6 +17,13 @@ describe('GET /bff-health', () => {
         expect(res.body.data.status).toBe('ok');
         expect(res.body.data.timestamp).toBeDefined();
     });
+
+    it('reports the last Core compatibility check (never blocks on Core)', async () => {
+        await request(app).get('/bff-health'); // first call kicks off the check
+        await new Promise((r) => setTimeout(r, 10));
+        const res = await request(app).get('/bff-health');
+        expect(res.body.data.core).toMatchObject({ reachable: true, compatible: true, api_version: 2, version: '1.0.0' });
+    });
 });
 
 describe('CSRF protection', () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SessionStore } from '../../../src/repositories/session_store.js';
+import { SessionStore, REQUIRED_SESSION_COLUMNS } from '../../../src/repositories/session_store.js';
 import type { EnvConfig } from '../../../src/config/env.js';
 
 function make_config(overrides: Partial<EnvConfig> = {}): EnvConfig {
@@ -78,6 +78,33 @@ describe('SessionStore', () => {
             expect(sql).toContain('default_realm_slug');
             expect(sql).toContain('actor_default_realm_slug');
             expect(sql).toContain('orgs_json');
+        });
+
+        it('is idempotent: never drops a current table, creates only if missing', async () => {
+            pool.query.mockResolvedValue({});
+            await store.init();
+            const sql = pool.query.mock.calls.map((c) => String(c[0])).join('\n');
+            expect(sql).not.toMatch(/DROP TABLE IF EXISTS bff\.sessions/);
+            expect(sql).toContain('CREATE TABLE IF NOT EXISTS bff.sessions');
+            expect(sql).toContain('CREATE INDEX IF NOT EXISTS idx_sessions_expires');
+            expect(sql).toContain('CREATE INDEX IF NOT EXISTS idx_sessions_user');
+        });
+
+        it('serialises concurrent starters with an advisory lock in one statement batch', async () => {
+            pool.query.mockResolvedValue({});
+            await store.init();
+            expect(pool.query).toHaveBeenCalledTimes(1);
+            const sql = String(pool.query.mock.calls[0][0]);
+            expect(sql.indexOf('pg_advisory_xact_lock')).toBeLessThan(sql.indexOf('CREATE TABLE'));
+        });
+
+        it('recreates only a legacy table that is missing a current column', async () => {
+            pool.query.mockResolvedValue({});
+            await store.init();
+            const sql = String(pool.query.mock.calls[0][0]);
+            for (const c of REQUIRED_SESSION_COLUMNS) expect(sql).toContain(`'${c}'`);
+            expect(sql).toContain(`HAVING count(*) = ${REQUIRED_SESSION_COLUMNS.length}`);
+            expect(sql).toMatch(/THEN\s+DROP TABLE bff\.sessions;/);
         });
     });
 

@@ -589,3 +589,174 @@ export interface AdminCreateOrgResponseVO {
 export interface AdminDeleteOrgResponseVO {
     deleted: boolean;
 }
+
+// ── Dashboard rollups (Core /internal/dashboard/*) ──────────────────
+// Only the fields the BFF overview composes are typed; Core may return more.
+
+export interface DashboardRunVO {
+    run_id: string;
+    run_name?: string | null;
+    state: string;
+    team_id?: string | null;
+    team_label?: string | null;
+    daemon_id?: string | null;
+    realm_id?: string | null;
+    realm_slug?: string | null;
+    started_at?: number | null;
+    completed_at?: number | null;
+}
+
+export interface DashboardReviewVO {
+    review_id: string;
+    realm_id?: string | null;
+    realm_name?: string | null;
+    realm_slug?: string | null;
+    org_slug?: string | null;
+    run_id?: string | null;
+    run_name?: string | null;
+    phase?: string | null;
+    team?: string | null;
+    title?: string | null;
+    requested_at?: number | null;
+    status?: string | null;
+}
+
+export interface DashboardSummaryVO {
+    counts?: {
+        active_runs?: number;
+        awaiting_input?: number;
+        failed_24h?: number;
+        completed_24h?: number;
+        daemons_online?: number;
+        daemons_stale?: number;
+        daemons_offline?: number;
+        daemons_total?: number;
+        pending_reviews?: number;
+        realms?: number;
+    };
+    live_runs?: DashboardRunVO[];
+    pending_reviews?: DashboardReviewVO[];
+}
+
+export interface DashboardRealmVO {
+    id: string;
+    slug: string;
+    org_slug?: string | null;
+    name: string;
+    last_activity_at?: number | null;
+    daemons?: { online?: number; stale?: number; offline?: number; total?: number };
+    runs?: { active?: number; awaiting_input?: number };
+    pending_reviews?: number;
+    recent_notifications?: number;
+}
+
+export interface DashboardRealmsVO {
+    realms?: DashboardRealmVO[];
+}
+
+// ── Control-plane reads composed by realm inbox + run detail ─────────
+// Only fields the BFF composes are typed; Core may return more (passed through for runs).
+
+export interface ControlRealmVO {
+    id: string;
+    slug: string;
+    name: string;
+    org_slug?: string | null;
+}
+
+export interface ControlRunVO {
+    run_id: string;
+    realm_id?: string | null;
+    team_id?: string | null;
+    team_label?: string | null;
+    workspace_id?: string | null;
+    workspace_name?: string | null;
+    daemon_id?: string | null;
+    run_name?: string | null;
+    state: string;
+    error?: string | null;
+    current_phase?: string | null;
+    started_at?: number | null;
+    completed_at?: number | null;
+    last_updated_at?: number | null;
+    [key: string]: unknown;
+}
+
+export interface ControlRunPhaseVO {
+    run_id?: string;
+    phase: string;
+    status: string;
+    sequence?: number | null;
+    started_at?: number | null;
+    completed_at?: number | null;
+    error?: string | null;
+    agent?: string | null;
+}
+
+export interface ControlReviewVO {
+    review_id: string;
+    realm_id?: string | null;
+    run_id?: string | null;
+    run_name?: string | null;
+    phase?: string | null;
+    team?: string | null;
+    title?: string | null;
+    message?: string | null;
+    review_url?: string | null;
+    requested_at?: number | null;
+    notification_id?: string | null;
+    status?: string | null;
+    artifact_count?: number | null;
+}
+
+export interface ControlPageVO<T> {
+    items: T[];
+    total: number;
+}
+
+// ── Notifications (Core rules + channels) ────────────────────────────
+
+export interface NotifRuleVO {
+    id: string;
+    realm_id: string | null;
+    org_id: string | null;
+    team_slug: string | null;
+    event: string;
+    channel_id: string;
+    priority: number;
+    created_at?: number;
+    updated_at?: number;
+}
+
+export interface NotifChannelVO {
+    id: string;
+    realm_id: string | null;
+    org_id: string | null;
+    user_id: string | null;
+    name: string;
+    destinations: Array<{ type: string; [key: string]: unknown }>;
+    enabled: number | boolean;
+    rule_count?: number;
+}
+
+/** In-app inbox row from Core `POST /v1/notifications/get` (per org). */
+export interface InAppNotificationVO {
+    id: string;
+    event: string;
+    title: string | null;
+    message: string | null;
+    realm_id: string | null;
+    realm_slug: string | null;
+    user_id: string | null;
+    team: string | null;
+    run_id: string | null;
+    phase: string | null;
+    severity: string | null;
+    payload?: Record<string, unknown> | null;
+    created_at: number;
+}
+
+export interface InAppNotificationPageVO {
+    items: InAppNotificationVO[];
+    total: number;
+}

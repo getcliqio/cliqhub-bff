@@ -1,4 +1,5 @@
-import { ApiError, status_for_code } from './api_error.js';
+import { ApiError } from './api_error.js';
+import { upstream_error } from './upstream_error.js';
 import { get_logger } from '../lib/log.js';
 import { current_request_id } from '../lib/request_context.js';
 
@@ -72,37 +73,21 @@ export class CoreApiClient {
                 status: res.status,
                 duration_ms: Date.now() - started_at,
             });
-            // Prefer upstream status (e.g. Express HTML 404) over a synthetic 502 so
-            // the SPA can show a real error instead of a gateway failure.
-            const status = res.status >= 400 ? res.status : 502;
-            throw new ApiError(
-                'parse_error',
-                `Core API returned non-JSON response (${res.status})`,
-                status,
-            );
+            throw upstream_error(res.status, null, 'POST', path);
         }
 
         if (data.ok === false || res.status >= 400) {
-            const raw_error = data.error;
-            const err_obj = (typeof raw_error === 'object' && raw_error !== null)
-                ? raw_error as { code?: string; message?: string }
-                : undefined;
-            const code = err_obj?.code ?? (typeof data.code === 'string' ? data.code : 'unknown');
-            const message = err_obj?.message
-                ?? (typeof raw_error === 'string' ? raw_error : null)
-                ?? (typeof data.message === 'string' ? data.message : 'Core API request failed');
-            const mapped = status_for_code(code);
-            const status = mapped !== 500 ? mapped : (res.status >= 400 ? res.status : 502);
+            const err = upstream_error(res.status, data, 'POST', path);
             log.warn('upstream_error', {
                 request_id: request_id ?? null,
                 method: 'POST',
                 path,
                 status: res.status,
-                code,
-                error: message,
+                code: err.code,
+                error: err.message,
                 duration_ms: Date.now() - started_at,
             });
-            throw new ApiError(code, message, status);
+            throw err;
         }
 
         return data as T;

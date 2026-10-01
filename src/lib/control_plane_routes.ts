@@ -27,6 +27,8 @@ export const CONTROL_PLANE_PASSTHROUGH_PATHS: readonly string[] = [
 	'/v1/realms/remove_team',
 	'/v1/realms/a2a',
 	'/v1/teams/install',
+	// Team settings: remove one published version (owner / org admin; Core enforces).
+	'/v1/teams/delete_version',
 	'/v1/teams/uninstall',
 	'/v1/auth/get_dispatch_public_key',
 	'/v1/auth/rotate_dispatch_key',
@@ -66,10 +68,10 @@ export const CONTROL_PLANE_PASSTHROUGH_PATHS: readonly string[] = [
 	'/v1/runs/artifacts/create',
 	'/v1/artifacts/get',
 	'/v1/artifacts/get_by_id',
+	// Hub settings: daemons read them (daemon token). Writes are site-admin only
+	// in Core and are not reachable through the BFF.
 	'/v1/settings/get',
 	'/v1/settings/get_by_key',
-	'/v1/settings/set',
-	'/v1/settings/remove',
 	'/v1/events/submit',
 	'/v1/events/get_by_id',
 	'/v1/events/types/list',

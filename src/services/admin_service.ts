@@ -10,7 +10,7 @@ export class AdminService {
     }
 
     async audit(
-        params: { action?: string; target_type?: string; admin_id?: string; limit?: number; offset?: number },
+        params: { action?: string; target_type?: string; admin_id?: string; target_id?: string; since_ms?: number; until_ms?: number; limit?: number; offset?: number },
         token: string,
     ): Promise<AuditLogResponseDTO> {
         const vo = await this._repo.audit(params, token);

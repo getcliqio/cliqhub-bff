@@ -18,8 +18,8 @@ export function create_app(container: Container): express.Express {
     const {
         config, session_store, auth_controller, session_controller, teams_controller, admin_controller,
         orgs_controller, invitations_controller,
-        dispatch_key_controller, account_controller, dashboard_controller,
-        hub_passthrough, core_api_client, hydrate_bearer,
+        dispatch_key_controller, account_controller, dashboard_controller, overview_controller, realm_inbox_controller, getting_started_controller, notification_center_controller, inbox_controller, realm_runs_controller, realm_teams_controller, team_page_controller, agent_page_controller, admin_page_controller, review_page_controller, org_page_controller, realm_host_page_controller, run_telemetry_controller, realm_daemons_controller, realm_settings_controller,
+        hub_passthrough, core_api_client, hydrate_bearer, core_compat,
     } = container;
 
     app.use(helmet({ contentSecurityPolicy: false }));
@@ -42,6 +42,7 @@ export function create_app(container: Container): express.Express {
         const data: HealthDTO = {
             status: 'ok',
             timestamp: new Date().toISOString(),
+            core: core_compat.current(),
         };
         res.json({ ok: true, data });
     });
@@ -206,6 +207,35 @@ export function create_app(container: Container): express.Express {
     // --- Dashboard (BFF console rollups → Core /internal) ---
     app.post('/v1/dashboard/summary', dashboard_controller.summary);
     app.post('/v1/dashboard/realms', dashboard_controller.realms);
+
+    // --- Overview (BFF composition: orgs × dashboard rollups; no Core route of its own) ---
+    app.post('/v1/overview/get', overview_controller.get);
+    // Realm inbox + run detail (BFF composition over existing Core control-plane reads).
+    app.post('/v1/realm_inbox/get', realm_inbox_controller.inbox);
+    app.post('/v1/run_detail/get', realm_inbox_controller.run_detail);
+    app.post('/v1/getting_started/get', getting_started_controller.get);
+    app.post('/v1/notification_center/get', notification_center_controller.get);
+    app.post('/v1/notification_center/check', notification_center_controller.check);
+    app.post('/v1/notification_center/set_rules', notification_center_controller.set_rules);
+    app.post('/v1/inbox/get', inbox_controller.get);
+    app.post('/v1/realm_runs/get', realm_runs_controller.get);
+    app.post('/v1/realm_teams/get', realm_teams_controller.get);
+    app.post('/v1/team_list/get', team_page_controller.list);
+    app.post('/v1/team_page/get', team_page_controller.page);
+    app.post('/v1/agent_list/get', agent_page_controller.list);
+    app.post('/v1/agent_page/get', agent_page_controller.page);
+    // Admin mode (CliqHub site admins): composed reads; writes stay on users/*, teams/*, orgs/*.
+    app.post('/v1/admin_home/get', admin_page_controller.home);
+    app.post('/v1/admin_list/get', admin_page_controller.list);
+    // Review (HUG packet): finds the org that lets you see it; writes stay on reviews/*.
+    app.post('/v1/review_page/get', review_page_controller.page);
+    // Manage › Organization: org + pending invites + permission catalogue in one read.
+    app.post('/v1/org_page/get', org_page_controller.page);
+    app.post('/v1/daemon_page/get', realm_host_page_controller.daemon);
+    app.post('/v1/workspace_page/get', realm_host_page_controller.workspace);
+    app.post('/v1/run_telemetry/get', run_telemetry_controller.get);
+    app.post('/v1/realm_daemons/get', realm_daemons_controller.get);
+    app.post('/v1/realm_settings/get', realm_settings_controller.get);
 
     // ── Realm wire keys (proxied to Core; session or Bearer) ─────────
     app.post('/v1/auth/get_dispatch_public_key', dispatch_key_controller.get_public_key);

@@ -59,6 +59,18 @@ export type SessionActAsUpdate = {
     orgs_json: string;
 };
 
+/** Arbitrary constant key for the schema-setup advisory lock. */
+const SESSION_SCHEMA_LOCK = 7_310_422_001;
+
+/** Every column the current code reads/writes; a table missing any of them is recreated. */
+export const REQUIRED_SESSION_COLUMNS = [
+    'session_id', 'user_id', 'act_as_user_id', 'username', 'email', 'role', 'actor_role',
+    'actor_username', 'user_token', 'target_token', 'scopes_json', 'org_slugs_json',
+    'default_realm_id', 'default_realm_slug', 'default_realm_qualified',
+    'actor_default_realm_id', 'actor_default_realm_slug', 'actor_default_realm_qualified',
+    'orgs_json', 'created_at', 'last_active', 'expires_at',
+] as const;
+
 export class SessionStore {
     private _pool: pg.Pool;
     private _idle_seconds: number;
@@ -91,13 +103,32 @@ export class SessionStore {
     }
 
     /**
-     * Hard-cut schema: wipe legacy single-token rows and recreate.
+     * Idempotent schema setup — safe to run on every start and from several
+     * processes at once (watch-mode restarts, two local BFFs on one DB).
+     *
+     * - Existing sessions survive a restart (no more sign-out on every boot).
+     * - A table from an older layout (missing a current column) is still
+     *   hard-cut: dropped and recreated, as before.
+     * - One simple-protocol query = one implicit transaction; the advisory
+     *   lock serialises concurrent starters so they cannot race on CREATE.
      */
     async init(): Promise<void> {
-        await this._pool.query('CREATE SCHEMA IF NOT EXISTS bff');
-        await this._pool.query('DROP TABLE IF EXISTS bff.sessions');
         await this._pool.query(`
-            CREATE TABLE bff.sessions (
+            SELECT pg_advisory_xact_lock(${SESSION_SCHEMA_LOCK});
+            CREATE SCHEMA IF NOT EXISTS bff;
+            DO $$
+            BEGIN
+                IF to_regclass('bff.sessions') IS NOT NULL AND NOT EXISTS (
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'bff' AND table_name = 'sessions'
+                      AND column_name IN (${REQUIRED_SESSION_COLUMNS.map((c) => `'${c}'`).join(', ')})
+                    GROUP BY table_name
+                    HAVING count(*) = ${REQUIRED_SESSION_COLUMNS.length}
+                ) THEN
+                    DROP TABLE bff.sessions;
+                END IF;
+            END $$;
+            CREATE TABLE IF NOT EXISTS bff.sessions (
                 session_id                    TEXT PRIMARY KEY,
                 user_id                       TEXT NOT NULL,
                 act_as_user_id                TEXT NOT NULL,
@@ -121,8 +152,8 @@ export class SessionStore {
                 last_active                   BIGINT NOT NULL,
                 expires_at                    BIGINT NOT NULL
             );
-            CREATE INDEX idx_sessions_expires ON bff.sessions(expires_at);
-            CREATE INDEX idx_sessions_user ON bff.sessions(user_id);
+            CREATE INDEX IF NOT EXISTS idx_sessions_expires ON bff.sessions(expires_at);
+            CREATE INDEX IF NOT EXISTS idx_sessions_user ON bff.sessions(user_id);
         `);
     }
 

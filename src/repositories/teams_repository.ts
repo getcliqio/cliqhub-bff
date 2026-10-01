@@ -106,22 +106,24 @@ export class TeamsRepository {
 
     async get_versions(
         params: { name: string; scope?: string; latest_only?: boolean },
+        token?: string,
     ): Promise<LatestVersionResponseVO> {
-        return this._client.post<LatestVersionResponseVO>(
-            '/v1/teams/get_versions', params,
-        );
+        return token === undefined
+            ? this._client.post<LatestVersionResponseVO>('/v1/teams/get_versions', params)
+            : this._client.post<LatestVersionResponseVO>('/v1/teams/get_versions', params, token);
     }
 
     async get_phases(
         params: { team_id: string; version_id?: string },
+        token?: string,
     ): Promise<{
         team_id: string;
         version_id: string | null;
         version: string | null;
         phases: unknown[];
     }> {
-        return this._client.post(
-            '/v1/teams/get_phases', params,
-        );
+        return token === undefined
+            ? this._client.post('/v1/teams/get_phases', params)
+            : this._client.post('/v1/teams/get_phases', params, token);
     }
 }

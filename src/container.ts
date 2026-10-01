@@ -20,6 +20,7 @@ import { InvitationsRepository } from './repositories/invitations_repository.js'
 import { InvitationsService } from './services/invitations_service.js';
 import { InvitationsController } from './controllers/invitations_controller.js';
 import { CoreApiClient } from './repositories/core_api_client.js';
+import { Core_compat_checker } from './lib/core_compat.js';
 import { DispatchKeyRepository } from './repositories/dispatch_key_repository.js';
 import { DispatchKeyService } from './services/dispatch_key_service.js';
 import { DispatchKeyController } from './controllers/dispatch_key_controller.js';
@@ -30,6 +31,41 @@ import { AdminRepository } from './repositories/admin_repository.js';
 import { AdminService } from './services/admin_service.js';
 import { AdminController } from './controllers/admin_controller.js';
 import { DashboardController } from './controllers/dashboard_controller.js';
+import { DashboardRepository } from './repositories/dashboard_repository.js';
+import { OverviewService } from './services/overview_service.js';
+import { InboxService } from './services/inbox_service.js';
+import { RealmRunsService } from './services/realm_runs_service.js';
+import { RealmTeamsService } from './services/realm_teams_service.js';
+import { TeamPageService } from './services/team_page_service.js';
+import { AgentPageService } from './services/agent_page_service.js';
+import { AgentPageController } from './controllers/agent_page_controller.js';
+import { AdminPageService } from './services/admin_page_service.js';
+import { AdminPageController } from './controllers/admin_page_controller.js';
+import { ReviewPageService } from './services/review_page_service.js';
+import { ReviewPageController } from './controllers/review_page_controller.js';
+import { OrgPageService } from './services/org_page_service.js';
+import { RealmHostPageService } from './services/realm_host_page_service.js';
+import { RunTelemetryService } from './services/run_telemetry_service.js';
+import { RunTelemetryController } from './controllers/run_telemetry_controller.js';
+import { RealmHostPageController } from './controllers/realm_host_page_controller.js';
+import { OrgPageController } from './controllers/org_page_controller.js';
+import { RealmDaemonsService } from './services/realm_daemons_service.js';
+import { RealmSettingsService } from './services/realm_settings_service.js';
+import { RealmSettingsController } from './controllers/realm_settings_controller.js';
+import { RealmDaemonsController } from './controllers/realm_daemons_controller.js';
+import { RealmTeamsController } from './controllers/realm_teams_controller.js';
+import { TeamPageController } from './controllers/team_page_controller.js';
+import { RealmRunsController } from './controllers/realm_runs_controller.js';
+import { InboxController } from './controllers/inbox_controller.js';
+import { OverviewController } from './controllers/overview_controller.js';
+import { ControlRepository } from './repositories/control_repository.js';
+import { RealmInboxService } from './services/realm_inbox_service.js';
+import { RunDetailService } from './services/run_detail_service.js';
+import { RealmInboxController } from './controllers/realm_inbox_controller.js';
+import { GettingStartedService } from './services/getting_started_service.js';
+import { GettingStartedController } from './controllers/getting_started_controller.js';
+import { NotificationCenterService } from './services/notification_center_service.js';
+import { NotificationCenterController } from './controllers/notification_center_controller.js';
 import { create_hub_passthrough } from './middleware/hub_passthrough.js';
 import type { BearerHydrator } from './middleware/session_auth.js';
 import type { EnvConfig } from './config/env.js';
@@ -49,10 +85,28 @@ export interface Container {
     account_controller: AccountController;
     admin_controller: AdminController;
     dashboard_controller: DashboardController;
+    overview_controller: OverviewController;
+    realm_inbox_controller: RealmInboxController;
+    getting_started_controller: GettingStartedController;
+    notification_center_controller: NotificationCenterController;
+    inbox_controller: InboxController;
+    realm_runs_controller: RealmRunsController;
+    realm_teams_controller: RealmTeamsController;
+    team_page_controller: TeamPageController;
+    agent_page_controller: AgentPageController;
+    admin_page_controller: AdminPageController;
+    review_page_controller: ReviewPageController;
+    org_page_controller: OrgPageController;
+    realm_host_page_controller: RealmHostPageController;
+    run_telemetry_controller: RunTelemetryController;
+    realm_daemons_controller: RealmDaemonsController;
+    realm_settings_controller: RealmSettingsController;
     hub_passthrough: import('express').RequestHandler;
     core_api_client: CoreApiClient;
     /** Hydrate opaque Bearer PATs (cliq_tok_…) into session_data. */
     hydrate_bearer: BearerHydrator;
+    /** Is the running Core new enough for this BFF? (GET /v1/health api_version) */
+    core_compat: Core_compat_checker;
 }
 
 export async function create_container(config: EnvConfig): Promise<Container> {
@@ -102,6 +156,36 @@ export async function create_container(config: EnvConfig): Promise<Container> {
 
     const hub_passthrough = create_hub_passthrough(core_api_client);
     const dashboard_controller = new DashboardController(core_api_client);
+    // Cross-org overview: org list (api_client) × per-org dashboard rollups (core_api_client).
+    const control_repo = new ControlRepository(core_api_client);
+    const inbox_service = new InboxService(orgs_repo, control_repo);
+    const inbox_controller = new InboxController(inbox_service);
+    const realm_runs_controller = new RealmRunsController(new RealmRunsService(control_repo));
+    const realm_teams_controller = new RealmTeamsController(new RealmTeamsService(control_repo, teams_repo));
+    const team_page_controller = new TeamPageController(new TeamPageService(control_repo, teams_repo));
+    const agent_page_controller = new AgentPageController(new AgentPageService(core_api_client, control_repo));
+    const core_compat = new Core_compat_checker(config.core_api_url);
+    const admin_page_controller = new AdminPageController(new AdminPageService(core_api_client, core_compat));
+    const review_page_controller = new ReviewPageController(new ReviewPageService(core_api_client, orgs_repo));
+    const org_page_controller = new OrgPageController(new OrgPageService(core_api_client));
+    const realm_host_page_controller = new RealmHostPageController(new RealmHostPageService(core_api_client, control_repo));
+    const run_telemetry_controller = new RunTelemetryController(new RunTelemetryService(core_api_client, control_repo));
+    const realm_daemons_controller = new RealmDaemonsController(new RealmDaemonsService(control_repo, teams_repo));
+    const realm_settings_controller = new RealmSettingsController(new RealmSettingsService(control_repo, auth_repo, invitations_repo));
+    const overview_controller = new OverviewController(
+        new OverviewService(orgs_repo, new DashboardRepository(core_api_client), inbox_service),
+    );
+    // Realm inbox + run detail: several Core control-plane reads composed per request.
+    const realm_inbox_controller = new RealmInboxController(
+        new RealmInboxService(control_repo),
+        new RunDetailService(control_repo),
+    );
+    const getting_started_controller = new GettingStartedController(
+        new GettingStartedService(orgs_repo, new DashboardRepository(core_api_client), control_repo, teams_repo),
+    );
+    const notification_center_controller = new NotificationCenterController(
+        new NotificationCenterService(orgs_repo, new DashboardRepository(core_api_client), control_repo, teams_repo),
+    );
 
     const hydrate_bearer: BearerHydrator = async (token) => {
         return session_service.hydrate_bearer(token);
@@ -122,8 +206,25 @@ export async function create_container(config: EnvConfig): Promise<Container> {
         account_controller,
         admin_controller,
         dashboard_controller,
+        overview_controller,
+        realm_inbox_controller,
+        getting_started_controller,
+        notification_center_controller,
+        inbox_controller,
+        realm_runs_controller,
+        realm_teams_controller,
+        team_page_controller,
+        agent_page_controller,
+        admin_page_controller,
+        review_page_controller,
+        org_page_controller,
+        realm_host_page_controller,
+        run_telemetry_controller,
+        realm_daemons_controller,
+        realm_settings_controller,
         hub_passthrough,
         core_api_client,
         hydrate_bearer,
+        core_compat,
     };
 }

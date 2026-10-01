@@ -19,6 +19,8 @@ async function main() {
             backend_url: config.backend_url,
             env: config.node_env,
         });
+        // Warn loudly (once) if the running Core is older than this BFF expects.
+        void container.core_compat.check();
     });
 
     const prune_interval = setInterval(async () => {
