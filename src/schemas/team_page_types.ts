@@ -66,8 +66,8 @@ export const TeamPageGetInput = z.object({
         .describe('Team scope'),
     name: SlugField
         .describe('Team name'),
-    view: z.enum(['overview', 'workflow', 'files', 'runs', 'installs', 'versions', 'settings']).default('overview')
-        .describe('Tab to load'),
+    view: z.enum(['overview', 'workflow', 'files', 'runs', 'installs', 'versions', 'settings', 'run']).default('overview')
+        .describe('Tab to load; `run` is the New run form (realms it can run in, inputs, human phases, the realm\'s people and channels)'),
     version: z.string().trim().min(1).max(64).optional()
         .describe('This published version; latest when omitted'),
     org_id: z.string().uuid().optional()
@@ -81,7 +81,7 @@ export const TeamPageGetInput = z.object({
     state: z.enum(['running', 'awaiting_input', 'failed']).optional()
         .describe('runs: only runs in this state'),
     realm_id: z.string().trim().min(1).max(128).optional()
-        .describe('runs: only this realm'),
+        .describe('runs: only this realm; run: the realm to start in (default: the first it is installed in)'),
     q: QField,
     limit: LimitField,
     offset: OffsetField,
@@ -118,6 +118,8 @@ export interface TeamInputData {
     description: string | null;
     required: boolean;
     default: string | null;
+    /** Input type when declared (e.g. `channel`); null for free text. */
+    type: string | null;
 }
 
 /** The team in one realm: version, whether it is behind, daemon coverage. */
@@ -247,7 +249,14 @@ export interface TeamChangeData {
 }
 
 /** Tab of the team page; only that tab's section is filled. */
-export type TeamPageView = 'overview' | 'workflow' | 'files' | 'runs' | 'installs' | 'versions' | 'settings';
+export type TeamPageView = 'overview' | 'workflow' | 'files' | 'runs' | 'installs' | 'versions' | 'settings' | 'run';
+
+/** A human phase of the team and who reviews it by default. */
+export interface TeamHumanPhaseData {
+    name: string;
+    /** The manifest's reviewers expression or list, as written (null when none). */
+    default_reviewers: string | null;
+}
 
 /** `team_page/get` — header, counts and the requested tab's data. */
 export interface TeamPageData {
@@ -294,6 +303,19 @@ export interface TeamPageData {
     versions?: {
         items: TeamReleaseData[];
         compare: { from: string; to: string; changes: TeamChangeData[] } | null;
+    };
+    /** The New run form. */
+    run?: {
+        /** Realms the team is installed in (or listed for). */
+        realms: TeamInstallData[];
+        /** The realm the form starts in (null when it is installed nowhere). */
+        realm_id: string | null;
+        inputs: TeamInputData[];
+        human_phases: TeamHumanPhaseData[];
+        /** People who can review in that realm. */
+        people: Array<{ username: string; role: string }>;
+        /** Notification channels of that realm. */
+        channels: Array<{ name: string; enabled: boolean; types: string[] }>;
     };
     partial: boolean;
 }

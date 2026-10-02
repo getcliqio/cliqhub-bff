@@ -68,7 +68,7 @@ describe('phase normalization + diff', () => {
 
     it('diffs versions by phase, role and inputs', () => {
         const a = { phases: to_phases({ phases: WF.phases.slice(0, 2) }, [{ name: 'architect', content_md: 'A' }]).phases, inputs: [] };
-        const b = { phases: to_phases(WF, [{ name: 'architect', content_md: 'A\nB' }]).phases, inputs: [{ name: 'ticket', description: null, required: true, default: null }] };
+        const b = { phases: to_phases(WF, [{ name: 'architect', content_md: 'A\nB' }]).phases, inputs: [{ name: 'ticket', description: null, required: true, default: null, type: null }] };
         const d = diff_versions(a, b);
         expect(d).toContainEqual(expect.objectContaining({ kind: 'added', target: 'phase', name: 'check' }));
         expect(d).toContainEqual(expect.objectContaining({ kind: 'changed', target: 'role', name: 'roles/architect.md', detail: '+1 −0 lines' }));
@@ -233,6 +233,32 @@ describe('TeamPageService.page', () => {
         expect(plain.team).toMatchObject({ forked_from: null, fork_count: 0, draft_saved_at: null });
     });
 
+    it('run: realms it can run in, inputs, human phases, and the realm\'s people and channels', async () => {
+        const m = mocks();
+        const wf = { phases: [...WF.phases, { name: 'sign-off', type: 'gate', agent: 'hug', depends_on: ['check'] }] };
+        m.teams.get_by_id = vi.fn().mockResolvedValue(team({ workflow: wf, inputs: [{ name: 'ticket', required: true, description: 'Jira key' }, { name: 'notify', type: 'channel' }] }));
+        Object.assign(m.control, {
+            realm_members: vi.fn().mockResolvedValue([
+                { member_type: 'user', member_id: 'u2', username: 'priya', role: 'operator' },
+                { member_type: 'daemon', member_id: 'd1', role: 'daemon' },
+                { member_type: 'user', member_id: 'u1', username: 'ana', role: 'viewer' },
+            ]),
+            realm_channels: vi.fn().mockResolvedValue([{ name: 'payments-eng', enabled: 1, destinations: [{ type: 'slack' }] }]),
+        });
+        const r = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'run', realm_id: 'r2' }, 't');
+        expect(r.run).toMatchObject({
+            realm_id: 'r2',
+            inputs: [{ name: 'ticket', required: true, type: null }, { name: 'notify', required: false, type: 'channel' }],
+            human_phases: [{ name: 'architect', default_reviewers: '$(inputs.reviewers)' }, { name: 'sign-off', default_reviewers: null }],
+            people: [{ username: 'ana', role: 'viewer' }, { username: 'priya', role: 'operator' }],
+            channels: [{ name: 'payments-eng', enabled: true, types: ['slack'] }],
+        });
+        expect(r.run!.realms.map((i) => i.realm_id)).toEqual(['r1', 'r2']);
+        expect((m.control as unknown as { realm_members: ReturnType<typeof vi.fn> }).realm_members).toHaveBeenCalledWith('r2', 't');
+        const first = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'run' }, 't');
+        expect(first.run!.realm_id).toBe('r1');
+    });
+
     it('overview: header, permissions, counts, installs', async () => {
         const m = mocks();
         const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview' }, 'tok');
@@ -240,7 +266,7 @@ describe('TeamPageService.page', () => {
         expect(data.team).toMatchObject({ id: TEAM_ID, label: '@acme/feature-dev', latest_version: '1.2.0', version: '1.2.0', can_edit: true, can_toggle_listing: false });
         expect(data.counts).toEqual({ phases: 3, versions: 2, runs: 9 });
         expect(data.overview?.agents).toEqual(['claude-code']);
-        expect(data.overview?.inputs).toEqual([{ name: 'ticket', description: 'Jira key', required: true, default: null }]);
+        expect(data.overview?.inputs).toEqual([{ name: 'ticket', description: 'Jira key', required: true, default: null, type: null }]);
         expect(data.overview?.installs.map((i) => i.realm_slug)).toEqual(['prod', 'stg']);
         expect(m.teams.get).toHaveBeenCalledWith({ realm_id: 'r1', limit: 20, offset: 0, query: 'feature-dev' }, 'tok');
         expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, limit: 1 }, 'tok');

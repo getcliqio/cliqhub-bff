@@ -91,14 +91,14 @@ export function to_team_inputs_data(raw: unknown): TeamInputData[] {
     if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
         return Object.entries(raw as Rec).map(([name, v]) => {
             const o = (v && typeof v === 'object' ? v : {}) as Rec;
-            return { name, description: str(o.description), required: Boolean(o.required), default: o.default != null ? String(o.default) : null };
+            return { name, description: str(o.description), required: Boolean(o.required), default: o.default != null ? String(o.default) : null, type: str(o.type) };
         });
     }
     return arr(raw).map((v) => {
         const o = (v ?? {}) as Rec;
         const name = str(o.name) ?? str(o.key);
         if (!name) return null;
-        return { name, description: str(o.description), required: Boolean(o.required), default: o.default != null ? String(o.default) : null };
+        return { name, description: str(o.description), required: Boolean(o.required), default: o.default != null ? String(o.default) : null, type: str(o.type) };
     }).filter((x): x is TeamInputData => Boolean(x));
 }
 

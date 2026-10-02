@@ -417,6 +417,26 @@ export class TeamPageService {
             };
             data.partial = [realms, all, running, awaiting, failed].some((r) => r.status === 'rejected');
             if (all.status === 'fulfilled') data.counts.runs = all.value.total;
+        } else if (view === 'run') {
+            const realms = await this._realms(token);
+            const inst = await this._installs_by_label(token, realms.items.slice(0, TeamPageService.REALM_CAP), latest_of, { name, scope });
+            const runnable = (inst.map.get(label_of(scope, name)) ?? []).filter((i) => i.installed_count > 0 || i.in_team_list);
+            const realm_id = runnable.find((i) => i.realm_id === input.realm_id)?.realm_id ?? runnable[0]?.realm_id ?? null;
+            const [members, channels] = realm_id
+                ? await Promise.all([
+                    best_effort(log, 'team_run_members_failed', this._control.realm_members(realm_id, token), null, { team_id, realm_id }),
+                    best_effort(log, 'team_run_channels_failed', this._control.realm_channels(realm_id, token), null, { team_id, realm_id }),
+                ])
+                : [[], []];
+            data.run = {
+                realms: runnable, realm_id, inputs,
+                human_phases: phases.filter((p) => kind_of_phase(p.type, p.agent) === 'human' || p.review).map((p) => ({ name: p.name, default_reviewers: p.reviewers })),
+                people: (members ?? []).filter((m) => m.member_type === 'user' && m.username).map((m) => ({ username: String(m.username), role: m.role }))
+                    .sort((a, b) => a.username.localeCompare(b.username)),
+                channels: (channels ?? []).map((c) => ({ name: c.name, enabled: Boolean(c.enabled), types: (c.destinations ?? []).map((d) => String(d.type)) }))
+                    .sort((a, b) => a.name.localeCompare(b.name)),
+            };
+            data.partial = inst.failed || members === null || channels === null;
         } else if (view === 'installs') {
             const realms = await this._realms(token, input.org_id);
             const checked = realms.items.slice(0, TeamPageService.REALM_CAP);
