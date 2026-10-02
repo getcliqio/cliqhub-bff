@@ -169,6 +169,8 @@ export interface TeamCatalogRowData {
     has: CatalogHas[];
     /** Installed in the requested realm, on an online daemon, with every agent set up. */
     runnable: boolean;
+    /** Slugs of the caller's orgs whose team library has this team. */
+    in_orgs: string[];
 }
 
 /** Facet counts over the marketplace teams matching the search text. */
@@ -231,6 +233,25 @@ export interface TeamHeaderData {
     fork_count: number;
     /** When the unversioned working copy was last saved (editors only); null when there is none. */
     draft_saved_at: string | null;
+    /** The caller's orgs and whether each has the team (null when they could not be read). */
+    orgs: TeamOrgStateData[] | null;
+}
+
+/** One of the caller's orgs and the team's place in it. */
+export interface TeamOrgStateData {
+    org_id: string;
+    org_slug: string;
+    org_name: string;
+    /** The caller's role in the org. */
+    role: string;
+    /** In the org's team library. */
+    in_library: boolean;
+    /** One of the org's scopes owns the team. */
+    own: boolean;
+    added_at: string | null;
+    added_by: string | null;
+    /** The org's realms whose team list has the team. */
+    realms: Array<{ realm_id: string; slug: string }>;
 }
 
 /** A run of the team, with its realm link. */

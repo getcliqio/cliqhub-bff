@@ -23,6 +23,20 @@ import type { InAppNotificationPageVO, InAppNotificationVO, NotifChannelVO, Noti
 export type ControlRunState = 'running' | 'awaiting_input' | 'completed' | 'failed' | 'cancelled' | 'crashed';
 
 /** `runs/get` filter for one realm (sorted newest-updated first unless `sort_by`, default 25). */
+/** One org of the caller's (`orgs/get mine`). */
+export interface ControlOrgVO { id: string; slug: string; display_name: string; role: string }
+
+/** One team in an org's library (`orgs/get_teams`). */
+export interface ControlOrgTeamVO {
+    team_id: string;
+    scope: string | null;
+    name: string;
+    own: boolean;
+    added_at: string;
+    added_by: string | null;
+    realms: Array<{ realm_id: string; slug: string }>;
+}
+
 export interface ControlRunsFilter {
     realm_id: string;
     state?: ControlRunState | ControlRunState[];
@@ -160,6 +174,18 @@ export class ControlRepository {
     async realm_daemons(realm_id: string, limit: number, token: string): Promise<ControlPageVO<ControlDaemonVO>> {
         const res = await this._core.post_body<{ data?: Partial<ControlPageVO<ControlDaemonVO>> }>('/v1/daemons/get', { realm_id, limit, offset: 0 }, token);
         return page(res.data);
+    }
+
+    /** `POST /v1/orgs/get { mine: true }` — the orgs the caller belongs to, with their role. */
+    async my_orgs(token: string): Promise<ControlOrgVO[]> {
+        const res = await this._core.post_body<{ data?: { orgs?: ControlOrgVO[] } }>('/v1/orgs/get', { mine: true, limit: 100, offset: 0 }, token);
+        return Array.isArray(res.data?.orgs) ? res.data!.orgs! : [];
+    }
+
+    /** `POST /v1/orgs/get_teams { org_id }` — the org's team library. */
+    async org_teams(org_id: string, token: string): Promise<ControlOrgTeamVO[]> {
+        const res = await this._core.post_body<{ data?: { items?: ControlOrgTeamVO[] } }>('/v1/orgs/get_teams', { org_id }, token);
+        return Array.isArray(res.data?.items) ? res.data!.items! : [];
     }
 
     /** `POST /v1/realms/get_members { realm_id }` — the realm roster (users, groups, daemons). */

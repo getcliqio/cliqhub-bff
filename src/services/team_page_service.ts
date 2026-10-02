@@ -10,7 +10,7 @@
  *   runs/get { team_id }, runs/get_by_id, runs/get_status — runs and the workflow overlay
  */
 
-import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
+import type { ControlOrgTeamVO, ControlOrgVO, ControlRepository, ControlRunState } from '../repositories/control_repository.js';
 import type { TeamsRepository } from '../repositories/teams_repository.js';
 import type { TeamVO } from '../types/core/teams.js';
 import {
@@ -121,6 +121,17 @@ export class TeamPageService {
         });
         for (const v of map.values()) v.sort((a, b) => a.realm_slug.localeCompare(b.realm_slug));
         return { map, failed };
+    }
+
+    /** The caller's orgs, each with its team library (an org whose library can't be read is left out). */
+    private async _org_libraries(token: string): Promise<Array<{ org: ControlOrgVO; teams: ControlOrgTeamVO[] }> | null> {
+        const orgs = await best_effort(log, 'team_org_list_failed', this._control.my_orgs(token), null, {});
+        if (!orgs) return null;
+        const libs = await map_limited(orgs, 4, async (org) => {
+            const teams = await best_effort(log, 'team_org_library_failed', this._control.org_teams(org.id, token), null, { org_id: org.id });
+            return teams ? { org, teams } : null;
+        });
+        return libs.filter((x): x is { org: ControlOrgVO; teams: ControlOrgTeamVO[] } => x !== null);
     }
 
     // ── list ─────────────────────────────────────────────────────────────
@@ -240,7 +251,12 @@ export class TeamPageService {
 
         const realm = input.realm_id ? await best_effort(log, 'catalog_realm_failed', this._realm(token, input.realm_id), null, { realm_id: input.realm_id }) : null;
         const latest = new Map(all.map((t) => [label_of(str(t.scope), String(t.name)), str(t.latest_version) && t.latest_version !== '0.0.0' ? String(t.latest_version) : null]));
-        const installs = realm ? await this._installs_by_label(token, [realm], (l) => latest.get(l) ?? null) : null;
+        const [installs, libraries] = await Promise.all([
+            realm ? this._installs_by_label(token, [realm], (l) => latest.get(l) ?? null) : Promise.resolve(null),
+            this._org_libraries(token),
+        ]);
+        const in_orgs = new Map<string, string[]>();
+        for (const lib of libraries ?? []) for (const t of lib.teams) in_orgs.set(t.team_id, [...(in_orgs.get(t.team_id) ?? []), lib.org.slug]);
 
         const rows = all.map((t) => {
             const scope = str(t.scope);
@@ -254,6 +270,7 @@ export class TeamPageService {
                 tags: (t.tags ?? []).map(String), install_count: t.install_count ?? 0,
                 version_count: t.version_count ?? 0, fork_count: t.fork_count ?? 0, verified: t.verified === true,
                 updated_at: typeof t.updated_at === 'number' ? t.updated_at : null, has, runnable,
+                in_orgs: in_orgs.get(String(t.id)) ?? [],
             } satisfies TeamCatalogRowData };
         });
 
@@ -340,7 +357,17 @@ export class TeamPageService {
             forked_from: raw.forked_from ?? null,
             fork_count: raw.fork_count ?? 0,
             draft_saved_at: raw.draft?.saved_at ?? null,
+            orgs: null,
         };
+        // Started now, awaited last: which of the caller's orgs have the team.
+        const orgs = this._org_libraries(token).then((libraries) => (libraries ? libraries.map(({ org, teams }) => {
+            const t = teams.find((x) => x.team_id === team_id);
+            return {
+                org_id: org.id, org_slug: org.slug, org_name: org.display_name || org.slug, role: org.role,
+                in_library: Boolean(t), own: Boolean(t?.own), added_at: t?.added_at ?? null, added_by: t?.added_by ?? null,
+                realms: t?.realms ?? [],
+            };
+        }) : null));
         const run_scope = { team_id, ...(input.org_id ? { org_id: input.org_id } : {}) };
         // Started now, awaited last (only when the tab didn't already count runs).
         const runs_total = best_effort(log, 'team_page_runs_total_failed', this._control.runs_for_team({ ...run_scope, limit: 1 }, token).then((r) => r.total), null, { team_id });
@@ -468,6 +495,7 @@ export class TeamPageService {
         }
 
         if (data.counts.runs === null) data.counts.runs = await runs_total;
+        header.orgs = await orgs;
         return data;
     }
 }

@@ -42,6 +42,11 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     '/v1/realms/remove_member': 'token',
     '/v1/realms/add_team': 'token',
     '/v1/realms/remove_team': 'token',
+
+    // ── Org team library ──────────────────────────────────────────────────
+    '/v1/orgs/get_teams': 'token',
+    '/v1/orgs/add_team': 'token',
+    '/v1/orgs/remove_team': 'token',
     '/v1/realms/a2a': 'token',
 
     // ── Teams on daemons (install / uninstall) and version removal ────────

@@ -36,6 +36,11 @@ function mocks() {
                 : { items: [{ run_id: 'run1', realm_id: 'r1', team_id: TEAM_ID, state: 'running', run_name: 'PROJ-1' }], total: 9 })),
             run_by_id: vi.fn().mockResolvedValue({ run_id: 'run1', realm_id: 'r1', team_id: TEAM_ID, state: 'running', team_version_id: 'v-old' }),
             run_phases: vi.fn().mockResolvedValue([{ phase: 'fetch', status: 'completed' }, { phase: 'architect', status: 'running' }]),
+            my_orgs: vi.fn().mockResolvedValue([{ id: 'o-acme', slug: 'acme', display_name: 'Acme', role: 'admin' }, { id: 'o-beta', slug: 'beta', display_name: '', role: 'member' }]),
+            org_teams: vi.fn().mockImplementation(async (org_id: string) => (org_id === 'o-acme'
+                ? [{ team_id: TEAM_ID, scope: 'acme', name: 'feature-dev', own: true, added_at: '2026-10-01T00:00:00.000Z', added_by: 'sapan', realms: [{ realm_id: 'r1', slug: 'prod' }] },
+                    { team_id: 'f', scope: 'cliq', name: 'feature-dev', own: false, added_at: '2026-10-02T00:00:00.000Z', added_by: 'sapan', realms: [] }]
+                : [])),
         },
         teams: {
             get: vi.fn().mockImplementation(async (f: { mine?: boolean; realm_id?: string }) => {
@@ -177,7 +182,8 @@ describe('TeamPageService.list — marketplace (source catalog)', () => {
         const r = await svc(m).list({ source: 'catalog' }, 'tok');
         expect(m.teams.get).toHaveBeenCalledWith({ with_workflow: true, limit: 100, offset: 0 }, 'tok');
         expect(r.items.map((i) => i.name)).toEqual(['content-review', 'feature-dev', 'incident']);
-        expect(r.items[1].catalog).toEqual({ tags: ['engineering', 'tdd'], install_count: 40, version_count: 12, fork_count: 3, verified: true, updated_at: 900, has: ['human', 'gate'], runnable: false });
+        expect(r.items[1].catalog).toEqual({ tags: ['engineering', 'tdd'], install_count: 40, version_count: 12, fork_count: 3, verified: true, updated_at: 900, has: ['human', 'gate'], runnable: false, in_orgs: ['acme'] });
+        expect(r.items[0].catalog?.in_orgs).toEqual([]);
         expect(r.items[2].catalog?.has).toEqual(['connector']);
         expect(r.facets).toEqual({
             tags: [{ tag: 'engineering', count: 2 }, { tag: 'content', count: 1 }, { tag: 'tdd', count: 1 }],
@@ -231,6 +237,19 @@ describe('TeamPageService.page', () => {
         });
         const plain = await svc(mocks()).page({ scope: 'acme', name: 'feature-dev', view: 'settings' }, 't');
         expect(plain.team).toMatchObject({ forked_from: null, fork_count: 0, draft_saved_at: null });
+    });
+
+    it("header: each of the caller's orgs, whether its library has the team and which of its realms do", async () => {
+        const m = mocks();
+        const r = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'files' }, 't');
+        expect(r.team.orgs).toEqual([
+            { org_id: 'o-acme', org_slug: 'acme', org_name: 'Acme', role: 'admin', in_library: true, own: true, added_at: '2026-10-01T00:00:00.000Z', added_by: 'sapan', realms: [{ realm_id: 'r1', slug: 'prod' }] },
+            { org_id: 'o-beta', org_slug: 'beta', org_name: 'beta', role: 'member', in_library: false, own: false, added_at: null, added_by: null, realms: [] },
+        ]);
+        m.control.org_teams.mockRejectedValueOnce(new Error('down'));
+        expect((await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'files' }, 't')).team.orgs?.map((o) => o.org_slug)).toEqual(['beta']);
+        m.control.my_orgs.mockRejectedValueOnce(new Error('down'));
+        expect((await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'files' }, 't')).team.orgs).toBeNull();
     });
 
     it('run: realms it can run in, inputs, human phases, and the realm\'s people and channels', async () => {
