@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { ApiClient } from '../../src/repositories/api_client.js';
-import { ApiError } from '../../src/repositories/api_error.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
+import { ApiError } from '../../src/errors/api_error.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 
@@ -82,7 +82,7 @@ describe('Auth / session integration', () => {
 
     describe('POST /v1/session/create', () => {
         it('returns 200 + set-cookie on valid credentials', async () => {
-            vi.spyOn(ApiClient.prototype, 'post').mockResolvedValueOnce({
+            vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
                 user: ALICE_USER,
                 token: 'cliq_tok_abc',
                 scopes: ['alice'],
@@ -103,7 +103,7 @@ describe('Auth / session integration', () => {
         });
 
         it('returns target_token when X-Client: cli', async () => {
-            vi.spyOn(ApiClient.prototype, 'post').mockResolvedValueOnce({
+            vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
                 user: ALICE_USER,
                 token: 'cliq_tok_cli',
                 scopes: ['alice'],
@@ -121,7 +121,7 @@ describe('Auth / session integration', () => {
         });
 
         it('returns 401 on bad credentials', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockRejectedValueOnce(new ApiError('unauthorized', 'Invalid credentials', 401));
 
             const res = await request(app)
@@ -183,7 +183,7 @@ describe('Auth / session integration', () => {
         });
 
         it('destroys session so get returns 401', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     user: ALICE_USER,
                     token: 'cliq_tok_abc',
@@ -217,7 +217,7 @@ describe('Auth / session integration', () => {
 
     describe('POST /v1/auth/signup', () => {
         it('returns 201 + set-cookie on valid signup', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     token: 'cliq_tok_new',
                     user: { ...ALICE_USER, id: 2, username: 'bob' },
@@ -270,7 +270,7 @@ describe('Auth / session integration', () => {
 
         it('creates token for authenticated user', async () => {
             seed_session(session_store, 'token-test-sid');
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ token: 'cliq_tok_new123', name: 'CI', id: 9, realm_ids: [] });
 
             const res = await request(app)
@@ -286,7 +286,7 @@ describe('Auth / session integration', () => {
         it('creates token with Authorization Bearer (CLI PAT, no cookie)', async () => {
             const user_uuid = '11111111-1111-4111-8111-111111111111';
             // session_auth hydrates Bearer before the handler (validate → user → scopes).
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ valid: true, user_id: user_uuid })
                 .mockResolvedValueOnce({
                     id: user_uuid,
@@ -314,8 +314,8 @@ describe('Auth / session integration', () => {
     describe('POST /v1/auth/revoke_token', () => {
         it('revokes token for authenticated user', async () => {
             seed_session(session_store, 'revoke-test-sid');
-            vi.spyOn(ApiClient.prototype, 'post')
-                .mockResolvedValueOnce({ deleted: true });
+            vi.spyOn(CoreClient.prototype, 'post')
+                .mockResolvedValueOnce({ revoked: true, type: 'user' });
 
             const res = await request(app)
                 .post('/v1/auth/revoke_token')
@@ -324,14 +324,17 @@ describe('Auth / session integration', () => {
                 .send({ type: 'user', token_id: 5 });
 
             expect(res.status).toBe(200);
-            expect(res.body.data.deleted).toBe(true);
+            expect(res.body.data).toEqual({ revoked: true });
+            const call = vi.mocked(CoreClient.prototype.post).mock.calls[0];
+            expect(call[0]).toBe('/v1/auth/revoke_token');
+            expect(call[1]).toMatchObject({ type: 'user', token_id: 5 });
         });
     });
 
     describe('POST /v1/auth/get_tokens', () => {
         it('returns token list for authenticated user', async () => {
             seed_session(session_store, 'list-test-sid');
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     tokens: [
                         { id: 1, name: 'CLI', created_at: '2025-01-01', last_used_at: null },

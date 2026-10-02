@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RealmRunsService } from '../../../src/services/realm_runs_service.js';
-import { ApiError } from '../../../src/repositories/api_error.js';
+import { ApiError } from '../../../src/errors/api_error.js';
 
 const NOW = 10_000_000_000;
 function mocks() {
@@ -15,7 +15,7 @@ function mocks() {
 describe('RealmRunsService', () => {
     it('one page + chip counts, filters passed to Core as the bearer', async () => {
         const c = mocks();
-        const dto = await new RealmRunsService(c as any, () => NOW).get('tok', { org_slug: 'acme', slug: 'prod', state: 'failed', q: 'PROJ', limit: 10, offset: 20 });
+        const dto = await new RealmRunsService(c as any, () => NOW).get({ org_slug: 'acme', slug: 'prod', state: 'failed', q: 'PROJ', limit: 10, offset: 20 }, 'tok');
         expect(c.realm_by_slug).toHaveBeenCalledWith('acme', 'prod', 'tok');
         expect(c.runs).toHaveBeenCalledWith({ realm_id: 'r1', limit: 10, offset: 20, state: ['failed', 'crashed'], query: 'PROJ' }, 'tok');
         expect(c.runs).toHaveBeenCalledWith({ realm_id: 'r1', limit: 1, state: ['failed', 'crashed'], since_ms: NOW - 7 * 86_400_000 }, 'tok');
@@ -29,12 +29,20 @@ describe('RealmRunsService', () => {
             if (f.limit === 1 && f.state === 'running') throw new ApiError('upstream', 'x', 502);
             return { items: [], total: 0 };
         });
-        const dto = await new RealmRunsService(c as any).get('tok', { org_slug: 'acme', slug: 'prod' });
+        const dto = await new RealmRunsService(c as any).get({ org_slug: 'acme', slug: 'prod' }, 'tok');
         expect(dto.partial).toBe(true);
         expect(dto.counts.running).toBeNull();
         c.runs.mockRejectedValue(new ApiError('upstream', 'down', 502));
-        await expect(new RealmRunsService(c as any).get('tok', { org_slug: 'acme', slug: 'prod' })).rejects.toMatchObject({ status: 502 });
+        await expect(new RealmRunsService(c as any).get({ org_slug: 'acme', slug: 'prod' }, 'tok')).rejects.toMatchObject({ status: 502 });
         c.realm_by_slug.mockRejectedValue(new ApiError('forbidden', 'no', 403));
-        await expect(new RealmRunsService(c as any).get('tok', { org_slug: 'acme', slug: 'prod' })).rejects.toMatchObject({ status: 403 });
+        await expect(new RealmRunsService(c as any).get({ org_slug: 'acme', slug: 'prod' }, 'tok')).rejects.toMatchObject({ status: 403 });
+    });
+
+    it('sort_by / sort_dir go to runs/get for the page only; sortable lists Core\'s keys', async () => {
+        const c = mocks();
+        const dto = await new RealmRunsService(c as any, () => NOW).get({ org_slug: 'acme', slug: 'prod', q: ' PROJ ', sort_by: 'run_name', sort_dir: 'asc', limit: 10 }, 'tok');
+        expect(c.runs).toHaveBeenCalledWith({ realm_id: 'r1', limit: 10, offset: 0, query: 'PROJ', sort_by: 'run_name', sort_dir: 'asc' }, 'tok');
+        expect(c.runs.mock.calls.filter(([f]) => f.limit === 1).every(([f]) => !('sort_by' in f))).toBe(true);
+        expect(dto.sortable).toEqual(['run_name', 'state', 'team', 'started_at', 'last_updated_at']);
     });
 });

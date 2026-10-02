@@ -1,4 +1,10 @@
+/**
+ * CSRF guard: state-changing cookie requests must carry
+ * `X-Requested-With: XMLHttpRequest`; Bearer clients are exempt.
+ */
+
 import type { Request, Response, NextFunction } from 'express';
+import { ApiError } from '../errors/api_error.js';
 
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const REQUIRED_HEADER = 'x-requested-with';
@@ -34,11 +40,5 @@ export function csrf_guard(
         return;
     }
 
-    res.status(403).json({
-        ok: false,
-        error: {
-            code: 'csrf_rejected',
-            message: `Missing or invalid ${REQUIRED_HEADER} header`,
-        },
-    });
+    next(new ApiError('csrf_rejected', `Missing or invalid ${REQUIRED_HEADER} header`, 403));
 }

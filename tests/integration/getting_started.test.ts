@@ -2,8 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { ApiClient } from '../../src/repositories/api_client.js';
-import { CoreApiClient } from '../../src/repositories/core_api_client.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -24,12 +23,12 @@ describe('POST /v1/getting_started/get', () => {
         return sid;
     }
     function mock() {
-        const api = vi.spyOn(ApiClient.prototype, 'post').mockImplementation(async (path: string) => {
+        const api = vi.spyOn(CoreClient.prototype, 'post').mockImplementation(async (path: string) => {
             if (path === '/v1/orgs/get') return { orgs: [{ id: ORG, slug: 'acme', display_name: 'Acme', role: 'owner', member_count: 1, scope_count: 1 }] } as any;
-            if (path === '/v1/teams/get') return { ok: true, data: { rows: [{}], total: 1 } } as any;
+            if (path === '/v1/teams/get') return { items: [{ name: 'tdd', scope: 'cliq' }], total: 1, offset: 0, limit: 1 } as any;
             throw new Error(`unexpected ${path}`);
         });
-        const core = vi.spyOn(CoreApiClient.prototype, 'post').mockImplementation(async (path: string) => {
+        const core = vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string) => {
             if (path === '/internal/dashboard/realms') return { ok: true, realms: [{ id: 'r1', slug: 'prod', name: 'Prod', daemons: { online: 1, total: 1 } }] } as any;
             if (path === '/v1/runs/get') return { ok: true, data: { items: [], total: 0 } } as any;
             throw new Error(`unexpected ${path}`);
@@ -49,7 +48,29 @@ describe('POST /v1/getting_started/get', () => {
         const { api, core } = mock();
         const res = await request(app).post('/v1/getting_started/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({});
         expect(res.status).toBe(200);
-        expect(res.body.data).toMatchObject({ done_count: 3, total: 4, realm: { org_slug: 'acme', slug: 'prod' }, run: { done: false } });
+        expect(res.body.data).toMatchObject({
+            done_count: 3, total: 4, partial: false,
+            cli: { done: true },
+            daemon: { done: true, online: 1, total: 1, realm: { org_slug: 'acme', slug: 'prod' } },
+            team: { done: true, realm: { org_slug: 'acme', slug: 'prod' } },
+            realm: { org_slug: 'acme', slug: 'prod' },
+            run: { done: false, run_id: null },
+        });
+        const teams_call = api.mock.calls.find((c) => c[0] === '/v1/teams/get');
+        expect(teams_call?.[1]).toEqual({ realm_id: 'r1', limit: 1 });
         for (const c of [...api.mock.calls, ...core.mock.calls]) expect(c[2]).toBe('tok-priya');
+    });
+
+    it('team not done when the realm roster page is empty', async () => {
+        const sid = sess();
+        const { api } = mock();
+        api.mockImplementation(async (path: string) => {
+            if (path === '/v1/orgs/get') return { orgs: [{ id: ORG, slug: 'acme', display_name: 'Acme', role: 'owner', member_count: 1, scope_count: 1 }] } as any;
+            if (path === '/v1/teams/get') return { items: [], total: 0, offset: 0, limit: 1 } as any;
+            throw new Error(`unexpected ${path}`);
+        });
+        const res = await request(app).post('/v1/getting_started/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({});
+        expect(res.status).toBe(200);
+        expect(res.body.data).toMatchObject({ done_count: 2, team: { done: false, realm: null } });
     });
 });

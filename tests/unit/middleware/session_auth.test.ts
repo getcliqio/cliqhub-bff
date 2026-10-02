@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
     create_session_auth,
-    require_session,
 } from '../../../src/middleware/session_auth.js';
 
 function make_req(
@@ -145,27 +144,18 @@ describe('create_session_auth', () => {
         expect(mock_store.touch).not.toHaveBeenCalled();
         expect(next).toHaveBeenCalled();
     });
-});
 
-describe('require_session', () => {
-    it('calls next when session exists', () => {
-        const req = make_req();
-        req.session_data = MOCK_SESSION;
-        const res = make_res();
+    it('session DB down → 503 session_store_unavailable, never "signed out"', async () => {
+        mock_store.find.mockRejectedValue(new Error('connect ECONNREFUSED'));
+        const hydrate = vi.fn();
+        const mw = create_session_auth(mock_store as any, 'sid', hydrate);
+        const req = make_req({ sid: 'sid-123' }, { authorization: 'Bearer cliq_tok_x' });
         const next = vi.fn();
 
-        require_session(req, res, next);
-        expect(next).toHaveBeenCalled();
-    });
+        await mw(req, make_res(), next);
 
-    it('returns 401 when no session', () => {
-        const req = make_req();
-        const res = make_res();
-        const next = vi.fn();
-
-        require_session(req, res, next);
-        expect(next).not.toHaveBeenCalled();
-        expect(res.status_code).toBe(401);
-        expect(res.body.error.code).toBe('unauthorized');
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'session_store_unavailable', status: 503 }));
+        expect(req.session_data).toBeUndefined();
+        expect(hydrate).not.toHaveBeenCalled();
     });
 });

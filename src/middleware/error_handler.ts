@@ -1,37 +1,37 @@
+/**
+ * The last middleware: turns anything thrown or passed to `next(err)` into
+ * the error envelope `{ ok: false, error: { code, message, details? } }`.
+ *
+ *   ApiError      → its status and code (Core errors arrive here already
+ *                   translated by errors/upstream_error.ts)
+ *   anything else → 500 `internal_error` (message hidden in production)
+ *
+ * Logging follows middleware/error_logging.ts.
+ */
+
 import type { Request, Response, NextFunction } from 'express';
-import { ApiError } from '../repositories/api_error.js';
-import { get_logger } from '../lib/log.js';
+import { ApiError } from '../errors/api_error.js';
+import { log_request_error, public_error_message } from './error_logging.js';
 
-const log = get_logger('errors');
-
+/** Express error middleware: writes the error envelope (see file header). */
 export function error_handler(
-    err: Error,
+    err: unknown,
     req: Request,
     res: Response,
     _next: NextFunction,
 ): void {
     if (err instanceof ApiError) {
+        log_request_error(req, err.status, err, err.code);
         res.status(err.status).json({
             ok: false,
-            error: { code: err.code, message: err.message },
+            error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) },
         });
         return;
     }
 
-    log.error('unhandled_error', {
-        request_id: req.request_id ?? null,
-        path: req.originalUrl || req.url,
-        method: req.method,
-        error: err.message,
-    });
-
+    log_request_error(req, 500, err);
     res.status(500).json({
         ok: false,
-        error: {
-            code: 'internal_error',
-            message: process.env.NODE_ENV === 'production'
-                ? 'Internal server error'
-                : err.message,
-        },
+        error: { code: 'internal_error', message: public_error_message(err) },
     });
 }

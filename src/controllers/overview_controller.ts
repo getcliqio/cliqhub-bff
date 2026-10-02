@@ -1,30 +1,34 @@
-import type { Request, Response } from 'express';
+/**
+ * Overview — the cross-org start view of the signed-in user (BFF composition).
+ *
+ * Routes (1:1 with this controller):
+ *   POST /v1/overview/get — every org's counts, realms, what needs the user and the bell summary
+ *
+ * Needs a session (routes/route_auth.ts); Core is read as the session's target_token.
+ * Response envelope: `{ ok: true, data: T }` via `this.ok()`.
+ * Inbound SoT: Zod `OverviewGetInput` in `schemas/overview_types.ts`.
+ */
+
 import { BaseController } from './base_controller.js';
 import type { OverviewService } from '../services/overview_service.js';
-import { overview_get_schema } from '../schemas/overview_schemas.js';
+import type { ApiOkResponse, ApiRequest } from '../types/api_response.js';
+import { OverviewGetInput } from '../schemas/overview_types.js';
+import type { OverviewData } from '../schemas/overview_types.js';
 
-/**
- * `POST /v1/overview/get` — cross-org start view (BFF composition).
- * Envelope: `{ ok: true, data: OverviewDTO }`.
- */
+/** The signed-in user's cross-org overview page. */
 export class OverviewController extends BaseController {
-    private _service: OverviewService;
-
-    constructor(service: OverviewService) {
+    constructor(private readonly _overview_service: OverviewService) {
         super();
-        this._service = service;
     }
 
-    get = this.wrap(async (req: Request, res: Response) => {
-        // Session (or hydrated Bearer) required — the view is per-user.
-        if (!req.session_data) {
-            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
-            return;
-        }
-        // Reject unknown fields early (strict schema).
-        const body = this.parse_body(overview_get_schema, req);
-        // target_token = the effective user (respects admin take-over).
-        const dto = await this._service.get(req.session_data.target_token, { org_ids: body.org_ids, inbox_seen_ms: body.inbox_seen_ms });
-        this.ok(res, dto);
-    });
+    /**
+     * Cross-org overview; one org failing marks it `error` and the answer `partial`.
+     *
+     * @param req - Body: {@link OverviewGetInput}
+     * @param res - `{ ok: true, data: OverviewData }`; 403 when `org_ids` names an org the caller is not in
+     */
+    async get(req: ApiRequest<OverviewGetInput, OverviewData>, res: ApiOkResponse<OverviewData>): Promise<void> {
+        const body = this.parse_body(OverviewGetInput, req);
+        this.ok(res, await this._overview_service.get(body, this.session(req).target_token));
+    }
 }

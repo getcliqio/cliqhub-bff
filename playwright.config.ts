@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { defineConfig, devices } from '@playwright/test';
+import { e2e_database_url, ensure_e2e_database } from './e2e/e2e_database';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -9,9 +10,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_URL = process.env.APP_URL || 'http://localhost:3010';
 const BFF_URL = process.env.BFF_URL || 'http://localhost:3001';
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:4100';
-/** E2E must use local Postgres — never the Railway URL from service .env files. */
-const DATABASE_URL = process.env.E2E_DATABASE_URL
-    || 'postgresql://cliqhub:cliqhub@localhost:5432/cliqhub';
+/**
+ * E2E must use its own local Postgres database — never the Railway URL from service .env
+ * files, and never the `cliqhub` dev DB (the suite creates and deletes data freely).
+ */
+const DATABASE_URL = e2e_database_url;
+await ensure_e2e_database(DATABASE_URL);
 
 function port_from_url(url: string, fallback: number): number {
     try {
@@ -129,6 +133,8 @@ export default defineConfig({
             reuseExistingServer: false,
             timeout: 90_000,
             cwd: frontend_root,
+            // Beats BFF_URL in cliqhub-frontend/.env.local, which points the proxy at the dev BFF.
+            env: { ...process.env, BFF_URL } as Record<string, string>,
         },
     ],
 });

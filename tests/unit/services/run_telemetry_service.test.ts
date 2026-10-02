@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RunTelemetryService, union_ms } from '../../../src/services/run_telemetry_service.js';
+import { CoreReadRepository } from '../../../src/repositories/core_read_repository.js';
 
 const M = 60_000;
 const t0 = 1_700_000_000_000;
@@ -21,7 +22,7 @@ const USAGE = { run: { total_tokens_in: 130, total_tokens_out: 13, total_cost_us
 const PHASES = [['plan', 0, 6], ['review', 6, 44], ['check', 44, 60], ['pr', 60, 62]].map(([phase, s, e], i) => ({ phase: phase as string, status: 'completed', sequence: i + 1, started_at: t0 + (s as number) * M, completed_at: t0 + (e as number) * M }));
 
 function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_fail?: boolean } = {}) {
-    const core = { post: vi.fn(async (p: string, b: any) => {
+    const core = { post_body: vi.fn(async (p: string, b: any) => {
         if (opts.fail?.includes(p + (b.kind ?? ''))) throw new Error('boom');
         if (p === '/v1/runs/get_telemetry') return { ok: true, data: b.kind === 'usage' ? (opts.usage ?? USAGE) : (opts.spans ?? SPANS) };
         if (p === '/v1/teams/get_phases') return { ok: true, data: { phases: [{ name: 'plan', type: 'standard' }, { name: 'review', agent: 'hug' }, { name: 'check', type: 'gate', depends_on: ['plan', 'review'] }, { name: 'pr', depends_on: ['check'] }] } };
@@ -32,7 +33,7 @@ function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_f
         realm_by_id: vi.fn(async () => { if (opts.realm_fail) throw Object.assign(new Error('forbidden'), { status: 403 }); return { id: 'realm1' }; }),
         run_phases: vi.fn(async () => PHASES),
     } as any;
-    return { svc: new RunTelemetryService(core, control), core, control };
+    return { svc: new RunTelemetryService(new CoreReadRepository(core), control), core, control };
 }
 
 describe('union_ms', () => {
@@ -42,8 +43,8 @@ describe('union_ms', () => {
 describe('RunTelemetryService', () => {
     it('composes totals, phases, bars, models and agents', async () => {
         const { svc, core } = make();
-        const d = await svc.get('tok', { run_id: 'r1' });
-        expect(core.post.mock.calls.find((c: any[]) => c[0] === '/v1/teams/get_phases')[1]).toEqual({ team_id: 't1', version_id: 'v1' });
+        const d = await svc.get({ run_id: 'r1' }, 'tok');
+        expect(core.post_body.mock.calls.find((c: any[]) => c[0] === '/v1/teams/get_phases')[1]).toEqual({ team_id: 't1', version_id: 'v1' });
         expect(d.totals).toMatchObject({ duration_ms: 64 * M, cost_usd: 2.5, tokens_in: 130, tokens_out: 13, cached_in: 60, model_calls: 7, agent_runs: 5, reworks: 1 });
         expect(d.totals.time).toEqual({ working_ms: 6 * M, people_ms: 38 * M, gates_ms: 14 * M, other_ms: 2 * M, queued_ms: 4 * M });
         const byname = Object.fromEntries(d.phases.map((p) => [p.name, p]));
@@ -61,7 +62,7 @@ describe('RunTelemetryService', () => {
 
     it('no telemetry yet: phases from status rows, empty sections, not partial', async () => {
         const { svc } = make({ spans: [], usage: { run: null, phases: [] } });
-        const d = await svc.get('tok', { run_id: 'r1' });
+        const d = await svc.get({ run_id: 'r1' }, 'tok');
         expect(d.bars).toEqual([]);
         expect(d.phases.map((p) => p.name)).toEqual(['plan', 'review', 'check', 'pr']);
         expect(d.totals.cost_usd).toBeNull();
@@ -71,13 +72,13 @@ describe('RunTelemetryService', () => {
 
     it('a failing telemetry read is partial, not fatal', async () => {
         const { svc } = make({ fail: ['/v1/runs/get_telemetryspans'] });
-        const d = await svc.get('tok', { run_id: 'r1' });
+        const d = await svc.get({ run_id: 'r1' }, 'tok');
         expect(d).toMatchObject({ partial: true, sections: { spans: 'error', usage: 'ok' } });
     });
 
     it('realm gate: no access to the realm → no telemetry', async () => {
         const { svc, core } = make({ realm_fail: true });
-        await expect(svc.get('tok', { run_id: 'r1' })).rejects.toThrow('forbidden');
-        expect(core.post).not.toHaveBeenCalled();
+        await expect(svc.get({ run_id: 'r1' }, 'tok')).rejects.toThrow('forbidden');
+        expect(core.post_body).not.toHaveBeenCalled();
     });
 });

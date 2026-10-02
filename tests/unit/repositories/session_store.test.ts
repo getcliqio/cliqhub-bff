@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { SessionStore, REQUIRED_SESSION_COLUMNS } from '../../../src/repositories/session_store.js';
+import { SessionStore, SESSION_COLUMNS } from '../../../src/repositories/session_store.js';
 import type { EnvConfig } from '../../../src/config/env.js';
 
 function make_config(overrides: Partial<EnvConfig> = {}): EnvConfig {
@@ -98,13 +98,17 @@ describe('SessionStore', () => {
             expect(sql.indexOf('pg_advisory_xact_lock')).toBeLessThan(sql.indexOf('CREATE TABLE'));
         });
 
-        it('recreates only a legacy table that is missing a current column', async () => {
+        it('never drops the table: an older table only gains the missing columns', async () => {
             pool.query.mockResolvedValue({});
             await store.init();
             const sql = String(pool.query.mock.calls[0][0]);
-            for (const c of REQUIRED_SESSION_COLUMNS) expect(sql).toContain(`'${c}'`);
-            expect(sql).toContain(`HAVING count(*) = ${REQUIRED_SESSION_COLUMNS.length}`);
-            expect(sql).toMatch(/THEN\s+DROP TABLE bff\.sessions;/);
+            expect(sql).not.toMatch(/DROP|TRUNCATE|DELETE/i);
+            for (const [name] of SESSION_COLUMNS.filter(([n]) => n !== 'session_id')) {
+                expect(sql).toContain(`ADD COLUMN IF NOT EXISTS ${name} `);
+            }
+            // NOT NULL columns added to a table with rows need a default.
+            expect(sql).toContain("ADD COLUMN IF NOT EXISTS user_token TEXT NOT NULL DEFAULT ''");
+            expect(sql).toContain('ADD COLUMN IF NOT EXISTS expires_at BIGINT NOT NULL DEFAULT 0');
         });
     });
 

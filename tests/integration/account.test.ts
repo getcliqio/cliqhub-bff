@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { ApiClient } from '../../src/repositories/api_client.js';
-import { ApiError } from '../../src/repositories/api_error.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
+import { ApiError } from '../../src/errors/api_error.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 
@@ -57,7 +57,7 @@ describe('Account integration', () => {
 
         it('returns 200 on display_name update', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     user: {
                         id: 1, username: 'alice', display_name: 'Alice W', email: 'alice@test.com',
@@ -78,7 +78,7 @@ describe('Account integration', () => {
 
         it('returns 200 on email update', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     user: {
                         id: 1, username: 'alice', display_name: 'Alice', email: 'new@test.com',
@@ -98,7 +98,7 @@ describe('Account integration', () => {
 
         it('returns 200 on preferences-only update', async () => {
             const sid = make_session();
-            const post_spy = vi.spyOn(ApiClient.prototype, 'post')
+            const post_spy = vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     user: {
                         id: 1, username: 'alice', display_name: 'Alice', email: 'alice@test.com',
@@ -163,7 +163,7 @@ describe('Account integration', () => {
 
         it('returns 409 on email conflict', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockRejectedValueOnce(
                     new ApiError('conflict', 'Email already in use', 409),
                 );
@@ -193,8 +193,9 @@ describe('Account integration', () => {
 
         it('returns 200 on success', async () => {
             const sid = make_session();
-            const post_spy = vi.spyOn(ApiClient.prototype, 'post')
-                .mockResolvedValueOnce({ message: 'Password changed' });
+            const vo = { user: { id: 'u1', username: 'alice', status: 'active' }, sessions_revoked: 2 };
+            const post_spy = vi.spyOn(CoreClient.prototype, 'post')
+                .mockResolvedValueOnce(vo);
 
             const res = await request(app)
                 .post('/v1/users/change_password')
@@ -203,7 +204,8 @@ describe('Account integration', () => {
                 .send({ current_password: 'correct', new_password: 'newpass88' });
 
             expect(res.status).toBe(200);
-            expect(res.body.data.message).toBe('Password changed');
+            expect(res.body).toEqual({ ok: true, data: vo });
+            expect(res.headers['set-cookie']).toBeUndefined();
             expect(post_spy.mock.calls[0][0]).toBe('/internal/users/change_password');
             expect(post_spy.mock.calls[0][1]).toEqual({
                 current_password: 'correct', new_password: 'newpass88',
@@ -234,7 +236,7 @@ describe('Account integration', () => {
 
         it('returns 403 on wrong current password', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockRejectedValueOnce(
                     new ApiError('forbidden', 'Current password is incorrect', 403),
                 );

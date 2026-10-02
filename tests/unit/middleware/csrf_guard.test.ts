@@ -69,9 +69,8 @@ describe('csrf_guard', () => {
         const next = vi.fn();
 
         csrf_guard(req, res, next);
-        expect(next).not.toHaveBeenCalled();
-        expect(res.status_code).toBe(403);
-        expect(res.body.error.code).toBe('csrf_rejected');
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'csrf_rejected', status: 403 }));
+        expect(res.status_code).toBe(0);
     });
 
     it('rejects POST with wrong CSRF header value', () => {
@@ -82,8 +81,7 @@ describe('csrf_guard', () => {
         const next = vi.fn();
 
         csrf_guard(req, res, next);
-        expect(next).not.toHaveBeenCalled();
-        expect(res.status_code).toBe(403);
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'csrf_rejected', status: 403 }));
     });
 
     it('rejects PUT without CSRF header', () => {
@@ -92,8 +90,7 @@ describe('csrf_guard', () => {
         const next = vi.fn();
 
         csrf_guard(req, res, next);
-        expect(next).not.toHaveBeenCalled();
-        expect(res.status_code).toBe(403);
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'csrf_rejected', status: 403 }));
     });
 
     it('rejects DELETE without CSRF header', () => {
@@ -102,8 +99,7 @@ describe('csrf_guard', () => {
         const next = vi.fn();
 
         csrf_guard(req, res, next);
-        expect(next).not.toHaveBeenCalled();
-        expect(res.status_code).toBe(403);
+        expect(next).toHaveBeenCalledWith(expect.objectContaining({ code: 'csrf_rejected', status: 403 }));
     });
 
     it('allows POST with Bearer token without CSRF header', () => {

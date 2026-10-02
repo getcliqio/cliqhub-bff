@@ -1,11 +1,7 @@
-import type { CoreApiClient } from '../repositories/core_api_client.js';
-import type { Core_compat, Core_compat_checker } from '../lib/core_compat.js';
-import type { AdminListGetInput } from '../schemas/admin_page_schemas.js';
-
 /**
  * Admin (site admin) pages — BFF composition over existing Core routes:
  * users/get, orgs/get, teams/get (admin inventory), daemons/get, realms/get,
- * runs/get, /internal/reports/audit.
+ * runs/get, runs/get_logs, workspaces/get, orgs/get_scopes, /internal/reports/audit.
  *
  * Hub-wide fleet numbers and the Accounts filters need Core API 3
  * (`all: true` for site admins on daemons/realms/runs, `role`/`suspended` on
@@ -14,210 +10,119 @@ import type { AdminListGetInput } from '../schemas/admin_page_schemas.js';
  * of showing wrong numbers. Core drops unknown body fields, so sending the
  * new ones to an old Core would silently return unfiltered totals — hence
  * the version gate rather than "try and see".
+ *
+ * teams/get answers `{ ok, data: PagedData<TeamData> }`; rows map through
+ * `to_team_row` (mappers/admin_page_mapper.ts).
+ *
+ * Search goes to Core as `query` (`q` for runs/get_logs); `sort_by` only where
+ * Core supports it (lib/core_list.ts), and each list says which keys work in `sortable`.
  */
 
+import { get_logger } from '../lib/log.js';
+import { best_effort } from '../lib/best_effort.js';
+import { core_query, core_sort, sortable_keys } from '../lib/core_list.js';
+import type { CoreReadRepository, CoreRead } from '../repositories/core_read_repository.js';
+import type { CoreCompatService } from './core_compat_service.js';
+import type { CoreCompatData } from '../schemas/health_types.js';
+import type {
+    AdminHomeGetInput, AdminListGetInput, AdminHomeData, AdminListData, AdminAttentionData, AdminAuditRowData, AdminRealmRef,
+} from '../schemas/admin_page_types.js';
+import {
+    to_account_row, to_audit_row, to_daemon_row, to_log_row, to_realm_ref, to_realm_row, to_run_row, to_scope_row,
+    to_team_row, to_workspace_row,
+} from '../mappers/admin_page_mapper.js';
+
+const log = get_logger('svc.admin_page');
+
+/** Core API version that brings hub-wide (`all: true`) reads and the Accounts filters. */
 export const ADMIN_FEATURES_API_VERSION = 3;
 
 type Paged<T> = { items: T[]; total: number };
 
-export interface AdminAccountRowDTO {
-    id: string; username: string; display_name: string; email: string;
-    role: 'user' | 'admin'; suspended_at: string | null; created_at: string | null;
-}
-export interface AdminDaemonRowDTO {
-    id: string; name: string | null; hostname: string | null; status: string;
-    last_heartbeat: number | null; capacity: number | null;
-    realms: Array<{ id: string; slug: string; org_slug: string | null; name: string }>;
-}
-export interface AdminTeamRowDTO {
-    id: string; name: string; scope: string | null; description: string | null;
-    visibility: string; listed: boolean; install_count: number; version_count: number | null;
-    author_username: string | null; updated_at: string | null;
-    /** Listed in the Marketplace but nothing installable. */
-    listed_without_version: boolean;
-}
-export interface AdminRealmRef { id: string; slug: string; org_slug: string | null }
-export interface AdminRealmRowDTO { id: string; slug: string; name: string; org_slug: string | null; created_by_username: string | null; created_at: number | null }
-export interface AdminWorkspaceRowDTO {
-    id: string; name: string | null; path: string; daemon_id: string | null; daemon_name: string | null;
-    teams: string[]; active_runs: number; latest_run: { run_id: string; state: string; started_at: number | null } | null;
-    updated_at: number | null;
-}
-export interface AdminRunRowDTO {
-    run_id: string; run_name: string | null; state: string; team_label: string | null;
-    daemon_id: string | null; workspace_name: string | null; started_at: number | null; last_updated_at: number | null;
-    realm: AdminRealmRef | null;
-}
-export interface AdminLogRowDTO {
-    id: string; run_id: string; run_name: string | null; created_at: number; level: string; message: string;
-    daemon_name: string | null; team: string | null; realm: AdminRealmRef | null;
-}
-export interface AdminScopeRowDTO {
-    id: string; slug: string; display_name: string; org_id: string | null; org_slug: string | null;
-    owner_username: string | null; visibility: string; scope_type: string; team_count: number; created_at: string | null;
-}
-export type AdminListRowDTO = AdminAccountRowDTO | AdminDaemonRowDTO | AdminTeamRowDTO | AdminAuditRowDTO
-    | AdminRealmRowDTO | AdminWorkspaceRowDTO | AdminRunRowDTO | AdminLogRowDTO | AdminScopeRowDTO;
-
-export interface AdminListDTO {
-    kind: AdminListGetInput['kind'];
-    filter: string;
-    items: AdminListRowDTO[];
-    total: number;
-    limit: number;
-    offset: number;
-    /** Count per filter chip; null when Core can't answer it (older Core). */
-    counts: Record<string, number | null>;
-    /** False when Core only returns what the admin is a member of. */
-    hub_wide: boolean;
-    /** Daemons on an older Core: pick an org first. */
-    needs_org: boolean;
-    /** Filters this Core can't apply yet (dropped rather than silently ignored). */
-    unsupported: string[];
-    /** Daemons / realms / runs / scopes (hub-wide): orgs for the org picker. */
-    org_options?: Array<{ id: string; slug: string; display_name: string }>;
-}
-
+/** Range chip → look-back window (null = no `since_ms`). */
 const RANGE_MS: Record<string, number | null> = { '1h': 36e5, '24h': 864e5, '7d': 7 * 864e5, '30d': 30 * 864e5, all: null };
+/** Run filter chip → Core `state` values (null = no filter). */
 const RUN_STATES: Record<string, string[] | null> = { all: null, running: ['running'], awaiting_input: ['awaiting_input'], failed: ['failed', 'crashed'], completed: ['completed'] };
 
-export interface AdminAttentionDTO {
-    id: string;
-    severity: 'error' | 'warn' | 'info';
-    title: string;
-    detail: string;
-    href: string;
-    action: string;
-}
-export interface AdminAuditRowDTO {
-    id: string; admin_id: string; admin_username: string | null; action: string;
-    target_type: string; target_id: string; details: Record<string, unknown>; created_at: string;
-}
-export interface AdminHomeDTO {
-    core: Core_compat | null;
-    hub_wide: boolean;
-    counts: {
-        accounts: number | null;
-        suspended: number | null;
-        admins: number | null;
-        orgs: number | null;
-        realms: number | null;
-        daemons: { online: number; total: number; offline: number } | null;
-        runs_24h: { total: number; failed: number } | null;
-    };
-    attention: AdminAttentionDTO[];
-    recent_audit: AdminAuditRowDTO[];
-    /** Some Core calls failed; numbers shown are what came back. */
-    partial: boolean;
-}
-
+/** Unwraps Core's `{ ok, data }` envelope when present. */
 function data_of<T>(res: unknown): T {
     const r = res as { data?: T };
     return (r && typeof r === 'object' && 'data' in r ? r.data : res) as T;
 }
+/** A finite number (numeric strings included), else null. */
 function num(v: unknown): number | null {
     const n = typeof v === 'string' ? Number(v) : v;
     return typeof n === 'number' && Number.isFinite(n) ? n : null;
 }
-function iso(v: unknown): string | null {
-    if (v == null) return null;
-    if (typeof v === 'number') return new Date(v).toISOString();
-    const d = new Date(String(v));
-    return Number.isNaN(d.getTime()) ? null : d.toISOString();
-}
 
-/** Paged shapes differ by controller: `{data:{items,total}}`, `{users,total}`, `{teams,total}`, `{orgs,total}`. */
+/** Paged shapes differ by controller: `{data:{items,total}}`, `{users,total}`, `{orgs,total}`, `{scopes,total}`. */
 function paged<T>(res: unknown, key?: string): Paged<T> {
     const d = data_of<Record<string, unknown>>(res) ?? {};
     const items = (Array.isArray(d.items) ? d.items : key && Array.isArray(d[key]) ? d[key] : []) as T[];
     return { items, total: num(d.total) ?? items.length };
 }
 
-export function to_account_row(u: Record<string, unknown>): AdminAccountRowDTO {
-    return {
-        id: String(u.id),
-        username: String(u.username ?? ''),
-        display_name: String(u.display_name ?? ''),
-        email: String(u.email ?? ''),
-        role: u.role === 'admin' ? 'admin' : 'user',
-        suspended_at: iso(u.suspended_at),
-        created_at: iso(u.created_at),
-    };
-}
-export function to_daemon_row(d: Record<string, unknown>): AdminDaemonRowDTO {
-    const realms = Array.isArray(d.realms) ? d.realms as Array<Record<string, unknown>> : [];
-    return {
-        id: String(d.id),
-        name: (d.name as string | null) ?? null,
-        hostname: (d.hostname as string | null) ?? null,
-        status: String(d.status ?? 'offline'),
-        last_heartbeat: num(d.last_heartbeat),
-        capacity: num(d.capacity),
-        realms: realms.map((r) => ({ id: String(r.id), slug: String(r.slug ?? ''), org_slug: (r.org_slug as string | null) ?? null, name: String(r.name ?? r.slug ?? '') })),
-    };
-}
-export function to_team_row(t: Record<string, unknown>): AdminTeamRowDTO {
-    const listed = t.listed === true || t.listed === 1;
-    const version_count = num(t.version_count);
-    return {
-        id: String(t.id),
-        name: String(t.name ?? ''),
-        scope: (t.scope as string | null) ?? null,
-        description: (t.description as string | null) ?? null,
-        visibility: String(t.visibility ?? 'private'),
-        listed,
-        install_count: num(t.install_count) ?? 0,
-        version_count,
-        author_username: (t.author_username as string | null) ?? null,
-        updated_at: iso(t.updated_at),
-        listed_without_version: listed && version_count === 0,
-    };
-}
-
+/** Site-admin home and list pages, composed from Core reads and gated on Core's API version. */
 export class AdminPageService {
-    constructor(private _core: CoreApiClient, private _compat: Core_compat_checker, private _now: () => number = Date.now) {}
+    constructor(
+        private readonly _reads: CoreReadRepository,
+        private readonly _compat: CoreCompatService,
+        private readonly _now: () => number = Date.now,
+    ) {}
 
     /** Cached Core health; only waits on the very first call after BFF start. */
-    private async _core_info(): Promise<Core_compat | null> {
-        return this._compat.current() ?? await this._compat.check().catch(() => null);
+    private async _core_info(): Promise<CoreCompatData | null> {
+        return this._compat.current() ?? await best_effort(log, 'admin_core_check_failed', this._compat.check(), null);
     }
+
+    /** True when Core supports the API-3 admin features (hub-wide reads, account filters). */
     private async _v3(): Promise<boolean> {
         return ((await this._core_info())?.api_version ?? 0) >= ADMIN_FEATURES_API_VERSION;
     }
 
-    /** Settle: a failed Core call becomes null and marks the result partial. */
-    private async _try<T>(p: Promise<T>, flag: { partial: boolean }): Promise<T | null> {
-        try { return await p; } catch { flag.partial = true; return null; }
+    /** Settle: a failed Core call is logged as `event`, becomes null and marks the result partial. */
+    private async _try<T>(event: string, p: Promise<T>, flag: { partial: boolean }, ctx: Record<string, unknown> = {}): Promise<T | null> {
+        const r = await best_effort(log, event, p.then((v) => ({ v })), null, ctx);
+        if (r === null) { flag.partial = true; return null; }
+        return r.v;
     }
 
-    private _total(path: string, body: Record<string, unknown>, token: string, key?: string): Promise<number> {
-        return this._core.post(path, { ...body, limit: 1, offset: 0 }, token).then((r) => paged(r, key).total);
+    /** Row count of a Core list read (asks for one row and reads `total`). */
+    private _total(route: CoreRead, body: Record<string, unknown>, token: string, key?: string): Promise<number> {
+        return this._reads.read(route, { ...body, limit: 1, offset: 0 }, token).then((r) => paged(r, key).total);
     }
 
-    async home(token: string): Promise<AdminHomeDTO> {
+    /**
+     * Admin home: hub counts, attention items and the latest audit entries.
+     * A failed Core call leaves its number null and sets `partial`.
+     *
+     * @param _input - {@link AdminHomeGetInput} (no fields)
+     * @param token - Caller's Core token (site admin)
+     */
+    async home(_input: AdminHomeGetInput, token: string): Promise<AdminHomeData> {
         const v3 = await this._v3();
         const flag = { partial: false };
         const since_ms = this._now() - 24 * 60 * 60 * 1000;
-        const t = (path: string, body: Record<string, unknown>, key?: string) => this._try(this._total(path, body, token, key), flag);
+        const t = (route: CoreRead, body: Record<string, unknown>, key?: string) => this._try('admin_home_count_failed', this._total(route, body, token, key), flag, { route });
 
         const [accounts, suspended, admins, orgs_res, realms, d_online, d_total, d_offline, runs, runs_failed, audit, listed] = await Promise.all([
-            t('/v1/users/get', {}, 'users'),
-            v3 ? t('/v1/users/get', { suspended: true }, 'users') : Promise.resolve(null),
-            v3 ? t('/v1/users/get', { role: 'admin' }, 'users') : Promise.resolve(null),
-            this._try(this._core.post('/v1/orgs/get', { limit: 100 }, token), flag),
-            v3 ? t('/v1/realms/get', { all: true }) : Promise.resolve(null),
-            v3 ? t('/v1/daemons/get', { all: true, status: 'online' }) : Promise.resolve(null),
-            v3 ? t('/v1/daemons/get', { all: true }) : Promise.resolve(null),
-            v3 ? t('/v1/daemons/get', { all: true, status: 'offline' }) : Promise.resolve(null),
-            v3 ? t('/v1/runs/get', { all: true, since_ms }) : Promise.resolve(null),
-            v3 ? t('/v1/runs/get', { all: true, since_ms, state: ['failed', 'crashed'] }) : Promise.resolve(null),
-            this._try(this._core.post('/internal/reports/audit', { limit: 6 }, token), flag),
-            this._try(this._core.post('/v1/teams/get', { listed: true, limit: 100 }, token), flag),
+            t('users.get', {}, 'users'),
+            v3 ? t('users.get', { suspended: true }, 'users') : Promise.resolve(null),
+            v3 ? t('users.get', { role: 'admin' }, 'users') : Promise.resolve(null),
+            this._try('admin_home_orgs_failed', this._reads.read('orgs.get', { limit: 100 }, token), flag),
+            v3 ? t('realms.get', { all: true }) : Promise.resolve(null),
+            v3 ? t('daemons.get', { all: true, status: 'online' }) : Promise.resolve(null),
+            v3 ? t('daemons.get', { all: true }) : Promise.resolve(null),
+            v3 ? t('daemons.get', { all: true, status: 'offline' }) : Promise.resolve(null),
+            v3 ? t('runs.get', { all: true, since_ms }) : Promise.resolve(null),
+            v3 ? t('runs.get', { all: true, since_ms, state: ['failed', 'crashed'] }) : Promise.resolve(null),
+            this._try('admin_home_audit_failed', this._reads.read('reports.audit', { limit: 6 }, token), flag),
+            this._try('admin_home_listed_teams_failed', this._reads.read('teams.get', { listed: true, limit: 100 }, token), flag),
         ]);
 
         const orgs = orgs_res ? paged<Record<string, unknown>>(orgs_res, 'orgs') : null;
-        const listed_teams = listed ? paged<Record<string, unknown>>(listed, 'teams') : null;
-        const attention: AdminAttentionDTO[] = [];
+        const listed_teams = listed ? paged<Record<string, unknown>>(listed) : null;
+        const attention: AdminAttentionData[] = [];
 
         if (d_offline != null && d_offline > 0) {
             attention.push({ id: 'daemons_offline', severity: 'error', title: `${d_offline} daemon${d_offline === 1 ? ' is' : 's are'} offline`, detail: 'Runs routed to them queue until they reconnect.', href: '/admin/daemons?filter=offline', action: 'See daemons' });
@@ -237,7 +142,7 @@ export class AdminPageService {
             attention.push({ id: 'listed_no_version', severity: 'info', title: `${no_version.length} listed team${no_version.length === 1 ? ' has' : 's have'} no published version`, detail: 'They show in the Marketplace but can’t be installed.', href: '/admin/teams?filter=listed', action: 'Review' });
         }
 
-        const audit_rows = audit ? (data_of<{ entries?: AdminAuditRowDTO[] }>(audit)?.entries ?? []) : [];
+        const audit_rows = audit ? (data_of<{ entries?: AdminAuditRowData[] }>(audit)?.entries ?? []) : [];
 
         return {
             core: await this._core_info(),
@@ -250,63 +155,76 @@ export class AdminPageService {
                 runs_24h: runs != null ? { total: runs, failed: runs_failed ?? 0 } : null,
             },
             attention,
-            recent_audit: audit_rows.map((e) => ({ ...e, created_at: iso(e.created_at) ?? String(e.created_at) })),
+            recent_audit: audit_rows.map(to_audit_row),
             partial: flag.partial,
         };
     }
 
-    private async _org_options(token: string): Promise<AdminListDTO['org_options']> {
-        const res = await this._core.post('/v1/orgs/get', { limit: 100, exclude_personal: true }, token).catch(() => null);
+    /** Org picker options (non-personal orgs); undefined when the read fails, so the picker is hidden. */
+    private async _org_options(token: string): Promise<AdminListData['org_options']> {
+        const res = await best_effort(log, 'admin_org_options_failed', this._reads.read('orgs.get', { limit: 100, exclude_personal: true }, token), null);
         return res ? paged<Record<string, unknown>>(res, 'orgs').items.map((o) => ({ id: String(o.id), slug: String(o.slug ?? ''), display_name: String(o.display_name ?? o.slug ?? '') })) : undefined;
     }
 
     /** realm_id → {slug, org_slug} for links (runs/logs rows carry only realm_id). */
     private async _realm_map(token: string, v3: boolean): Promise<Map<string, AdminRealmRef>> {
-        const res = await this._core.post('/v1/realms/get', { ...(v3 ? { all: true } : {}), limit: 100 }, token).catch(() => null);
+        const res = await best_effort(log, 'admin_realm_map_failed', this._reads.read('realms.get', { ...(v3 ? { all: true } : {}), limit: 100 }, token), null);
         const items = res ? paged<Record<string, unknown>>(res).items : [];
-        return new Map(items.map((r) => [String(r.id), { id: String(r.id), slug: String(r.slug ?? ''), org_slug: (r.org_slug as string | null) ?? null }]));
+        return new Map(items.map((r) => [String(r.id), to_realm_ref(r)]));
     }
 
-    async list(token: string, p: AdminListGetInput): Promise<AdminListDTO> {
+    /**
+     * One admin list (`kind`) with a count per filter chip. Filters this Core
+     * can't apply are dropped and named in `unsupported`.
+     *
+     * @param p - {@link AdminListGetInput}
+     * @param token - Caller's Core token (site admin)
+     */
+    async list(p: AdminListGetInput, token: string): Promise<AdminListData> {
         const v3 = await this._v3();
+        // Sort keys new in Core API 6 are only sent (and offered) when this Core has them.
+        const api = (await this._core_info())?.api_version ?? null;
         const page = { limit: p.limit, offset: p.offset };
-        const q = 'query' in p && p.query ? { query: p.query } : {};
+        // A failed chip count shows as null; the list itself is required.
+        const count = (route: CoreRead, body: Record<string, unknown>, chip: string, key?: string) =>
+            best_effort(log, 'admin_list_count_failed', this._total(route, body, token, key), null, { kind: p.kind, chip });
+        const q = core_query('query' in p ? p.query : undefined);
 
         if (p.kind === 'accounts') {
             const filters: Record<string, Record<string, unknown>> = { all: {}, admins: { role: 'admin' }, suspended: { suspended: true } };
             // Older Core ignores role/suspended → only "all" is honest.
             const filter = v3 ? p.filter : 'all';
-            const search = p.query ? { search: p.query } : {};
+            // Rows and chip counts both include soft-deleted accounts when asked.
+            const del = p.include_deleted ? { include_deleted: true } : {};
             const [rows, ...counts] = await Promise.all([
-                this._core.post('/v1/users/get', { ...filters[filter], ...search, ...page }, token),
-                ...(v3 ? (['all', 'admins', 'suspended'] as const).map((k) => this._total('/v1/users/get', { ...filters[k], ...search }, token, 'users').catch(() => null)) : []),
+                this._reads.read('users.get', { ...filters[filter], ...q, ...del, ...core_sort('users.get', p, {}, api), ...page }, token),
+                ...(v3 ? (['all', 'admins', 'suspended'] as const).map((k) => count('users.get', { ...filters[k], ...q, ...del }, k, 'users')) : []),
             ]);
             const pg = paged<Record<string, unknown>>(rows, 'users');
             return {
                 kind: 'accounts', filter, items: pg.items.map(to_account_row), total: pg.total, ...page,
                 counts: v3 ? { all: counts[0] as number | null, admins: counts[1] as number | null, suspended: counts[2] as number | null } : { all: pg.total, admins: null, suspended: null },
-                hub_wide: true, needs_org: false, unsupported: v3 ? [] : ['admins', 'suspended'],
+                hub_wide: true, needs_org: false, unsupported: v3 ? [] : ['admins', 'suspended'], sortable: sortable_keys('users.get', api),
             };
         }
 
         if (p.kind === 'daemons') {
             if (!v3 && !p.org_id) {
-                return { kind: 'daemons', filter: p.filter, items: [], total: 0, ...page, counts: { all: null, online: null, stale: null, offline: null }, hub_wide: false, needs_org: true, unsupported: [] };
+                return { kind: 'daemons', filter: p.filter, items: [], total: 0, ...page, counts: { all: null, online: null, stale: null, offline: null }, hub_wide: false, needs_org: true, unsupported: [], sortable: [] };
             }
             const scope: Record<string, unknown> = { ...(v3 ? { all: true } : {}), ...(p.org_id ? { org_id: p.org_id } : {}), ...q };
             const status = (f: string) => (f === 'all' ? {} : { status: f });
             const keys = ['all', 'online', 'stale', 'offline'] as const;
-            const [rows, orgs, ...counts] = await Promise.all([
-                this._core.post('/v1/daemons/get', { ...scope, ...status(p.filter), ...page }, token),
-                v3 ? this._core.post('/v1/orgs/get', { limit: 100, exclude_personal: true }, token).catch(() => null) : Promise.resolve(null),
-                ...keys.map((k) => this._total('/v1/daemons/get', { ...scope, ...status(k) }, token).catch(() => null)),
+            const [rows, org_options, ...counts] = await Promise.all([
+                this._reads.read('daemons.get', { ...scope, ...status(p.filter), ...core_sort('daemons.get', p, {}, api), ...page }, token),
+                v3 ? this._org_options(token) : Promise.resolve(undefined),
+                ...keys.map((k) => count('daemons.get', { ...scope, ...status(k) }, k)),
             ]);
             const pg = paged<Record<string, unknown>>(rows);
-            const org_options = orgs ? paged<Record<string, unknown>>(orgs, 'orgs').items.map((o) => ({ id: String(o.id), slug: String(o.slug ?? ''), display_name: String(o.display_name ?? o.slug ?? '') })) : undefined;
             return {
                 kind: 'daemons', filter: p.filter, items: pg.items.map(to_daemon_row), total: pg.total, ...page,
                 counts: Object.fromEntries(keys.map((k, i) => [k, counts[i] as number | null])),
-                hub_wide: v3, needs_org: false, unsupported: [], ...(org_options ? { org_options } : {}),
+                hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('daemons.get', api), ...(org_options ? { org_options } : {}),
             };
         }
 
@@ -317,50 +235,41 @@ export class AdminPageService {
                 ...(p.target_type ? { target_type: p.target_type } : {}),
                 ...(v3 && p.since_ms != null ? { since_ms: p.since_ms } : {}),
                 ...(v3 && p.target_id ? { target_id: p.target_id } : {}),
+                ...core_sort('reports.audit', p, {}, api),
                 ...page,
             };
-            const d = data_of<{ entries?: AdminAuditRowDTO[]; total?: number }>(await this._core.post('/internal/reports/audit', body, token)) ?? {};
-            const entries = (d.entries ?? []).map((e) => ({ ...e, created_at: iso(e.created_at) ?? String(e.created_at) }));
-            return { kind: 'audit', filter: p.filter, items: entries, total: num(d.total) ?? entries.length, ...page, counts: {}, hub_wide: true, needs_org: false, unsupported };
+            const d = data_of<{ entries?: AdminAuditRowData[]; total?: number }>(await this._reads.read('reports.audit', body, token)) ?? {};
+            const entries = (d.entries ?? []).map(to_audit_row);
+            return { kind: 'audit', filter: p.filter, items: entries, total: num(d.total) ?? entries.length, ...page, counts: {}, hub_wide: true, needs_org: false, unsupported, sortable: sortable_keys('reports.audit', api) };
         }
 
         if (p.kind === 'realms') {
             const scope = { ...(v3 ? { all: true } : {}), ...(p.org_id ? { org_id: p.org_id } : {}), ...q };
             const [rows, org_options] = await Promise.all([
-                this._core.post('/v1/realms/get', { ...scope, sort_by: 'created_at', sort_dir: 'desc', ...page }, token),
+                this._reads.read('realms.get', { ...scope, ...core_sort('realms.get', p, { sort_by: 'created_at', sort_dir: 'desc' }, api), ...page }, token),
                 v3 ? this._org_options(token) : Promise.resolve(undefined),
             ]);
             const pg = paged<Record<string, unknown>>(rows);
-            const items: AdminRealmRowDTO[] = pg.items.map((r) => ({ id: String(r.id), slug: String(r.slug ?? ''), name: String(r.name ?? r.slug ?? ''), org_slug: (r.org_slug as string | null) ?? null, created_by_username: (r.created_by_username as string | null) ?? null, created_at: num(r.created_at) }));
-            return { kind: 'realms', filter: 'all', items, total: pg.total, ...page, counts: { all: pg.total }, hub_wide: v3, needs_org: false, unsupported: [], ...(org_options ? { org_options } : {}) };
+            const items = pg.items.map(to_realm_row);
+            return { kind: 'realms', filter: 'all', items, total: pg.total, ...page, counts: { all: pg.total }, hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('realms.get', api), ...(org_options ? { org_options } : {}) };
         }
 
         if (p.kind === 'workspaces') {
             const [rows, daemons] = await Promise.all([
-                this._core.post('/v1/workspaces/get', { ...page }, token),
-                v3 ? this._core.post('/v1/daemons/get', { all: true, limit: 200 }, token).catch(() => null) : Promise.resolve(null),
+                this._reads.read('workspaces.get', { ...core_sort('workspaces.get', p, {}, api), ...page }, token),
+                // Daemon names only label rows; without them `daemon_name` stays null.
+                v3 ? best_effort(log, 'admin_workspace_daemons_failed', this._reads.read('daemons.get', { all: true, limit: 200 }, token), null) : Promise.resolve(null),
             ]);
             const d = data_of<Record<string, unknown>>(rows) ?? {};
             const list = (Array.isArray(d.workspaces) ? d.workspaces : []) as Array<Record<string, unknown>>;
             const names = new Map((daemons ? paged<Record<string, unknown>>(daemons).items : []).map((x) => [String(x.id), (x.name as string | null) ?? (x.hostname as string | null) ?? null]));
-            const items: AdminWorkspaceRowDTO[] = list.map((w) => {
-                const latest = w.latest_run as Record<string, unknown> | null | undefined;
-                const daemon_id = (w.daemon_id as string | null) ?? null;
-                return {
-                    id: String(w.id ?? w.workspace_id), name: (w.name as string | undefined) ?? null, path: String(w.path ?? w.workspace_dir ?? ''),
-                    daemon_id, daemon_name: daemon_id ? names.get(daemon_id) ?? null : null,
-                    teams: (Array.isArray(w.teams) ? w.teams as Array<Record<string, unknown>> : []).map((t) => `@${t.scope}/${t.slug}`),
-                    active_runs: Array.isArray(w.active_runs) ? w.active_runs.length : 0,
-                    latest_run: latest ? { run_id: String(latest.run_id), state: String(latest.state), started_at: num(latest.started_at) } : null,
-                    updated_at: num(w.updated_at),
-                };
-            });
-            return { kind: 'workspaces', filter: 'all', items, total: num(d.total) ?? items.length, ...page, counts: { all: num(d.total) ?? items.length }, hub_wide: true, needs_org: false, unsupported: [] };
+            const items = list.map((w) => to_workspace_row(w, names));
+            return { kind: 'workspaces', filter: 'all', items, total: num(d.total) ?? items.length, ...page, counts: { all: num(d.total) ?? items.length }, hub_wide: true, needs_org: false, unsupported: [], sortable: sortable_keys('workspaces.get', api) };
         }
 
         if (p.kind === 'runs') {
             if (!v3 && !p.org_id) {
-                return { kind: 'runs', filter: p.filter, items: [], total: 0, ...page, counts: {}, hub_wide: false, needs_org: true, unsupported: [] };
+                return { kind: 'runs', filter: p.filter, items: [], total: 0, ...page, counts: {}, hub_wide: false, needs_org: true, unsupported: [], sortable: [] };
             }
             const range_ms = RANGE_MS[p.range];
             const scope: Record<string, unknown> = {
@@ -370,19 +279,14 @@ export class AdminPageService {
             const state = (f: string) => (RUN_STATES[f] ? { state: RUN_STATES[f] } : {});
             const keys = ['all', 'running', 'awaiting_input', 'failed', 'completed'] as const;
             const [rows, realms, org_options, ...counts] = await Promise.all([
-                this._core.post('/v1/runs/get', { ...scope, ...state(p.filter), sort_by: 'started_at', sort_dir: 'desc', ...page }, token),
+                this._reads.read('runs.get', { ...scope, ...state(p.filter), ...core_sort('runs.get', p, { sort_by: 'started_at', sort_dir: 'desc' }, api), ...page }, token),
                 this._realm_map(token, v3),
                 v3 ? this._org_options(token) : Promise.resolve(undefined),
-                ...keys.map((k) => this._total('/v1/runs/get', { ...scope, ...state(k) }, token).catch(() => null)),
+                ...keys.map((k) => count('runs.get', { ...scope, ...state(k) }, k)),
             ]);
             const pg = paged<Record<string, unknown>>(rows);
-            const items: AdminRunRowDTO[] = pg.items.map((r) => ({
-                run_id: String(r.run_id), run_name: (r.run_name as string | null) ?? null, state: String(r.state ?? ''),
-                team_label: (r.team_label as string | null) ?? null, daemon_id: (r.daemon_id as string | null) ?? null,
-                workspace_name: (r.workspace_name as string | null) ?? null, started_at: num(r.started_at), last_updated_at: num(r.last_updated_at),
-                realm: r.realm_id ? realms.get(String(r.realm_id)) ?? null : null,
-            }));
-            return { kind: 'runs', filter: p.filter, items, total: pg.total, ...page, counts: Object.fromEntries(keys.map((k, i) => [k, counts[i] as number | null])), hub_wide: v3, needs_org: false, unsupported: [], ...(org_options ? { org_options } : {}) };
+            const items = pg.items.map((r) => to_run_row(r, realms));
+            return { kind: 'runs', filter: p.filter, items, total: pg.total, ...page, counts: Object.fromEntries(keys.map((k, i) => [k, counts[i] as number | null])), hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('runs.get', api), ...(org_options ? { org_options } : {}) };
         }
 
         if (p.kind === 'logs') {
@@ -395,51 +299,43 @@ export class AdminPageService {
                 ...(range_ms != null ? { since_ms: Math.floor((this._now() - range_ms) / 60_000) * 60_000 } : {}),
                 ...page,
             };
-            const [res, realms] = await Promise.all([this._core.post('/v1/runs/get_logs', body, token), this._realm_map(token, v3)]);
+            const [res, realms] = await Promise.all([this._reads.read('runs.get_logs', body, token), this._realm_map(token, v3)]);
             const d = data_of<Record<string, unknown>>(res) ?? {};
             const lines = (Array.isArray(d.lines) ? d.lines : []) as Array<Record<string, unknown>>;
             const facets = (d.facets as { level?: Array<{ value: string; count: number }> } | undefined)?.level ?? [];
             const by_level = new Map(facets.map((f) => [f.value, f.count]));
-            const items: AdminLogRowDTO[] = lines.map((l) => ({
-                id: String(l.id), run_id: String(l.run_id), run_name: (l.run_name as string | null) ?? null, created_at: num(l.created_at) ?? 0,
-                level: String(l.level ?? 'info'), message: String(l.message ?? ''), daemon_name: (l.daemon_name as string | null) ?? null,
-                team: (l.team as string | null) ?? null, realm: l.realm_id ? realms.get(String(l.realm_id)) ?? null : null,
-            }));
+            const items = lines.map((l) => to_log_row(l, realms));
             return {
                 kind: 'logs', filter: p.filter, items, total: num(d.total) ?? items.length, ...page,
                 // Level chip counts come from Core's level facet (only meaningful before a level is picked).
                 counts: p.filter === 'all' ? { all: num(d.total), error: by_level.get('error') ?? 0, warn: by_level.get('warn') ?? 0, info: by_level.get('info') ?? 0, debug: by_level.get('debug') ?? 0 } : {},
-                hub_wide: true, needs_org: false, unsupported: [],
+                hub_wide: true, needs_org: false, unsupported: [], sortable: [],
             };
         }
 
         if (p.kind === 'scopes') {
             const [rows, org_options] = await Promise.all([
-                this._core.post('/v1/orgs/get_scopes', { ...(p.org_id ? { org_id: p.org_id } : {}), ...q, ...page }, token),
+                this._reads.read('orgs.get_scopes', { ...(p.org_id ? { org_id: p.org_id } : {}), ...q, ...core_sort('orgs.get_scopes', p, {}, api), ...page }, token),
                 this._org_options(token),
             ]);
             const pg = paged<Record<string, unknown>>(rows, 'scopes');
             const slug_by_org = new Map((org_options ?? []).map((o) => [o.id, o.slug]));
-            const items: AdminScopeRowDTO[] = pg.items.map((s) => ({
-                id: String(s.id), slug: String(s.slug ?? ''), display_name: String(s.display_name ?? ''), org_id: (s.org_id as string | null) ?? null,
-                org_slug: s.org_id ? slug_by_org.get(String(s.org_id)) ?? null : null, owner_username: (s.owner_username as string | null) ?? null,
-                visibility: String(s.visibility ?? 'private'), scope_type: String(s.scope_type ?? ''), team_count: num(s.team_count) ?? 0, created_at: iso(s.created_at),
-            }));
-            return { kind: 'scopes', filter: 'all', items, total: pg.total, ...page, counts: { all: pg.total }, hub_wide: true, needs_org: false, unsupported: [], ...(org_options ? { org_options } : {}) };
+            const items = pg.items.map((s) => to_scope_row(s, slug_by_org));
+            return { kind: 'scopes', filter: 'all', items, total: pg.total, ...page, counts: { all: pg.total }, hub_wide: true, needs_org: false, unsupported: [], sortable: sortable_keys('orgs.get_scopes', api), ...(org_options ? { org_options } : {}) };
         }
 
-        // teams — Core's admin inventory needs `listed` set.
+        // teams — Core's admin inventory needs `listed` set; answers PagedData<TeamData> (`items`).
         const listed = p.filter === 'listed';
         const [rows, c_listed, c_unlisted] = await Promise.all([
-            this._core.post('/v1/teams/get', { listed, ...q, ...page }, token),
-            this._total('/v1/teams/get', { listed: true, ...q }, token, 'teams').catch(() => null),
-            this._total('/v1/teams/get', { listed: false, ...q }, token, 'teams').catch(() => null),
+            this._reads.read('teams.get', { listed, ...q, ...core_sort('teams.get:catalog', p, {}, api), ...page }, token),
+            count('teams.get', { listed: true, ...q }, 'listed'),
+            count('teams.get', { listed: false, ...q }, 'unlisted'),
         ]);
-        const pg = paged<Record<string, unknown>>(rows, 'teams');
+        const pg = paged<Record<string, unknown>>(rows);
         return {
             kind: 'teams', filter: p.filter, items: pg.items.map(to_team_row), total: pg.total, ...page,
             counts: { listed: c_listed, unlisted: c_unlisted },
-            hub_wide: true, needs_org: false, unsupported: [],
+            hub_wide: true, needs_org: false, unsupported: [], sortable: sortable_keys('teams.get:catalog', api),
         };
     }
 }

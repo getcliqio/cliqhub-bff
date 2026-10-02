@@ -1,20 +1,41 @@
-import type { ControlRepository } from '../repositories/control_repository.js';
+/**
+ * Build › Teams — the team list and one team's page, tab by tab.
+ *
+ * Composes Core routes as the bearer (the session's target token):
+ *   teams/get { mine }        — the caller's teams (paged; read in full)
+ *   teams/get { realm_id }    — a realm's roster with coverage ("installed in")
+ *   teams/get_by_id           — the team (also the visibility gate), any version
+ *   teams/get_phases          — phase shape per team / per run version
+ *   realms/get                — realms to check for installs
+ *   runs/get { team_id }, runs/get_by_id, runs/get_status — runs and the workflow overlay
+ */
+
+import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
 import type { TeamsRepository } from '../repositories/teams_repository.js';
-import type { ControlRunVO } from '../types/vo.js';
+import type { TeamVO } from '../types/core/teams.js';
 import type {
-    TeamChangeDTO, TeamHeaderDTO, TeamInputDTO, TeamInstallDTO, TeamListDTO, TeamListRowDTO,
-    TeamPageDTO, TeamPhaseDTO, TeamRunRowDTO, TeamReleaseDTO,
-} from '../types/dto.js';
-import type { TeamListGetInput, TeamPageGetInput } from '../schemas/team_page_schemas.js';
-import { is_newer, parse_label } from './realm_teams_service.js';
-import { to_run_row } from './realm_runs_service.js';
+    TeamListGetInput, TeamPageGetInput,
+    TeamHeaderData, TeamInstallData, TeamListData, TeamListRowData, TeamPageData, TeamPhaseData,
+} from '../schemas/team_page_types.js';
+import { is_newer, parse_label } from '../mappers/realm_teams_mapper.js';
+import {
+    type TeamPageRealm, label_of, kind_of_phase, to_team_phases_data, to_team_inputs_data, diff_versions,
+    to_team_releases_data, to_team_run_row,
+} from '../mappers/team_page_mapper.js';
+import { core_query, core_sort, sortable_keys } from '../lib/core_list.js';
+import { get_logger } from '../lib/log.js';
+import { best_effort, error_fields, warn_rejected } from '../lib/best_effort.js';
+
+const log = get_logger('svc.team_page');
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
-type Realm = { id: string; slug: string; name: string; org_slug: string | null };
-type Rec = Record<string, unknown>;
+/** Page size for reading the caller's whole "mine" list (Core's max). */
+const MINE_PAGE = 200;
+type Realm = TeamPageRealm;
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
+/** `fn` over `items`, at most `limit` at a time; results keep input order. */
 async function map_limited<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
     const out: R[] = new Array(items.length);
     let next = 0;
@@ -23,196 +44,62 @@ async function map_limited<T, R>(items: T[], limit: number, fn: (item: T) => Pro
     return out;
 }
 
-function items_of(res: unknown): { items: Rec[]; total: number } {
-    const r = (res ?? {}) as { data?: unknown; items?: Rec[]; teams?: Rec[]; total?: number };
-    const p = (r.data && typeof r.data === 'object' ? r.data : r) as { items?: Rec[]; teams?: Rec[]; rows?: Rec[]; total?: number };
-    const items = p.items ?? p.teams ?? p.rows ?? [];
-    return { items, total: typeof p.total === 'number' ? p.total : items.length };
-}
-
+/** A non-blank string, or null. */
 const str = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v : null);
-const arr = (v: unknown): unknown[] => (Array.isArray(v) ? v : []);
-const label_of = (scope: string | null, name: string) => (scope ? `@${scope}/${name}` : name);
-
-/** Strings from a list of strings or objects (`{ run }`, `{ url }`, `{ to }` …). */
-function strings(v: unknown, keys: string[]): string[] {
-    return arr(v).map((x) => {
-        if (typeof x === 'string') return x;
-        if (x && typeof x === 'object') for (const k of keys) { const s = str((x as Rec)[k]); if (s) return s; }
-        return null;
-    }).filter((x): x is string => Boolean(x));
-}
-
-/** Normalize one phase of a version's workflow (tolerant of field spellings). */
-export function to_phase(raw: unknown, roles: Map<string, string>, support = false): TeamPhaseDTO | null {
-    if (!raw || typeof raw !== 'object') return null;
-    const p = raw as Rec;
-    const name = str(p.name) ?? str(p.id);
-    if (!name) return null;
-    const review = p.review ?? p.hug ?? p.human_review;
-    const review_obj = review && typeof review === 'object' ? review as Rec : null;
-    const reviewers = review_obj ? (str(review_obj.reviewers) ?? (Array.isArray(review_obj.reviewers) ? (review_obj.reviewers as unknown[]).join(', ') : null)) : null;
-    const max = typeof p.max_iterations === 'number' ? p.max_iterations : null;
-    return {
-        name,
-        type: str(p.type) ?? 'standard',
-        agent: str(p.agent),
-        depends_on: strings(p.depends_on ?? p.needs, ['name']),
-        review: Boolean(review),
-        reviewers,
-        max_iterations: max,
-        commands: strings(p.commands, ['run', 'name']),
-        sources: strings(p.sources, ['url', 'name']),
-        targets: strings(p.targets ?? p.target_entries, ['to', 'file', 'name']),
-        team: str(p.team) ?? str(p.uses) ?? null,
-        role: roles.get(name) ?? (str(p.role) ? roles.get(String(p.role)) ?? null : null),
-        support,
-    };
-}
-
-const CONNECTOR_AGENTS = new Set(['jira', 'confluence', 'zendesk', 'datadog', 'hubspot', 'gdrive', 's3', 'mesh']);
-
-/**
- * Phase kind as the builder names it (FE lib/builder/kinds): type + agent.
- * gate+hug → human; standard+exec/curl/connector → script/fetch/connector.
- */
-export function kind_of_phase(type: string, agent: string | null): string {
-    if (type === 'team') return 'team';
-    if (type === 'gate') return agent === 'hug' ? 'human' : 'gate';
-    if (type === 'pull' || type === 'push') return agent === 'curl' ? 'fetch' : 'connector';
-    if (agent === 'exec') return 'script';
-    if (agent === 'curl') return 'fetch';
-    if (agent && CONNECTOR_AGENTS.has(agent)) return 'connector';
-    return type === 'standard' ? 'agent' : type;
-}
-
-export function to_phases(workflow: unknown, roles_raw: unknown): { phases: TeamPhaseDTO[]; support: TeamPhaseDTO[] } {
-    const roles = new Map<string, string>();
-    for (const r of arr(roles_raw)) {
-        const o = r as Rec;
-        const n = str(o?.name);
-        if (n) roles.set(n.replace(/\.md$/, ''), String(o.content_md ?? o.content ?? ''));
-    }
-    const w = (Array.isArray(workflow) ? { phases: workflow } : (workflow ?? {})) as Rec;
-    const phases = arr(w.phases).map((x) => to_phase(x, roles)).filter((x): x is TeamPhaseDTO => Boolean(x));
-    const support = arr(w.support).map((x) => to_phase(x, roles, true)).filter((x): x is TeamPhaseDTO => Boolean(x));
-    return { phases, support };
-}
-
-function to_inputs(raw: unknown): TeamInputDTO[] {
-    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        // `{ key: { description, required } }` form
-        return Object.entries(raw as Rec).map(([name, v]) => {
-            const o = (v && typeof v === 'object' ? v : {}) as Rec;
-            return { name, description: str(o.description), required: Boolean(o.required), default: o.default != null ? String(o.default) : null };
-        });
-    }
-    return arr(raw).map((v) => {
-        const o = (v ?? {}) as Rec;
-        const name = str(o.name) ?? str(o.key);
-        if (!name) return null;
-        return { name, description: str(o.description), required: Boolean(o.required), default: o.default != null ? String(o.default) : null };
-    }).filter((x): x is TeamInputDTO => Boolean(x));
-}
-
-/** Phase-level differences between two versions (plus role and input changes). */
-export function diff_versions(a: { phases: TeamPhaseDTO[]; inputs: TeamInputDTO[] }, b: { phases: TeamPhaseDTO[]; inputs: TeamInputDTO[] }): TeamChangeDTO[] {
-    const out: TeamChangeDTO[] = [];
-    const A = new Map(a.phases.map((p) => [p.name, p]));
-    const B = new Map(b.phases.map((p) => [p.name, p]));
-    for (const [n, p] of B) {
-        const o = A.get(n);
-        if (!o) { out.push({ kind: 'added', target: 'phase', name: n, detail: `new ${p.type} phase${p.depends_on.length ? ` after ${p.depends_on.join(', ')}` : ''}` }); continue; }
-        const d: string[] = [];
-        if (o.type !== p.type) d.push(`type ${o.type} → ${p.type}`);
-        if ((o.agent ?? '') !== (p.agent ?? '')) d.push(`agent ${o.agent ?? '—'} → ${p.agent ?? '—'}`);
-        if (o.depends_on.join(',') !== p.depends_on.join(',')) d.push(`depends on [${o.depends_on.join(', ')}] → [${p.depends_on.join(', ')}]`);
-        if (o.max_iterations !== p.max_iterations) d.push(`max_iterations ${o.max_iterations ?? '—'} → ${p.max_iterations ?? '—'}`);
-        if (o.review !== p.review) d.push(p.review ? 'human review added' : 'human review removed');
-        if (o.commands.join('\n') !== p.commands.join('\n')) d.push('commands changed');
-        if (o.sources.join('\n') !== p.sources.join('\n') || o.targets.join('\n') !== p.targets.join('\n')) d.push('sources/targets changed');
-        if (d.length) out.push({ kind: 'changed', target: 'phase', name: n, detail: d.join(' · ') });
-        if ((o.role ?? '') !== (p.role ?? '')) {
-            const lines = (s: string | null) => new Set((s ?? '').split('\n'));
-            const lo = lines(o.role); const lp = lines(p.role);
-            const add = [...lp].filter((x) => !lo.has(x)).length; const del = [...lo].filter((x) => !lp.has(x)).length;
-            out.push({ kind: o.role && p.role ? 'changed' : p.role ? 'added' : 'removed', target: 'role', name: `roles/${n}.md`, detail: `+${add} −${del} lines` });
-        }
-    }
-    for (const n of A.keys()) if (!B.has(n)) out.push({ kind: 'removed', target: 'phase', name: n, detail: 'phase removed' });
-    const ia = new Set(a.inputs.map((i) => i.name)); const ib = new Set(b.inputs.map((i) => i.name));
-    const added = [...ib].filter((x) => !ia.has(x)); const removed = [...ia].filter((x) => !ib.has(x));
-    if (added.length || removed.length) out.push({ kind: 'changed', target: 'inputs', name: 'inputs', detail: [added.length ? `+ ${added.join(', ')}` : '', removed.length ? `− ${removed.join(', ')}` : ''].filter(Boolean).join(' · ') });
-    return out;
-}
-
-function to_versions(raw: unknown): TeamReleaseDTO[] {
-    const rows = arr(raw).map((v) => v as Rec).filter((v) => str(v.version));
-    const latest = rows[0] ? String(rows[0].version) : null;
-    return rows.map((v) => ({
-        version: String(v.version),
-        changelog: str(v.changelog),
-        published_at: typeof v.published_at === 'number' ? v.published_at : (v.published_at ? Date.parse(String(v.published_at)) || null : null),
-        is_latest: String(v.version) === latest,
-    }));
-}
-
-function run_row(r: ControlRunVO, realms: Map<string, Realm>): TeamRunRowDTO {
-    const realm = r.realm_id ? realms.get(r.realm_id) : undefined;
-    return { ...to_run_row(r), realm_id: r.realm_id ?? null, realm_slug: realm?.slug ?? null, org_slug: realm?.org_slug ?? null };
-}
 
 // ── service ──────────────────────────────────────────────────────────────
 
-/**
- * Build › Teams. The list and every team-page tab in one BFF read each,
- * composed from existing Core routes as the bearer (the session's target token).
- */
+/** Build › Teams. The list and every team-page tab in one BFF read each. */
 export class TeamPageService {
+    /** Page size for the list and the runs tab. */
     static readonly DEFAULT_LIMIT = 25;
+    /** `team_list/get` sort keys (sorted here, over the whole list). */
+    static readonly SORTABLE = ['name', 'status'] as const;
     /** Realms inspected for "installed in" — beyond this the answer is marked partial. */
     static readonly REALM_CAP = 25;
 
-    private _control: ControlRepository;
-    private _teams: TeamsRepository;
-    private _now: () => number;
+    constructor(
+        private readonly _control: ControlRepository,
+        private readonly _teams: TeamsRepository,
+        private readonly _now: () => number = Date.now,
+    ) {}
 
-    constructor(control: ControlRepository, teams: TeamsRepository, now: () => number = Date.now) {
-        this._control = control;
-        this._teams = teams;
-        this._now = now;
-    }
-
+    /** First 100 realms the caller sees (optionally one org's), with the total. */
     private async _realms(token: string, org_id?: string): Promise<{ items: Realm[]; total: number }> {
         const r = await this._control.realms_page({ ...(org_id ? { org_id } : {}), limit: 100, offset: 0 }, token);
         return { items: r.items.map((x) => ({ id: x.id, slug: x.slug, name: x.name || x.slug, org_slug: x.org_slug ?? null })), total: r.total };
     }
 
-    /** Install rows per realm (full roster per realm), keyed by team label. */
-    private async _installs_by_label(token: string, realms: Realm[], latest: (label: string) => string | null, only?: { name: string; scope: string | null }): Promise<{ map: Map<string, TeamInstallDTO[]>; failed: boolean }> {
-        const map = new Map<string, TeamInstallDTO[]>();
+    /**
+     * Install rows per realm (full roster per realm), keyed by team label.
+     * A realm whose roster read fails is skipped (logged) and sets `failed`.
+     */
+    private async _installs_by_label(token: string, realms: Realm[], latest: (label: string) => string | null, only?: { name: string; scope: string | null }): Promise<{ map: Map<string, TeamInstallData[]>; failed: boolean }> {
+        const map = new Map<string, TeamInstallData[]>();
         let failed = false;
         await map_limited(realms, 4, async (realm) => {
             try {
-                const res = items_of(await this._teams.get({ realm_id: realm.id, limit: only ? 20 : 200, offset: 0, ...(only ? { query: only.name } : {}) } as never, token));
-                for (const row of res.items) {
+                const res = await this._teams.get({ realm_id: realm.id, limit: only ? 20 : 200, offset: 0, ...(only ? { query: only.name } : {}) }, token);
+                for (const row of res.items ?? []) {
                     const { scope, slug } = parse_label(str(row.label) ?? undefined, String(row.slug ?? row.name ?? ''));
                     const label = label_of(scope, slug);
                     if (only && label !== label_of(only.scope, only.name)) continue;
                     const installed = Number(row.installed_count ?? 0);
                     if (!row.in_team_list && installed === 0) continue;
                     const version = str(row.version);
-                    const entry: TeamInstallDTO = {
+                    const entry: TeamInstallData = {
                         realm_id: realm.id, realm_slug: realm.slug, realm_name: realm.name, org_slug: realm.org_slug,
                         version, behind: is_newer(latest(label), version),
                         in_team_list: Boolean(row.in_team_list), installed_count: installed,
                         online_daemon_count: Number(row.online_daemon_count ?? 0),
                         last_run_at: typeof row.last_run_at === 'number' ? row.last_run_at : null,
-                        missing_agents: arr(row.missing_agents).map(String),
+                        missing_agents: (row.missing_agents ?? []).map(String),
                     };
                     map.set(label, [...(map.get(label) ?? []), entry]);
                 }
-            } catch {
+            } catch (err) {
+                // One realm's roster missing only makes "installed in" partial; keep the rest.
+                log.warn('team_installs_realm_failed', { realm_id: realm.id, ...error_fields(err) });
                 failed = true;
             }
         });
@@ -222,40 +109,65 @@ export class TeamPageService {
 
     // ── list ─────────────────────────────────────────────────────────────
 
-    async list(token: string, p: TeamListGetInput): Promise<TeamListDTO> {
-        const limit = p.limit ?? TeamPageService.DEFAULT_LIMIT;
-        const offset = p.offset ?? 0;
-        const status = p.status ?? 'all';
-        // Core's "mine" list is unpaged: every team in the caller's scopes + their drafts.
-        const all = items_of(await this._teams.get({ mine: true } as never, token)).items
-            .filter((t) => !p.scope || t.scope === p.scope)
+    /** Every team in the caller's scopes (+ their drafts), read page by page. */
+    private async _mine(token: string): Promise<TeamVO[]> {
+        const first = await this._teams.get({ mine: true, limit: MINE_PAGE, offset: 0 }, token);
+        const out = [...(first.items ?? [])];
+        while (out.length < first.total) {
+            const next = await this._teams.get({ mine: true, limit: MINE_PAGE, offset: out.length }, token);
+            if (!next.items?.length) break;
+            out.push(...next.items);
+        }
+        return out;
+    }
+
+    /**
+     * The caller's teams: status counts, phase shape and "installed in" per row.
+     * Filters and pages in the BFF over the full "mine" list.
+     *
+     * @param input - scope / status / q filters, org for "installed in", paging, sort (name | status)
+     * @param token - The caller's Core token
+     */
+    async list(input: TeamListGetInput, token: string): Promise<TeamListData> {
+        const limit = input.limit ?? TeamPageService.DEFAULT_LIMIT;
+        const offset = input.offset ?? 0;
+        const status = input.status ?? 'all';
+        const all = (await this._mine(token))
+            .filter((t) => !input.scope || t.scope === input.scope)
             .filter((t) => {
-                if (!p.q) return true;
-                const q = p.q.toLowerCase();
+                if (!input.q) return true;
+                const q = input.q.toLowerCase();
                 return String(t.name ?? '').toLowerCase().includes(q) || String(t.description ?? '').toLowerCase().includes(q);
             });
-        const status_of = (t: Rec): 'draft' | 'published' => (t.status === 'draft' || t.visibility === 'draft' ? 'draft' : 'published');
+        const status_of = (t: TeamVO): 'draft' | 'published' => (t.status === 'draft' || t.visibility === 'draft' ? 'draft' : 'published');
         const counts = { all: all.length, published: all.filter((t) => status_of(t) === 'published').length, draft: all.filter((t) => status_of(t) === 'draft').length };
-        const filtered = status === 'all' ? all : all.filter((t) => status_of(t) === status);
+        const filtered = status === 'all' ? [...all] : all.filter((t) => status_of(t) === status);
+        // The BFF holds the whole list, so sorting here is correct across pages.
+        if (input.sort_by) {
+            const dir = input.sort_dir === 'desc' ? -1 : 1;
+            const by_name = (a: TeamVO, b: TeamVO) => label_of(str(a.scope), String(a.name)).localeCompare(label_of(str(b.scope), String(b.name)));
+            filtered.sort(input.sort_by === 'status'
+                ? (a, b) => status_of(a).localeCompare(status_of(b)) * dir || by_name(a, b)
+                : (a, b) => by_name(a, b) * dir);
+        }
         const page = filtered.slice(offset, offset + limit);
 
-        const realms_res = await this._realms(token, p.org_id).catch(() => null);
+        const realms_res = await best_effort(log, 'team_list_realms_failed', this._realms(token, input.org_id), null, { org_id: input.org_id });
         const realms = realms_res?.items.slice(0, TeamPageService.REALM_CAP) ?? [];
         const latest = new Map(page.map((t) => [label_of(str(t.scope), String(t.name)), str(t.latest_version) && t.latest_version !== '0.0.0' ? String(t.latest_version) : null]));
 
         const [phases, installs] = await Promise.all([
             map_limited(page, 6, async (t) => {
                 if (!str(t.id)) return null;
-                try {
-                    const r = await this._teams.get_phases({ team_id: String(t.id) }, token);
-                    const ps = to_phases({ phases: r.phases }, []).phases;
+                return best_effort(log, 'team_list_phases_failed', this._teams.get_phases({ team_id: String(t.id) }, token).then((r) => {
+                    const ps = to_team_phases_data({ phases: r.phases }, []).phases;
                     return { types: ps.map((x) => x.type), kinds: ps.map((x) => kind_of_phase(x.type, x.agent)) };
-                } catch { return null; }
+                }), null, { team_id: t.id });
             }),
             this._installs_by_label(token, realms, (l) => latest.get(l) ?? null),
         ]);
 
-        const items: TeamListRowDTO[] = page.map((t, i) => {
+        const items: TeamListRowData[] = page.map((t, i) => {
             const scope = str(t.scope);
             const name = String(t.name);
             const lv = latest.get(label_of(scope, name)) ?? null;
@@ -269,133 +181,146 @@ export class TeamPageService {
             items, total: filtered.length, offset, limit, counts,
             realms_checked: realms.length, realms_total: realms_res?.total ?? 0,
             partial: !realms_res || installs.failed || (realms_res.total > realms.length),
+            sortable: [...TeamPageService.SORTABLE],
         };
     }
 
     // ── one team, one tab ────────────────────────────────────────────────
 
-    async page(token: string, p: TeamPageGetInput): Promise<TeamPageDTO> {
-        const view = p.view ?? 'overview';
+    /**
+     * One team: the header (permissions, versions, counts) plus the data of one tab (`view`).
+     *
+     * @param input - scope + name, the tab and its filters
+     * @param token - The caller's Core token
+     * @throws ApiError 404 when the caller cannot see the team (from teams/get_by_id)
+     */
+    async page(input: TeamPageGetInput, token: string): Promise<TeamPageData> {
+        const view = input.view ?? 'overview';
         // get_by_id is also the visibility gate (404 when the caller can't see it).
-        const raw = await this._teams.get_by_id({ name: p.name, scope: p.scope, ...(p.version ? { version: p.version } : {}) }, token) as unknown as Rec;
+        const raw = await this._teams.get_by_id({ name: input.name, scope: input.scope, ...(input.version ? { version: input.version } : {}) }, token);
         const team_id = String(raw.id);
-        const versions = to_versions(raw.versions);
+        const versions = to_team_releases_data(raw.versions);
         const latest_version = versions[0]?.version ?? null;
-        const { phases, support } = to_phases(raw.workflow, raw.roles);
-        const inputs = to_inputs(raw.inputs);
+        const { phases, support } = to_team_phases_data(raw.workflow, raw.roles);
+        const inputs = to_team_inputs_data(raw.inputs);
         const status: 'draft' | 'published' = raw.status === 'draft' || raw.visibility === 'draft' ? 'draft' : 'published';
         const scope = str(raw.scope);
-        const name = String(raw.name ?? p.name);
-        const header: TeamHeaderDTO = {
+        const name = String(raw.name ?? input.name);
+        const header: TeamHeaderData = {
             id: team_id, name, scope, label: label_of(scope, name),
             description: String(raw.description ?? ''), status, latest_version,
-            version: p.version ?? latest_version, versions,
+            version: input.version ?? latest_version, versions,
             author: str(raw.author), listed: raw.listed !== false,
-            tags: arr(raw.tags).map(String),
+            tags: (raw.tags ?? []).map(String),
             can_edit: Boolean(raw.can_edit), can_delete: Boolean(raw.can_delete), can_toggle_listing: Boolean(raw.can_toggle_listing),
         };
-        const run_scope = { team_id, ...(p.org_id ? { org_id: p.org_id } : {}) };
-        const runs_total = this._control.runs_for_team({ ...run_scope, limit: 1 }, token).then((r) => r.total).catch(() => null);
+        const run_scope = { team_id, ...(input.org_id ? { org_id: input.org_id } : {}) };
+        // Started now, awaited last (only when the tab didn't already count runs).
+        const runs_total = best_effort(log, 'team_page_runs_total_failed', this._control.runs_for_team({ ...run_scope, limit: 1 }, token).then((r) => r.total), null, { team_id });
 
-        const dto: TeamPageDTO = { team: header, counts: { phases: phases.length, versions: versions.length, runs: null }, view, partial: false };
+        const data: TeamPageData = { team: header, counts: { phases: phases.length, versions: versions.length, runs: null }, view, partial: false };
         const latest_of = () => latest_version;
 
         if (view === 'overview') {
-            const realms = await this._realms(token, p.org_id).catch(() => null);
+            const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
             const inst = realms ? await this._installs_by_label(token, realms.items.slice(0, TeamPageService.REALM_CAP), latest_of, { name, scope }) : null;
             const agents = [...new Set([...phases, ...support].map((x) => x.agent).filter((x): x is string => Boolean(x)))];
-            dto.overview = { phases, support, inputs, agents, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [] };
-            dto.partial = !realms || Boolean(inst?.failed);
+            data.overview = { phases, support, inputs, agents, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [] };
+            data.partial = !realms || Boolean(inst?.failed);
         } else if (view === 'workflow') {
-            const realms = await this._realms(token, p.org_id).catch(() => null);
+            const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
             const rmap = new Map((realms?.items ?? []).map((r) => [r.id, r]));
-            const recent = await this._control.runs_for_team({ ...run_scope, limit: 8 }, token).catch(() => null);
-            let overlay: NonNullable<TeamPageDTO['workflow']>['overlay'] = null;
-            const run_id = p.run_id === 'latest' ? recent?.items[0]?.run_id : p.run_id;
+            const recent = await best_effort(log, 'team_page_recent_runs_failed', this._control.runs_for_team({ ...run_scope, limit: 8 }, token), null, { team_id });
+            let overlay: NonNullable<TeamPageData['workflow']>['overlay'] = null;
+            const run_id = input.run_id === 'latest' ? recent?.items[0]?.run_id : input.run_id;
             if (run_id) {
                 // run_by_id is the access check for the run; statuses only after it.
-                const run = await this._control.run_by_id(run_id, token).catch(() => null);
+                const run = await best_effort(log, 'team_page_overlay_run_failed', this._control.run_by_id(run_id, token), null, { team_id, run_id });
                 if (run && run.team_id === team_id) {
-                    const rows = await this._control.run_phases(run_id, token).catch(() => []);
+                    const rows = await best_effort(log, 'team_page_overlay_phases_failed', this._control.run_phases(run_id, token), [], { team_id, run_id });
                     const statuses: Record<string, string> = {};
                     for (const r of rows) statuses[r.phase] = r.status;
-                    let run_phases: TeamPhaseDTO[] | null = null;
+                    let run_phases: TeamPhaseData[] | null = null;
                     let run_version: string | null = null;
                     const vid = str(run.team_version_id);
                     if (vid) {
-                        const g = await this._teams.get_phases({ team_id, version_id: vid }, token).catch(() => null);
+                        const g = await best_effort(log, 'team_page_overlay_workflow_failed', this._teams.get_phases({ team_id, version_id: vid }, token), null, { team_id, run_id, version_id: vid });
                         run_version = g?.version ?? null;
-                        if (g && run_version !== header.version) run_phases = to_phases({ phases: g.phases }, raw.roles).phases;
+                        if (g && run_version !== header.version) run_phases = to_team_phases_data({ phases: g.phases }, raw.roles).phases;
                     }
-                    overlay = { run: run_row(run, rmap), version: run_version, phases: run_phases, statuses };
+                    overlay = { run: to_team_run_row(run, rmap), version: run_version, phases: run_phases, statuses };
                 }
             }
-            dto.workflow = { phases, support, recent_runs: (recent?.items ?? []).map((r) => run_row(r, rmap)), overlay };
-            dto.partial = !recent;
+            data.workflow = { phases, support, recent_runs: (recent?.items ?? []).map((r) => to_team_run_row(r, rmap)), overlay };
+            data.partial = !recent;
         } else if (view === 'files') {
             const files: Array<{ path: string; kind: 'yaml' | 'md'; content: string }> = [];
             const manifest = str(raw.raw_manifest) ?? str(raw.team_json);
             if (manifest) files.push({ path: 'team.yml', kind: 'yaml', content: manifest });
             if (str(raw.readme)) files.push({ path: 'README.md', kind: 'md', content: String(raw.readme) });
-            for (const r of arr(raw.roles)) {
-                const o = r as Rec; const n = str(o.name);
-                if (n) files.push({ path: `roles/${n.replace(/\.md$/, '')}.md`, kind: 'md', content: String(o.content_md ?? '') });
+            for (const r of raw.roles ?? []) {
+                const n = str(r.name);
+                if (n) files.push({ path: `roles/${n.replace(/\.md$/, '')}.md`, kind: 'md', content: String(r.content_md ?? '') });
             }
-            dto.files = { files };
+            data.files = { files };
         } else if (view === 'runs') {
-            const limit = p.limit ?? TeamPageService.DEFAULT_LIMIT;
-            const offset = p.offset ?? 0;
-            const base = { ...run_scope, ...(p.realm_id ? { realm_id: p.realm_id } : {}) };
-            const state = p.state === 'failed' ? (['failed', 'crashed'] as const) : p.state;
-            const since = p.state === 'failed' ? this._now() - WEEK_MS : undefined;
+            const limit = input.limit ?? TeamPageService.DEFAULT_LIMIT;
+            const offset = input.offset ?? 0;
+            const base = { ...run_scope, ...(input.realm_id ? { realm_id: input.realm_id } : {}) };
+            const state: ControlRunState | ControlRunState[] | undefined = input.state === 'failed' ? ['failed', 'crashed'] : input.state;
+            const since = input.state === 'failed' ? this._now() - WEEK_MS : undefined;
             const [realms, page, all, running, awaiting, failed] = await Promise.allSettled([
-                this._realms(token, p.org_id),
-                this._control.runs_for_team({ ...base, ...(state ? { state: state as never } : {}), ...(since ? { since_ms: since } : {}), ...(p.q ? { query: p.q } : {}), limit, offset }, token),
+                this._realms(token, input.org_id),
+                this._control.runs_for_team({ ...base, ...(state ? { state } : {}), ...(since ? { since_ms: since } : {}), ...core_query(input.q), ...core_sort('runs.get', input), limit, offset }, token),
                 this._control.runs_for_team({ ...base, limit: 1 }, token),
                 this._control.runs_for_team({ ...base, state: 'running', limit: 1 }, token),
                 this._control.runs_for_team({ ...base, state: 'awaiting_input', limit: 1 }, token),
                 this._control.runs_for_team({ ...base, state: ['failed', 'crashed'], since_ms: this._now() - WEEK_MS, limit: 1 }, token),
             ]);
             if (page.status === 'rejected') throw page.reason;
+            warn_rejected(log, 'team_page_runs_section_failed', { realms, all, running, awaiting_input: awaiting, failed_7d: failed }, { team_id });
             const n = (r: PromiseSettledResult<{ total: number }>) => (r.status === 'fulfilled' ? r.value.total : null);
             const rl = realms.status === 'fulfilled' ? realms.value.items : [];
             const rmap = new Map(rl.map((r) => [r.id, r]));
-            dto.runs = {
-                items: page.value.items.map((r) => run_row(r, rmap)), total: page.value.total, offset, limit,
+            data.runs = {
+                items: page.value.items.map((r) => to_team_run_row(r, rmap)), total: page.value.total, offset, limit,
                 counts: { all: n(all), running: n(running), awaiting_input: n(awaiting), failed_7d: n(failed) },
                 realms: rl,
+                sortable: sortable_keys('runs.get'),
             };
-            dto.partial = [realms, all, running, awaiting, failed].some((r) => r.status === 'rejected');
-            if (all.status === 'fulfilled') dto.counts.runs = all.value.total;
+            data.partial = [realms, all, running, awaiting, failed].some((r) => r.status === 'rejected');
+            if (all.status === 'fulfilled') data.counts.runs = all.value.total;
         } else if (view === 'installs') {
-            const realms = await this._realms(token, p.org_id);
+            const realms = await this._realms(token, input.org_id);
             const checked = realms.items.slice(0, TeamPageService.REALM_CAP);
             const inst = await this._installs_by_label(token, checked, latest_of, { name, scope });
             const items = inst.map.get(label_of(scope, name)) ?? [];
             const have = new Set(items.map((i) => i.realm_id));
-            dto.installs = { items, not_installed: checked.filter((r) => !have.has(r.id)), realms_checked: checked.length, realms_total: realms.total };
-            dto.partial = inst.failed || realms.total > checked.length;
+            data.installs = { items, not_installed: checked.filter((r) => !have.has(r.id)), realms_checked: checked.length, realms_total: realms.total };
+            data.partial = inst.failed || realms.total > checked.length;
         } else if (view === 'versions') {
-            let compare: NonNullable<TeamPageDTO['versions']>['compare'] = null;
-            const to = p.compare_to ?? header.version ?? latest_version;
-            const from = p.compare_from ?? versions[versions.findIndex((v) => v.version === to) + 1]?.version;
+            let compare: NonNullable<TeamPageData['versions']>['compare'] = null;
+            const to = input.compare_to ?? header.version ?? latest_version;
+            const from = input.compare_from ?? versions[versions.findIndex((v) => v.version === to) + 1]?.version;
             if (to && from && from !== to) {
                 const load = async (v: string) => {
                     if (v === header.version) return { phases, inputs };
-                    const r = await this._teams.get_by_id({ name: p.name, scope: p.scope, version: v }, token) as unknown as Rec;
-                    return { phases: to_phases(r.workflow, r.roles).phases, inputs: to_inputs(r.inputs) };
+                    const r = await this._teams.get_by_id({ name: input.name, scope: input.scope, version: v }, token);
+                    return { phases: to_team_phases_data(r.workflow, r.roles).phases, inputs: to_team_inputs_data(r.inputs) };
                 };
                 try {
                     const [a, b] = await Promise.all([load(from), load(to)]);
                     compare = { from, to, changes: diff_versions(a, b) };
-                } catch {
-                    dto.partial = true;
+                } catch (err) {
+                    // The versions list still renders; only the diff is missing.
+                    log.warn('team_page_compare_failed', { team_id, from, to, ...error_fields(err) });
+                    data.partial = true;
                 }
             }
-            dto.versions = { items: versions, compare };
+            data.versions = { items: versions, compare };
         }
 
-        if (dto.counts.runs === null) dto.counts.runs = await runs_total;
-        return dto;
+        if (data.counts.runs === null) data.counts.runs = await runs_total;
+        return data;
     }
 }

@@ -15,109 +15,93 @@ describe('BuilderService', () => {
 
     describe('build', () => {
         it('maps generate job handle without leaking usage', async () => {
-            mock_repo.build.mockResolvedValue({
-                job_id: 'job-abc',
-                status: 'pending',
-                stage: 'queued',
-            });
+            mock_repo.build.mockResolvedValue({ job_id: 'job-abc', status: 'pending', stage: 'queued', usage: { tokens: 1 } });
 
-            const dto = await service.build({ action: 'generate', intent: 'Build a team' }, 'jwt');
+            const data = await service.build({ action: 'generate', intent: 'Build a team' }, 'jwt');
 
-            expect(mock_repo.build).toHaveBeenCalledWith(
-                { action: 'generate', intent: 'Build a team' }, 'jwt',
-            );
-            expect(dto).toMatchObject({
-                job_id: 'job-abc',
-                status: 'pending',
-                stage: 'queued',
-            });
-            expect(dto).not.toHaveProperty('usage');
+            expect(mock_repo.build).toHaveBeenCalledWith({ action: 'generate', intent: 'Build a team' }, 'jwt');
+            expect(data).toEqual({ job_id: 'job-abc', status: 'pending', stage: 'queued' });
+        });
+
+        it('passes an undefined token through for anonymous callers', async () => {
+            mock_repo.build.mockResolvedValue({ job_id: 'job-abc', status: 'pending', stage: 'queued' });
+
+            await service.build({ action: 'generate', intent: 'Build a team' });
+
+            expect(mock_repo.build).toHaveBeenCalledWith({ action: 'generate', intent: 'Build a team' }, undefined);
         });
 
         it('maps status terminal team + validation and strips usage', async () => {
             mock_repo.build.mockResolvedValue({
-                job_id: 'job-abc',
-                status: 'complete',
-                stage: 'done',
-                team: { name: 'my-team' },
-                validation: { valid: true },
-                usage: { tokens: 500 },
+                job_id: 'job-abc', status: 'complete', stage: 'done',
+                team: { name: 'my-team' }, validation: { valid: true }, usage: { tokens: 500 },
             });
 
-            const dto = await service.build({ action: 'status', job_id: 'job-abc' }, 'jwt');
+            const data = await service.build({ action: 'status', job_id: 'job-abc' }, 'jwt');
 
-            expect(mock_repo.build).toHaveBeenCalledWith(
-                { action: 'status', job_id: 'job-abc' }, 'jwt',
-            );
-            expect(dto).toMatchObject({
-                team: { name: 'my-team' },
-                validation: { valid: true },
+            expect(mock_repo.build).toHaveBeenCalledWith({ action: 'status', job_id: 'job-abc' }, 'jwt');
+            expect(data).toEqual({
+                job_id: 'job-abc', status: 'complete', stage: 'done',
+                team: { name: 'my-team' }, validation: { valid: true },
             });
-            expect(dto).not.toHaveProperty('usage');
         });
 
-        it('maps improve_role VO to DTO', async () => {
+        it('maps status error and omits absent team / validation', async () => {
             mock_repo.build.mockResolvedValue({
-                name: 'dev', original_content: '# Dev',
-                improved_content: '# Better Dev', changes_summary: 'Improved',
+                job_id: 'job-abc', status: 'failed', stage: 'generate',
+                error: { code: 'llm', message: 'boom' },
             });
 
-            const dto = await service.build({
-                action: 'improve_role',
-                role_name: 'dev', role_content: '# Dev',
+            const data = await service.build({ action: 'status', job_id: 'job-abc' }, 'jwt');
+
+            expect(data).toEqual({ job_id: 'job-abc', status: 'failed', stage: 'generate', error: { code: 'llm', message: 'boom' } });
+            expect(data).not.toHaveProperty('team');
+            expect(data).not.toHaveProperty('validation');
+        });
+
+        it('maps improve_role', async () => {
+            mock_repo.build.mockResolvedValue({
+                name: 'dev', original_content: '# Dev', improved_content: '# Better Dev', changes_summary: 'Improved',
+            });
+
+            const data = await service.build({
+                action: 'improve_role', role_name: 'dev', role_content: '# Dev',
                 team_name: 'test', team_description: 'desc', phases: ['dev'],
             }, 'jwt');
 
-            expect(dto).toMatchObject({
-                improved_content: '# Better Dev',
-                name: 'dev',
-            });
+            expect(data).toEqual({ name: 'dev', original_content: '# Dev', improved_content: '# Better Dev', changes_summary: 'Improved' });
         });
 
-        it('maps validate VO to DTO', async () => {
-            mock_repo.build.mockResolvedValue({
-                valid: false, errors: ['No root phase'], warnings: [],
-            });
+        it('maps validate', async () => {
+            mock_repo.build.mockResolvedValue({ valid: false, errors: ['No root phase'], warnings: [] });
 
-            const dto = await service.build({ action: 'validate', team: { name: 'test' } }, 'jwt');
+            const data = await service.build({ action: 'validate', team: { name: 'test' } }, 'jwt');
 
-            expect(dto).toMatchObject({
-                valid: false,
-                errors: ['No root phase'],
-            });
+            expect(data).toEqual({ valid: false, errors: ['No root phase'], warnings: [] });
         });
 
-        it('maps chat VO to DTO and strips usage', async () => {
-            mock_repo.build.mockResolvedValue({
-                reply: 'Done.', actions: [{ type: 'ADD_PHASE' }],
-                usage: { tokens: 200 },
-            });
+        it('maps chat and strips usage', async () => {
+            mock_repo.build.mockResolvedValue({ reply: 'Done.', actions: [{ type: 'ADD_PHASE' }], usage: { tokens: 200 } });
 
-            const dto = await service.build({
-                action: 'chat',
-                team: { name: 'test' }, message: 'Add a phase',
-            }, 'jwt');
+            const data = await service.build({ action: 'chat', team: { name: 'test' }, message: 'Add a phase' }, 'jwt');
 
-            expect(dto).toMatchObject({
-                reply: 'Done.',
-                actions: [{ type: 'ADD_PHASE' }],
-            });
-            expect(dto).not.toHaveProperty('usage');
+            expect(data).toEqual({ reply: 'Done.', actions: [{ type: 'ADD_PHASE' }] });
         });
 
-        it('returns suggest VO as-is', async () => {
-            mock_repo.build.mockResolvedValue({
-                suggestions: [{ type: 'workflow_improvement', title: 'Add gate' }],
-            });
+        it('maps suggest', async () => {
+            mock_repo.build.mockResolvedValue({ suggestions: [{ type: 'workflow_improvement', title: 'Add gate' }] });
 
-            const dto = await service.build({
-                action: 'suggest',
-                team_name: 'my-team',
-            }, 'jwt');
+            const data = await service.build({ action: 'suggest', team_name: 'my-team' }, 'jwt');
 
-            expect(dto).toEqual({
-                suggestions: [{ type: 'workflow_improvement', title: 'Add gate' }],
-            });
+            expect(data).toEqual({ suggestions: [{ type: 'workflow_improvement', title: 'Add gate' }] });
+        });
+
+        it('defaults missing suggestions to []', async () => {
+            mock_repo.build.mockResolvedValue({});
+
+            const data = await service.build({ action: 'suggest', team_name: 'my-team' }, 'jwt');
+
+            expect(data).toEqual({ suggestions: [] });
         });
     });
 });

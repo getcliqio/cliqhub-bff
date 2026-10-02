@@ -18,6 +18,7 @@ declare global {
 
 const log = get_logger('http');
 
+/** Inbound `x-request-id` (trimmed, max 128 chars) or a new UUID. */
 function resolve_request_id(req: Request): string {
     const header = req.headers['x-request-id'];
     if (typeof header === 'string' && header.trim()) return header.trim().slice(0, 128);
@@ -27,6 +28,11 @@ function resolve_request_id(req: Request): string {
     return randomUUID();
 }
 
+/**
+ * Assigns the request id (inbound `x-request-id` or a new UUID), echoes it in the
+ * response, runs the request inside the request-id context and logs one `request`
+ * line on finish (error ≥ 500, warn ≥ 400, else debug).
+ */
 export function request_logging_middleware(
     req: Request,
     res: Response,

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { TeamPageService, diff_versions, to_phases, kind_of_phase } from '../../../src/services/team_page_service.js';
-import { ApiError } from '../../../src/repositories/api_error.js';
+import { TeamPageService } from '../../../src/services/team_page_service.js';
+import { diff_versions, to_team_phases_data as to_phases, kind_of_phase } from '../../../src/mappers/team_page_mapper.js';
+import { ApiError } from '../../../src/errors/api_error.js';
 
 const NOW = 1_800_000_000_000;
 const TEAM_ID = '11111111-1111-4111-8111-111111111111';
@@ -93,79 +94,114 @@ describe('kind_of_phase', () => {
 describe('TeamPageService.list', () => {
     it('filters by scope + status, counts, phase shapes and installed-in (behind flagged)', async () => {
         const m = mocks();
-        const dto = await svc(m).list('tok', { scope: 'acme', org_id: '22222222-2222-4222-8222-222222222222', status: 'all' });
-        expect(m.teams.get).toHaveBeenCalledWith({ mine: true }, 'tok');
+        const data = await svc(m).list({ scope: 'acme', org_id: '22222222-2222-4222-8222-222222222222', status: 'all' }, 'tok');
+        expect(m.teams.get).toHaveBeenCalledWith({ mine: true, limit: 200, offset: 0 }, 'tok');
         expect(m.control.realms_page).toHaveBeenCalledWith({ org_id: '22222222-2222-4222-8222-222222222222', limit: 100, offset: 0 }, 'tok');
-        expect(dto.counts).toEqual({ all: 2, published: 1, draft: 1 });
-        expect(dto.items.map((i) => i.name)).toEqual(['feature-dev', 'kyc']);
-        expect(dto.items[0].phase_types).toEqual(['pull', 'standard', 'gate']);
-        expect(dto.items[0].phase_kinds).toHaveLength(3);
-        expect(dto.items[0].phase_kinds![0]).toBe('connector');
-        expect(dto.items[0].installs.map((i) => [i.realm_slug, i.version, i.behind])).toEqual([['prod', '1.2.0', false], ['stg', '1.1.0', true]]);
-        expect(dto.items[1].latest_version).toBeNull();
-        expect(dto.partial).toBe(false);
+        expect(data.counts).toEqual({ all: 2, published: 1, draft: 1 });
+        expect(data.items.map((i) => i.name)).toEqual(['feature-dev', 'kyc']);
+        expect(data.items[0].phase_types).toEqual(['pull', 'standard', 'gate']);
+        expect(data.items[0].phase_kinds).toHaveLength(3);
+        expect(data.items[0].phase_kinds![0]).toBe('connector');
+        expect(data.items[0].installs.map((i) => [i.realm_slug, i.version, i.behind])).toEqual([['prod', '1.2.0', false], ['stg', '1.1.0', true]]);
+        expect(data.items[1].latest_version).toBeNull();
+        expect(data.partial).toBe(false);
     });
 
     it('status + query narrow; pages in the BFF', async () => {
         const m = mocks();
-        const dto = await svc(m).list('tok', { status: 'draft', q: 'ky', limit: 1 });
-        expect(dto.items.map((i) => i.name)).toEqual(['kyc']);
-        expect(dto.total).toBe(1);
+        const data = await svc(m).list({ status: 'draft', q: 'ky', limit: 1 }, 'tok');
+        expect(data.items.map((i) => i.name)).toEqual(['kyc']);
+        expect(data.total).toBe(1);
+    });
+
+    it('reads every page of the caller\'s teams (Core pages teams/get)', async () => {
+        const m = mocks();
+        const rows = Array.from({ length: 250 }, (_, i) => ({ id: `t${i}`, name: `team-${i}`, scope: 'acme', status: 'published', latest_version: '1.0.0' }));
+        m.teams.get.mockImplementation(async (f: { mine?: boolean; limit?: number; offset?: number }) => (f.mine
+            ? { items: rows.slice(f.offset ?? 0, (f.offset ?? 0) + (f.limit ?? 50)), total: rows.length, offset: f.offset ?? 0, limit: f.limit ?? 50 }
+            : { items: [], total: 0, offset: 0, limit: 200 }));
+        const data = await svc(m).list({ limit: 5 }, 'tok');
+        expect(m.teams.get).toHaveBeenCalledWith({ mine: true, limit: 200, offset: 200 }, 'tok');
+        expect(data.counts.all).toBe(250);
+        expect(data.total).toBe(250);
+    });
+
+    it('sorts the whole list in the BFF before paging (name desc, status asc), and says it can', async () => {
+        const m = mocks();
+        const rows = ['b', 'a', 'd', 'c'].map((n, i) => ({ id: `t${n}`, name: n, scope: 'acme', status: i % 2 ? 'draft' : 'published', latest_version: '1.0.0' }));
+        m.teams.get.mockImplementation(async (f: { mine?: boolean }) => (f.mine ? { items: rows, total: rows.length, offset: 0, limit: 200 } : { items: [], total: 0, offset: 0, limit: 200 }));
+        const by_name = await svc(m).list({ sort_by: 'name', sort_dir: 'desc', limit: 2, offset: 0 }, 'tok');
+        expect(by_name.items.map((i) => i.name)).toEqual(['d', 'c']);
+        const page2 = await svc(m).list({ sort_by: 'name', sort_dir: 'desc', limit: 2, offset: 2 }, 'tok');
+        expect(page2.items.map((i) => i.name)).toEqual(['b', 'a']);
+        const by_status = await svc(m).list({ sort_by: 'status', sort_dir: 'asc' }, 'tok');
+        expect(by_status.items.map((i) => `${i.status}:${i.name}`)).toEqual(['draft:a', 'draft:c', 'published:b', 'published:d']);
+        expect(by_status.sortable).toEqual(['name', 'status']);
+        // Without sort_by Core's order is kept.
+        expect((await svc(m).list({}, 'tok')).items.map((i) => i.name)).toEqual(['b', 'a', 'd', 'c']);
     });
 
     it('realm lookup failing marks partial but still lists', async () => {
         const m = mocks();
         m.control.realms_page.mockRejectedValue(new Error('down'));
-        const dto = await svc(m).list('tok', {});
-        expect(dto.items).toHaveLength(3);
-        expect(dto.partial).toBe(true);
+        const data = await svc(m).list({}, 'tok');
+        expect(data.items).toHaveLength(3);
+        expect(data.partial).toBe(true);
     });
 });
 
 describe('TeamPageService.page', () => {
     it('overview: header, permissions, counts, installs', async () => {
         const m = mocks();
-        const dto = await svc(m).page('tok', { scope: 'acme', name: 'feature-dev', view: 'overview' });
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview' }, 'tok');
         expect(m.teams.get_by_id).toHaveBeenCalledWith({ name: 'feature-dev', scope: 'acme' }, 'tok');
-        expect(dto.team).toMatchObject({ id: TEAM_ID, label: '@acme/feature-dev', latest_version: '1.2.0', version: '1.2.0', can_edit: true, can_toggle_listing: false });
-        expect(dto.counts).toEqual({ phases: 3, versions: 2, runs: 9 });
-        expect(dto.overview?.agents).toEqual(['claude-code']);
-        expect(dto.overview?.inputs).toEqual([{ name: 'ticket', description: 'Jira key', required: true, default: null }]);
-        expect(dto.overview?.installs.map((i) => i.realm_slug)).toEqual(['prod', 'stg']);
+        expect(data.team).toMatchObject({ id: TEAM_ID, label: '@acme/feature-dev', latest_version: '1.2.0', version: '1.2.0', can_edit: true, can_toggle_listing: false });
+        expect(data.counts).toEqual({ phases: 3, versions: 2, runs: 9 });
+        expect(data.overview?.agents).toEqual(['claude-code']);
+        expect(data.overview?.inputs).toEqual([{ name: 'ticket', description: 'Jira key', required: true, default: null }]);
+        expect(data.overview?.installs.map((i) => i.realm_slug)).toEqual(['prod', 'stg']);
         expect(m.teams.get).toHaveBeenCalledWith({ realm_id: 'r1', limit: 20, offset: 0, query: 'feature-dev' }, 'tok');
         expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, limit: 1 }, 'tok');
     });
 
     it('workflow: latest run overlay, gated by run_by_id, with the run’s own version graph', async () => {
         const m = mocks();
-        const dto = await svc(m).page('tok', { scope: 'acme', name: 'feature-dev', view: 'workflow', run_id: 'latest' });
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'workflow', run_id: 'latest' }, 'tok');
         expect(m.control.run_by_id).toHaveBeenCalledWith('run1', 'tok');
         expect(m.teams.get_phases).toHaveBeenCalledWith({ team_id: TEAM_ID, version_id: 'v-old' }, 'tok');
-        expect(dto.workflow?.overlay).toMatchObject({ version: '1.1.0', statuses: { fetch: 'completed', architect: 'running' }, run: { run_id: 'run1', realm_slug: 'prod' } });
-        expect(dto.workflow?.overlay?.phases).toHaveLength(3);
-        expect(dto.workflow?.recent_runs).toHaveLength(1);
+        expect(data.workflow?.overlay).toMatchObject({ version: '1.1.0', statuses: { fetch: 'completed', architect: 'running' }, run: { run_id: 'run1', realm_slug: 'prod' } });
+        expect(data.workflow?.overlay?.phases).toHaveLength(3);
+        expect(data.workflow?.recent_runs).toHaveLength(1);
     });
 
     it('workflow: a run of another team is never overlaid', async () => {
         const m = mocks();
         m.control.run_by_id.mockResolvedValue({ run_id: 'x', team_id: 'other', state: 'running' });
-        const dto = await svc(m).page('tok', { scope: 'acme', name: 'feature-dev', view: 'workflow', run_id: 'x' });
-        expect(dto.workflow?.overlay).toBeNull();
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'workflow', run_id: 'x' }, 'tok');
+        expect(data.workflow?.overlay).toBeNull();
         expect(m.control.run_phases).not.toHaveBeenCalled();
     });
 
     it('files: team.yml, README and one file per role', async () => {
-        const dto = await svc(mocks()).page('tok', { scope: 'acme', name: 'feature-dev', view: 'files' });
-        expect(dto.files?.files.map((f) => f.path)).toEqual(['team.yml', 'README.md', 'roles/architect.md']);
+        const data = await svc(mocks()).page({ scope: 'acme', name: 'feature-dev', view: 'files' }, 'tok');
+        expect(data.files?.files.map((f) => f.path)).toEqual(['team.yml', 'README.md', 'roles/architect.md']);
     });
 
     it('runs: team_id filter, state chips, failed = failed+crashed in 7d, realm slugs', async () => {
         const m = mocks();
-        const dto = await svc(m).page('tok', { scope: 'acme', name: 'feature-dev', view: 'runs', state: 'failed', realm_id: 'r1', limit: 10 });
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'runs', state: 'failed', realm_id: 'r1', limit: 10 }, 'tok');
         expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, realm_id: 'r1', state: ['failed', 'crashed'], since_ms: NOW - 7 * 86400000, limit: 10, offset: 0 }, 'tok');
-        expect(dto.runs?.counts).toEqual({ all: 9, running: 1, awaiting_input: 2, failed_7d: 3 });
-        expect(dto.runs?.items[0]).toMatchObject({ run_id: 'run1', realm_slug: 'prod', org_slug: 'acme' });
-        expect(dto.runs?.realms).toHaveLength(2);
+        expect(data.runs?.counts).toEqual({ all: 9, running: 1, awaiting_input: 2, failed_7d: 3 });
+        expect(data.runs?.items[0]).toMatchObject({ run_id: 'run1', realm_slug: 'prod', org_slug: 'acme' });
+        expect(data.runs?.realms).toHaveLength(2);
+    });
+
+    it('runs: sort_by / sort_dir and the search reach runs/get in Core\'s names (page only)', async () => {
+        const m = mocks();
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'runs', q: 'PROJ', sort_by: 'state', sort_dir: 'desc', limit: 10 }, 'tok');
+        expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, query: 'PROJ', sort_by: 'state', sort_dir: 'desc', limit: 10, offset: 0 }, 'tok');
+        expect(m.control.runs_for_team.mock.calls.filter(([f]: [Record<string, unknown>]) => f.limit === 1).every(([f]: [Record<string, unknown>]) => !('sort_by' in f))).toBe(true);
+        expect(data.runs?.sortable).toContain('started_at');
     });
 
     it('installs: installed + not-installed realms', async () => {
@@ -173,23 +209,23 @@ describe('TeamPageService.page', () => {
         m.teams.get.mockImplementation(async (f: { realm_id?: string }) => (f.realm_id === 'r1'
             ? { items: [{ slug: 'feature-dev', label: '@acme/feature-dev', version: '1.1.0', in_team_list: true, installed_count: 1, online_daemon_count: 2 }], total: 1 }
             : { items: [{ slug: 'feature-dev', label: '@other/feature-dev', version: '9', in_team_list: true, installed_count: 1 }], total: 1 }));
-        const dto = await svc(m).page('tok', { scope: 'acme', name: 'feature-dev', view: 'installs' });
-        expect(dto.installs?.items).toEqual([expect.objectContaining({ realm_slug: 'prod', version: '1.1.0', behind: true, installed_count: 1, online_daemon_count: 2 })]);
-        expect(dto.installs?.not_installed.map((r) => r.slug)).toEqual(['stg']);
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'installs' }, 'tok');
+        expect(data.installs?.items).toEqual([expect.objectContaining({ realm_slug: 'prod', version: '1.1.0', behind: true, installed_count: 1, online_daemon_count: 2 })]);
+        expect(data.installs?.not_installed.map((r) => r.slug)).toEqual(['stg']);
     });
 
     it('versions: compares the previous version with the shown one by default', async () => {
         const m = mocks();
-        const dto = await svc(m).page('tok', { scope: 'acme', name: 'feature-dev', view: 'versions' });
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'versions' }, 'tok');
         expect(m.teams.get_by_id).toHaveBeenCalledWith({ name: 'feature-dev', scope: 'acme', version: '1.1.0' }, 'tok');
-        expect(dto.versions?.items.map((v) => [v.version, v.is_latest])).toEqual([['1.2.0', true], ['1.1.0', false]]);
-        expect(dto.versions?.compare).toMatchObject({ from: '1.1.0', to: '1.2.0' });
-        expect(dto.versions?.compare?.changes).toContainEqual(expect.objectContaining({ kind: 'added', name: 'check' }));
+        expect(data.versions?.items.map((v) => [v.version, v.is_latest])).toEqual([['1.2.0', true], ['1.1.0', false]]);
+        expect(data.versions?.compare).toMatchObject({ from: '1.1.0', to: '1.2.0' });
+        expect(data.versions?.compare?.changes).toContainEqual(expect.objectContaining({ kind: 'added', name: 'check' }));
     });
 
     it('team not visible → 404 propagates', async () => {
         const m = mocks();
         m.teams.get_by_id.mockRejectedValue(new ApiError('not_found', 'Team not found', 404));
-        await expect(svc(m).page('tok', { scope: 'acme', name: 'nope', view: 'overview' })).rejects.toMatchObject({ status: 404 });
+        await expect(svc(m).page({ scope: 'acme', name: 'nope', view: 'overview' }, 'tok')).rejects.toMatchObject({ status: 404 });
     });
 });

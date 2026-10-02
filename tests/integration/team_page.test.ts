@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { ApiClient } from '../../src/repositories/api_client.js';
-import { CoreApiClient } from '../../src/repositories/core_api_client.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 const TEAM = '11111111-1111-4111-8111-111111111111';
@@ -33,13 +33,13 @@ describe('POST /v1/team_list/get + /v1/team_page/get', () => {
 
     it('list composes as the effective user', async () => {
         const sid = sess({ user_token: 'tok-admin', target_token: 'tok-p' });
-        const api = vi.spyOn(ApiClient.prototype, 'post').mockImplementation(async (path: string, body: any) => {
+        const api = vi.spyOn(CoreClient.prototype, 'post').mockImplementation(async (path: string, body: any) => {
             if (path === '/v1/teams/get' && body.mine) return { items: [{ id: TEAM, name: 'dev', scope: 'acme', description: '', status: 'published', latest_version: '1.0.0' }], total: 1 } as any;
             if (path === '/v1/teams/get' && body.realm_id) return { items: [{ slug: 'dev', label: '@acme/dev', version: '1.0.0', in_team_list: true, installed_count: 1 }], total: 1 } as any;
             if (path === '/v1/teams/get_phases') return { team_id: TEAM, version_id: 'v', version: '1.0.0', phases: [{ name: 'a', type: 'standard' }] } as any;
             throw new Error(`unexpected ${path}`);
         });
-        const core = vi.spyOn(CoreApiClient.prototype, 'post').mockImplementation(async (path: string) => {
+        const core = vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string) => {
             if (path === '/v1/realms/get') return { ok: true, data: { items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }], total: 1 } } as any;
             throw new Error(`unexpected ${path}`);
         });
@@ -51,12 +51,12 @@ describe('POST /v1/team_list/get + /v1/team_page/get', () => {
 
     it('page runs view sends team_id to Core runs/get', async () => {
         const sid = sess();
-        vi.spyOn(ApiClient.prototype, 'post').mockImplementation(async (path: string) => {
+        vi.spyOn(CoreClient.prototype, 'post').mockImplementation(async (path: string) => {
             if (path === '/v1/teams/get_by_id') return { id: TEAM, name: 'dev', scope: 'acme', versions: [{ version: '1.0.0' }], workflow: { phases: [] }, roles: [] } as any;
             throw new Error(`unexpected ${path}`);
         });
         const bodies: any[] = [];
-        vi.spyOn(CoreApiClient.prototype, 'post').mockImplementation(async (path: string, body: any) => {
+        vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string, body: any) => {
             if (path === '/v1/realms/get') return { ok: true, data: { items: [], total: 0 } } as any;
             if (path === '/v1/runs/get') { bodies.push(body); return { ok: true, data: { items: [], total: 4 } } as any; }
             throw new Error(`unexpected ${path}`);

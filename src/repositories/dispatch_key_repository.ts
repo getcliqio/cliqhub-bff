@@ -1,42 +1,23 @@
-import type { CoreApiClient } from './core_api_client.js';
-import type { DispatchKeyVO } from '../types/vo.js';
+/**
+ * Realm dispatch keys — Core answers these two routes with a flat body
+ * (`{ ok, realm_id, public_key_pem, … }`), so they are read with `post_body`.
+ */
 
+import type { CoreClient } from './core_client.js';
+import type { DispatchKeyVO } from '../types/core/dispatch_key.js';
+import type { DispatchKeyInput } from '../schemas/dispatch_key_types.js';
+
+/** A realm's dispatch key: read and rotate. */
 export class DispatchKeyRepository {
-    private _client: CoreApiClient;
+    constructor(private readonly _client: CoreClient) {}
 
-    constructor(client: CoreApiClient) {
-        this._client = client;
+    /** `POST /v1/auth/get_dispatch_public_key` */
+    async get_public_key(input: DispatchKeyInput, token: string): Promise<DispatchKeyVO> {
+        return this._client.post_body<DispatchKeyVO>('/v1/auth/get_dispatch_public_key', input, token);
     }
 
-    async get_public_key(realm_id: string, token: string): Promise<DispatchKeyVO> {
-        const raw = await this._client.post<{
-            realm_id?: string;
-            public_key_pem?: string;
-            created_at?: number;
-            rotated_at?: number;
-        }>('/v1/auth/get_dispatch_public_key', { realm_id }, token);
-
-        return {
-            realm_id: raw.realm_id ?? realm_id,
-            public_key_pem: raw.public_key_pem ?? '',
-            created_at: raw.created_at ?? null,
-            rotated_at: raw.rotated_at ?? null,
-        };
-    }
-
-    async regenerate(realm_id: string, token: string): Promise<DispatchKeyVO> {
-        const raw = await this._client.post<{
-            realm_id?: string;
-            public_key_pem?: string;
-            created_at?: number;
-            rotated_at?: number;
-        }>('/v1/auth/rotate_dispatch_key', { realm_id }, token);
-
-        return {
-            realm_id: raw.realm_id ?? realm_id,
-            public_key_pem: raw.public_key_pem ?? '',
-            created_at: raw.created_at ?? null,
-            rotated_at: raw.rotated_at ?? null,
-        };
+    /** `POST /v1/auth/rotate_dispatch_key` */
+    async rotate(input: DispatchKeyInput, token: string): Promise<DispatchKeyVO> {
+        return this._client.post_body<DispatchKeyVO>('/v1/auth/rotate_dispatch_key', input, token);
     }
 }

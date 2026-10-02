@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { ApiClient } from '../../src/repositories/api_client.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 
@@ -44,7 +44,7 @@ describe('Builder integration', () => {
 
     describe('POST /v1/teams/build', () => {
         it('returns 200 without session (public)', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     job_id: 'job-public-1',
                     status: 'pending',
@@ -64,7 +64,7 @@ describe('Builder integration', () => {
 
         it('returns 200 with session token passed to backend', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     job_id: 'job-auth-1',
                     status: 'pending',
@@ -109,7 +109,7 @@ describe('Builder integration', () => {
         });
 
         it('improve_role returns 200 with improved content', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     name: 'dev', original_content: '# Dev',
                     improved_content: '# Better Dev', changes_summary: 'Better',
@@ -143,7 +143,7 @@ describe('Builder integration', () => {
         });
 
         it('validate returns 200 with validation result', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     valid: true, errors: [], warnings: [],
                 });
@@ -167,7 +167,7 @@ describe('Builder integration', () => {
         });
 
         it('chat returns 200 with reply and actions', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({
                     reply: 'Added a gate phase.',
                     actions: [{ type: 'ADD_PHASE', phase: { name: 'gate' } }],

@@ -1,23 +1,23 @@
-import type { CoreApiClient } from './core_api_client.js';
-import type { DashboardRealmsVO, DashboardSummaryVO } from '../types/vo.js';
-
 /**
- * Core `/internal/dashboard/*` reads. Both are org-scoped (body `org_id`
- * required) and evaluated as the bearer — the session's `target_token`,
- * so admin take-over sees the impersonated user's view.
+ * Dashboard — Core calls for `/internal/dashboard/*` (flat bodies, read with `post_body`).
+ * Both reads are org-scoped and evaluated as the bearer — the session's
+ * `target_token`, so admin take-over sees the impersonated user's view.
  */
+
+import type { CoreClient } from './core_client.js';
+import type { DashboardOrgInput, DashboardRealmsVO, DashboardSummaryVO } from '../types/core/dashboard.js';
+
+/** Org dashboard reads (`/internal/dashboard/*`). */
 export class DashboardRepository {
-    private _core: CoreApiClient;
+    constructor(private readonly _client: CoreClient) {}
 
-    constructor(core: CoreApiClient) {
-        this._core = core;
+    /** `POST /internal/dashboard/summary` — one org's counts, live runs and pending reviews. */
+    async summary(input: DashboardOrgInput, token: string): Promise<DashboardSummaryVO> {
+        return this._client.post_body<DashboardSummaryVO & Record<string, unknown>>('/internal/dashboard/summary', input, token);
     }
 
-    async summary(org_id: string, token: string): Promise<DashboardSummaryVO> {
-        return this._core.post<DashboardSummaryVO & Record<string, unknown>>('/internal/dashboard/summary', { org_id }, token);
-    }
-
-    async realms(org_id: string, token: string): Promise<DashboardRealmsVO> {
-        return this._core.post<DashboardRealmsVO & Record<string, unknown>>('/internal/dashboard/realms', { org_id }, token);
+    /** `POST /internal/dashboard/realms` — one org's per-realm rollup. */
+    async realms(input: DashboardOrgInput, token: string): Promise<DashboardRealmsVO> {
+        return this._client.post_body<DashboardRealmsVO & Record<string, unknown>>('/internal/dashboard/realms', input, token);
     }
 }

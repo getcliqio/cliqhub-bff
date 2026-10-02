@@ -7,7 +7,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, it, expect } from 'vitest';
-import { CONTROL_PLANE_PASSTHROUGH_PATHS } from '../../src/lib/control_plane_routes.js';
+import { PASSTHROUGH_PATHS } from '../../src/routes/passthrough_paths.js';
+import { ROUTE_AUTH } from '../../src/routes/route_auth.js';
+
+const PASSTHROUGH = Object.keys(PASSTHROUGH_PATHS);
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 /** Split-repo BFF root (`cliqhub-bff/`), not the old monorepo `services/bff`. */
@@ -41,9 +44,8 @@ function extract_v1_paths(text: string): string[] {
 
 describe('BFF route surface audit', () => {
 	it('registers every /v1 path referenced by the Hub SPA', () => {
-		const app_src = fs.readFileSync(bff_app, 'utf8');
-		const registered = new Set(extract_v1_paths(app_src));
-		for (const p of CONTROL_PLANE_PASSTHROUGH_PATHS) registered.add(p);
+		// The route table is the served surface (start-up refuses a mismatch).
+		const registered = new Set(Object.keys(ROUTE_AUTH).map((k) => k.split(' ')[1]));
 
 		// Daemon-side command outbox endpoint identifiers that appear as
 		// string literals in the SPA for display/matching, not as fetch targets.
@@ -91,16 +93,13 @@ describe('BFF route surface audit', () => {
 			'/v1/runs/enqueue',
 			'/v1/teams/install',
 			'/v1/teams/uninstall',
-			'/v1/auth/get_dispatch_public_key',
-			'/v1/auth/rotate_dispatch_key',
 			'/v1/events/submit',
-			'/v1/sync/ingest',
 			'/v1/runs/get',
 			'/v1/notification_channels/create',
 			'/v1/account/mesh/get',
 			'/v1/orgs/mesh/get',
 		]) {
-			expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain(route);
+			expect(PASSTHROUGH).toContain(route);
 		}
 		for (const dropped of [
 			'/v1/workspaces/upsert_by_path',
@@ -188,28 +187,58 @@ describe('BFF route surface audit', () => {
 			'/v1/runs/telemetry/summary',
 			'/v1/commands/ack',
 		]) {
-			expect(CONTROL_PLANE_PASSTHROUGH_PATHS).not.toContain(dropped);
+			expect(PASSTHROUGH).not.toContain(dropped);
 		}
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain('/v1/daemons/ack_command');
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain('/v1/runs/append_logs');
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain('/v1/runs/get_logs');
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain('/v1/runs/report_telemetry');
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain('/v1/runs/get_telemetry');
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain('/v1/runs/report_activity');
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain('/v1/runs/get_status');
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).toContain('/v1/runs/update_status');
+		expect(PASSTHROUGH).toContain('/v1/daemons/ack_command');
+		expect(PASSTHROUGH).toContain('/v1/runs/append_logs');
+		expect(PASSTHROUGH).toContain('/v1/runs/get_logs');
+		expect(PASSTHROUGH).toContain('/v1/runs/report_telemetry');
+		expect(PASSTHROUGH).toContain('/v1/runs/get_telemetry');
+		expect(PASSTHROUGH).toContain('/v1/runs/report_activity');
+		expect(PASSTHROUGH).toContain('/v1/runs/get_status');
+		expect(PASSTHROUGH).toContain('/v1/runs/update_status');
 	});
 
-	it('registers control-plane passthrough loop in app.ts', () => {
-		const app_src = fs.readFileSync(bff_app, 'utf8');
-		expect(app_src).toContain('CONTROL_PLANE_PASSTHROUGH_PATHS');
-		expect(app_src).toContain('hub_passthrough');
+	it('passthrough covers the Core run/artifact/token-check routes the daemon and CLI use', () => {
+		for (const route of [
+			'/v1/runs/create_rdr',
+			'/v1/artifacts/submit',
+			'/v1/artifacts/delete',
+			'/v1/auth/validate_token',
+		]) {
+			expect(PASSTHROUGH_PATHS[route], route).toBe('token');
+		}
+	});
+
+	it('every passthrough path is in the route table with its rule and mounted by routes/passthrough.ts', () => {
+		for (const [p, auth] of Object.entries(PASSTHROUGH_PATHS)) {
+			expect(['token', 'site_admin'], p).toContain(auth);
+			expect(ROUTE_AUTH[`POST ${p}`], p).toBe(auth);
+		}
+		const src = fs.readFileSync(path.join(bff_root, 'src/routes/passthrough.ts'), 'utf8');
+		expect(src).toContain('PASSTHROUGH_PATHS');
+		expect(src).toContain('pass.forward');
 	});
 });
 
-describe('control-plane passthrough security', () => {
-	it('does not pass Hub settings writes through from the browser (S1)', () => {
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).not.toContain('/v1/settings/set');
-		expect(CONTROL_PLANE_PASSTHROUGH_PATHS).not.toContain('/v1/settings/remove');
+describe('passthrough security', () => {
+	it('Hub settings writes are passthrough for signed-in site admins only — never a bare token (S1)', () => {
+		// Inverted deliberately: they used to be unreachable; now they are
+		// forwarded, but the BFF route table demands a site-admin session
+		// (Core checks again). A daemon/user bearer alone must never reach them.
+		expect(PASSTHROUGH_PATHS['/v1/settings/set']).toBe('site_admin');
+		expect(PASSTHROUGH_PATHS['/v1/settings/remove']).toBe('site_admin');
+		expect(ROUTE_AUTH['POST /v1/settings/set']).toBe('site_admin');
+		expect(ROUTE_AUTH['POST /v1/settings/remove']).toBe('site_admin');
+	});
+
+	it('settings reads stay `token` (daemons read Hub settings)', () => {
+		expect(PASSTHROUGH_PATHS['/v1/settings/get']).toBe('token');
+		expect(PASSTHROUGH_PATHS['/v1/settings/get_by_key']).toBe('token');
+	});
+
+	it('only the settings writes are site_admin in the passthrough list', () => {
+		const admin_only = Object.entries(PASSTHROUGH_PATHS).filter(([, a]) => a === 'site_admin').map(([p]) => p).sort();
+		expect(admin_only).toEqual(['/v1/settings/remove', '/v1/settings/set']);
 	});
 });

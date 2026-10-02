@@ -1,50 +1,76 @@
-import type { Request, Response } from 'express';
+/**
+ * Notification center — every rule and channel the user can see, who gets told
+ * for each event, and bulk rule writes.
+ *
+ * Routes (1:1 with this controller, mounted in routes/pages.ts):
+ *   POST /v1/notification_center/get        — rules + channels by org and realm
+ *   POST /v1/notification_center/check      — who is told for each event in a realm (or team)
+ *   POST /v1/notification_center/set_rules  — one rule per event at one level, one channel
+ *
+ * Every route needs a session; Core re-checks every read and write.
+ * Single-rule writes and channel CRUD stay on Core passthrough routes.
+ * Response envelope: `{ ok: true, data: T }` via `this.ok()`.
+ * Inbound SoT: Zod `NotificationCenter*Input` in `schemas/notification_center_types.ts`.
+ */
+
 import { BaseController } from './base_controller.js';
 import type { NotificationCenterService } from '../services/notification_center_service.js';
-import { notification_center_check_schema, notification_center_get_schema, notification_center_set_rules_schema } from '../schemas/notification_center_schemas.js';
+import type { ApiOkResponse, ApiRequest } from '../types/api_response.js';
+import {
+    NotificationCenterGetInput, NotificationCenterCheckInput, NotificationCenterSetRulesInput,
+} from '../schemas/notification_center_types.js';
+import type {
+    NotificationCenterData, NotificationCheckData, NotifSetRulesData,
+} from '../schemas/notification_center_types.js';
+import { to_notif_viewer } from '../mappers/notification_center_mapper.js';
 
-/**
- * Notification center reads (BFF composition).
- *   POST /v1/notification_center/get   → `{ ok, data: NotificationCenterDTO }`
- *   POST /v1/notification_center/check → `{ ok, data: NotificationCheckDTO }`
- * Writes stay on the existing Core routes (rules set/remove, channels create/update/remove/test).
- */
+/** Notification center page and bulk rule writes. */
 export class NotificationCenterController extends BaseController {
-    private _service: NotificationCenterService;
-
-    constructor(service: NotificationCenterService) {
+    constructor(private readonly _notification_center_service: NotificationCenterService) {
         super();
-        this._service = service;
     }
 
-    get = this.wrap(async (req: Request, res: Response) => {
-        if (!req.session_data) {
-            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
-            return;
-        }
-        const body = this.parse_body(notification_center_get_schema, req);
-        const s = req.session_data;
-        // Effective user (take-over aware) decides what is editable.
-        const viewer = { user_id: s.act_as_user_id || s.user_id, site_admin: s.role === 'admin' };
-        this.ok(res, await this._service.get(s.target_token, body, viewer));
-    });
+    /**
+     * Rules and channels across the caller's orgs and one page of realms, with
+     * what the effective user (take-over aware) may edit.
+     *
+     * @param req - Body: {@link NotificationCenterGetInput}
+     * @param res - `{ ok: true, data: NotificationCenterData }`; 403 when `org_id` / `realm_id` is outside the caller's orgs
+     */
+    async get(
+        req: ApiRequest<NotificationCenterGetInput, NotificationCenterData>,
+        res: ApiOkResponse<NotificationCenterData>,
+    ): Promise<void> {
+        const body = this.parse_body(NotificationCenterGetInput, req);
+        const session = this.session(req);
+        this.ok(res, await this._notification_center_service.get(body, session.target_token, to_notif_viewer(session)));
+    }
 
-    check = this.wrap(async (req: Request, res: Response) => {
-        if (!req.session_data) {
-            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
-            return;
-        }
-        const body = this.parse_body(notification_center_check_schema, req);
-        this.ok(res, await this._service.check(req.session_data.target_token, body));
-    });
+    /**
+     * Who gets told for each event in a realm, optionally for one team.
+     *
+     * @param req - Body: {@link NotificationCenterCheckInput}
+     * @param res - `{ ok: true, data: NotificationCheckData }`
+     */
+    async check(
+        req: ApiRequest<NotificationCenterCheckInput, NotificationCheckData>,
+        res: ApiOkResponse<NotificationCheckData>,
+    ): Promise<void> {
+        const body = this.parse_body(NotificationCenterCheckInput, req);
+        this.ok(res, await this._notification_center_service.check(body, this.session(req).target_token));
+    }
 
-    /** `POST /v1/notification_center/set_rules` → `{ ok, data: NotifSetRulesDTO }` (one rule per event). */
-    set_rules = this.wrap(async (req: Request, res: Response) => {
-        if (!req.session_data) {
-            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
-            return;
-        }
-        const body = this.parse_body(notification_center_set_rules_schema, req);
-        this.ok(res, await this._service.set_rules(req.session_data.target_token, body));
-    });
+    /**
+     * Saves one rule per event at one level (org, realm or team), all to one channel.
+     *
+     * @param req - Body: {@link NotificationCenterSetRulesInput}
+     * @param res - `{ ok: true, data: NotifSetRulesData }` — per-event saved / failed
+     */
+    async set_rules(
+        req: ApiRequest<NotificationCenterSetRulesInput, NotifSetRulesData>,
+        res: ApiOkResponse<NotifSetRulesData>,
+    ): Promise<void> {
+        const body = this.parse_body(NotificationCenterSetRulesInput, req);
+        this.ok(res, await this._notification_center_service.set_rules(body, this.session(req).target_token));
+    }
 }

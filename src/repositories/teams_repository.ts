@@ -1,129 +1,72 @@
-import type { ApiClient } from './api_client.js';
+/** Teams — Core calls for `/v1/teams/*`. Returns Core's `data` (VO). */
+
+import type { CoreClient } from './core_client.js';
 import type {
-    TeamListResponseVO, TeamDetailVO,
-    TeamDownloadResponseVO,
-    PublishResultVO, DeleteTeamResultVO,
-    RenameTeamResultVO,
-    LatestVersionResponseVO,
-} from '../types/vo.js';
+    TeamsGetVO, TeamDetailVO, TeamMutationVO, TeamsDownloadVO, TeamsDeleteVO,
+    TeamsGetVersionsVO, TeamsGetPhasesVO,
+} from '../types/core/teams.js';
+import type {
+    TeamsGetInput, TeamsGetByIdInput, TeamsGetVersionsInput, TeamsGetPhasesInput,
+    TeamsCreateInput, TeamsUpdateInput, TeamsPublishInput, TeamRefInput, TeamsDownloadInput,
+    TeamsRenameInput,
+} from '../schemas/teams_types.js';
 
+/** Core `/v1/teams/*` calls. */
 export class TeamsRepository {
-    private _client: ApiClient;
+    constructor(private readonly _client: CoreClient) {}
 
-    constructor(client: ApiClient) {
-        this._client = client;
+    /** `POST /v1/teams/get` — public catalog reads work without a token. */
+    async get(input: TeamsGetInput, token?: string): Promise<TeamsGetVO> {
+        return this._client.post<TeamsGetVO>('/v1/teams/get', input, token);
     }
 
-    async get(
-        params: {
-            tag?: string; query?: string; mine?: boolean; group_by_scope?: boolean;
-            status?: string; scope?: string; limit?: number; offset?: number;
-            realm_id?: string;
-            daemon_id?: string;
-            origin?: string;
-            coverage?: string;
-            sort_by?: string;
-            sort_dir?: string;
-        },
-        token?: string,
-    ): Promise<TeamListResponseVO> {
-        return this._client.post<TeamListResponseVO>(
-            '/v1/teams/get', params, token,
-        );
+    /** `POST /v1/teams/get_by_id` */
+    async get_by_id(input: TeamsGetByIdInput, token?: string): Promise<TeamDetailVO> {
+        return this._client.post<TeamDetailVO>('/v1/teams/get_by_id', input, token);
     }
 
-    async get_by_id(
-        params: { name?: string; scope?: string; version?: string; team_id?: string },
-        token?: string,
-    ): Promise<TeamDetailVO> {
-        return this._client.post<TeamDetailVO>(
-            '/v1/teams/get_by_id', params, token,
-        );
+    /** `POST /v1/teams/get_versions` */
+    async get_versions(input: TeamsGetVersionsInput, token?: string): Promise<TeamsGetVersionsVO> {
+        return this._client.post<TeamsGetVersionsVO>('/v1/teams/get_versions', input, token);
     }
 
-    async create(
-        params: Record<string, unknown>,
-        token: string,
-    ): Promise<Record<string, unknown>> {
-        return this._client.post<Record<string, unknown>>(
-            '/v1/teams/create', params, token,
-        );
+    /** `POST /v1/teams/get_phases` */
+    async get_phases(input: TeamsGetPhasesInput, token?: string): Promise<TeamsGetPhasesVO> {
+        return this._client.post<TeamsGetPhasesVO>('/v1/teams/get_phases', input, token);
     }
 
-    async update(
-        params: Record<string, unknown>,
-        token: string,
-    ): Promise<Record<string, unknown>> {
-        return this._client.post<Record<string, unknown>>(
-            '/v1/teams/update', params, token,
-        );
+    /** `POST /v1/teams/create` */
+    async create(input: TeamsCreateInput, token: string): Promise<TeamMutationVO> {
+        return this._client.post<TeamMutationVO>('/v1/teams/create', input, token);
     }
 
-    async download(
-        params: { name: string; scope?: string; version?: string },
-        token: string,
-    ): Promise<TeamDownloadResponseVO> {
-        return this._client.post<TeamDownloadResponseVO>(
-            '/v1/teams/download', params, token,
-        );
+    /** `POST /v1/teams/update` */
+    async update(input: TeamsUpdateInput, token: string): Promise<TeamMutationVO> {
+        return this._client.post<TeamMutationVO>('/v1/teams/update', input, token);
     }
 
-    async publish(
-        params: Record<string, unknown>,
-        token: string,
-    ): Promise<PublishResultVO> {
-        return this._client.post<PublishResultVO>(
-            '/v1/teams/publish', params, token,
-        );
+    /** `POST /v1/teams/download` */
+    async download(input: TeamsDownloadInput, token: string): Promise<TeamsDownloadVO> {
+        return this._client.post<TeamsDownloadVO>('/v1/teams/download', input, token);
     }
 
-    async unpublish(
-        params: Record<string, unknown>,
-        token: string,
-    ): Promise<Record<string, unknown>> {
-        return this._client.post<Record<string, unknown>>(
-            '/v1/teams/unpublish', params, token,
-        );
+    /** `POST /v1/teams/publish` */
+    async publish(input: TeamsPublishInput, token: string): Promise<TeamMutationVO> {
+        return this._client.post<TeamMutationVO>('/v1/teams/publish', input, token);
     }
 
-    async delete_team(
-        params: { name?: string; scope?: string; team_id?: string },
-        token: string,
-    ): Promise<DeleteTeamResultVO> {
-        return this._client.post<DeleteTeamResultVO>(
-            '/v1/teams/delete', params, token,
-        );
+    /** `POST /v1/teams/unpublish` */
+    async unpublish(input: TeamRefInput, token: string): Promise<TeamMutationVO> {
+        return this._client.post<TeamMutationVO>('/v1/teams/unpublish', input, token);
     }
 
-    async rename(
-        params: { name: string; scope: string; new_name: string },
-        token: string,
-    ): Promise<RenameTeamResultVO> {
-        return this._client.post<RenameTeamResultVO>(
-            '/v1/teams/rename', params, token,
-        );
+    /** `POST /v1/teams/delete` */
+    async delete(input: TeamRefInput, token: string): Promise<TeamsDeleteVO> {
+        return this._client.post<TeamsDeleteVO>('/v1/teams/delete', input, token);
     }
 
-    async get_versions(
-        params: { name: string; scope?: string; latest_only?: boolean },
-        token?: string,
-    ): Promise<LatestVersionResponseVO> {
-        return token === undefined
-            ? this._client.post<LatestVersionResponseVO>('/v1/teams/get_versions', params)
-            : this._client.post<LatestVersionResponseVO>('/v1/teams/get_versions', params, token);
-    }
-
-    async get_phases(
-        params: { team_id: string; version_id?: string },
-        token?: string,
-    ): Promise<{
-        team_id: string;
-        version_id: string | null;
-        version: string | null;
-        phases: unknown[];
-    }> {
-        return token === undefined
-            ? this._client.post('/v1/teams/get_phases', params)
-            : this._client.post('/v1/teams/get_phases', params, token);
+    /** `POST /v1/teams/rename` */
+    async rename(input: TeamsRenameInput, token: string): Promise<TeamMutationVO> {
+        return this._client.post<TeamMutationVO>('/v1/teams/rename', input, token);
     }
 }

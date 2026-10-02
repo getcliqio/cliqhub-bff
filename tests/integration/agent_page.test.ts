@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { CoreApiClient } from '../../src/repositories/core_api_client.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -34,7 +34,7 @@ describe('POST /v1/agent_list/get + /v1/agent_page/get', () => {
     it('list composes over Core as the effective user; secrets stay masked', async () => {
         const sid = sess();
         const tokens: string[] = [];
-        vi.spyOn(CoreApiClient.prototype, 'post').mockImplementation(async (path: string, body: any, token?: string) => {
+        vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string, body: any, token?: string) => {
             tokens.push(token ?? '');
             if (path === '/v1/agents/get') return { ok: true, data: [{ id: AG, name: 'jira', version: '1.2.0', description: '', agent_type: 'connector', is_system: true, created_at: 1, updated_at: 1, used_by: [] }] } as any;
             if (path === '/v1/agents/get_settings') return { ok: true, data: [{ id: AG, name: 'jira', version: '1.2.0', description: null, is_system: true, settings: { required: [{ key: 'api_token' }], optional: [] }, values: { api_token: 'ATATT3xFfGF0abcd1234x7Qa' }, source: { api_token: body.realm_id ? 'realm' : 'org' }, required_total: 1, required_configured: 1, all_required_configured: true }] } as any;

@@ -1,28 +1,50 @@
+/**
+ * Notification center — composes Core's per-org and per-realm notification data into one view.
+ *
+ * Core routes composed:
+ *   get:       /v1/orgs/get { mine } → per org /v1/orgs/get_notification_rules,
+ *              /v1/notification_channels/get, /v1/orgs/get_by_id (viewer's role; not for site admins);
+ *              /v1/realms/get_by_id or a page of /v1/realms/get → per realm
+ *              /v1/realms/get_notification_rules, /v1/notification_channels/get,
+ *              /v1/realms/get_members (realm-admin check); /v1/events/types/list
+ *   check:     /v1/realms/get_by_id, /v1/orgs/get { mine }, org + realm rules and channels,
+ *              /v1/teams/get { realm_id } (roster), /v1/events/types/list
+ *   set_rules: /v1/{orgs,realms}/set_notification_rules, once per event
+ */
+
+import { get_logger } from '../lib/log.js';
+import { best_effort, error_fields, warn_rejected } from '../lib/best_effort.js';
 import type { OrgsRepository } from '../repositories/orgs_repository.js';
 import type { DashboardRepository } from '../repositories/dashboard_repository.js';
 import type { ControlRepository } from '../repositories/control_repository.js';
 import type { TeamsRepository } from '../repositories/teams_repository.js';
-import type { NotifChannelVO, NotifRuleVO, OrgListItemVO } from '../types/vo.js';
+import type { NotifChannelVO, NotifRuleVO } from '../types/core/notifications.js';
+import type { OrgListItemVO } from '../types/core/orgs.js';
 import type {
-    NotifChannelDTO, NotifOrgDTO, NotifRealmDTO, NotifRuleDTO, NotifScopeKind, NotificationCenterDTO,
-    NotificationCheckDTO, NotifCheckRowDTO, NotifSetRulesDTO, NotifRealmPageDTO,
-} from '../types/dto.js';
-import { ApiError } from '../repositories/api_error.js';
-import { destination_label, resolve_event, selectors_overlap, TIER_RANK, type Tiered_rule } from '../lib/notification_logic.js';
+    NotificationCenterGetInput, NotificationCenterCheckInput, NotificationCenterSetRulesInput,
+    NotifChannelData, NotifOrgData, NotifRealmData, NotifRealmRefData, NotifRuleData, NotifScopeKind,
+    NotificationCenterData, NotificationCheckData, NotifCheckRowData, NotifSetRulesData,
+    NotifRealmPageData, NotifViewer,
+} from '../schemas/notification_center_types.js';
+import { ApiError } from '../errors/api_error.js';
+import { mark_replaces, resolve_event, sort_rules, type TieredRule } from './notification_rules.js';
+import {
+    to_notif_channel_data, to_notif_check_entry_data, to_notif_rule_data,
+} from '../mappers/notification_center_mapper.js';
 
-type Realm_ctx = { id: string; slug: string; name: string; org_id: string; org_slug: string };
-
-/** Who is looking — the effective user (take-over aware). */
-export type Notif_viewer = { user_id: string; site_admin: boolean };
+const log = get_logger('svc.notification_center');
 
 /** Core permission names behind the notification write routes. */
-const ORG_EDIT = 'channels.manage';
+const ORG_RULES_EDIT = 'rules.manage';
+const ORG_CHANNELS_EDIT = 'channels.manage';
 const REALM_EDIT = 'rules.manage.realm';
 
+/** Message shown in place of a failed section: Core's own for an ApiError, else `fallback`. */
 function reason(err: unknown, fallback: string): string {
     return err instanceof ApiError ? err.message : fallback;
 }
 
+/** `Promise.all` over `items` with at most `limit` calls in flight; results keep input order. */
 async function map_limited<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
     const out: R[] = new Array(items.length);
     let next = 0;
@@ -43,49 +65,50 @@ async function map_limited<T, R>(items: T[], limit: number, fn: (item: T) => Pro
  * live here so the browser makes a single call per view.
  */
 export class NotificationCenterService {
+    /** Orgs read in parallel. */
     static readonly ORG_CONCURRENCY = 4;
+    /** Realms read in parallel. */
     static readonly REALM_CONCURRENCY = 6;
     /** Realms per page (their rules + channels are fetched); org-wide data always loads. */
     static readonly REALM_PAGE = 10;
 
-    private _orgs: OrgsRepository;
-    private _dashboard: DashboardRepository;
-    private _control: ControlRepository;
-    private _teams: TeamsRepository;
-
-    constructor(orgs: OrgsRepository, dashboard: DashboardRepository, control: ControlRepository, teams: TeamsRepository) {
-        this._orgs = orgs;
-        this._dashboard = dashboard;
-        this._control = control;
-        this._teams = teams;
-    }
+    constructor(
+        private readonly _orgs_repo: OrgsRepository,
+        private readonly _dashboard_repo: DashboardRepository,
+        private readonly _control_repo: ControlRepository,
+        private readonly _teams_repo: TeamsRepository,
+    ) {}
 
     /**
-     * What the viewer may edit, mirroring Core's checks: site admin and org
-     * owner → everything; otherwise the org role's permissions. Custom roles
-     * are resolved with `/v1/orgs/list_roles`. Null when unknown (Core decides).
+     * What the viewer may edit, mirroring Core's `require_permission`: a site
+     * admin → everything; otherwise the role of the viewer's active
+     * membership (by `role_id`, from `/v1/orgs/get_by_id`): the owner role
+     * (`is_system`) → everything, any other role → its permissions. The
+     * owner-only `rules.manage` is therefore never granted to an admin role.
+     * Null when unknown (Core decides).
      */
-    private async org_permissions(org: OrgListItemVO, viewer: Notif_viewer | null, token: string): Promise<Set<string> | 'all' | null> {
-        if (viewer?.site_admin || org.role === 'owner') return 'all';
-        try {
-            const res = await this._orgs.list_roles({ org_id: org.id }, token);
-            const role = (res.roles ?? []).find((r) => r.slug === org.role);
-            if (role?.is_system) return 'all';
-            return new Set(role?.permissions ?? []);
-        } catch {
-            return null;
-        }
+    private async org_permissions(org: OrgListItemVO, viewer: NotifViewer, token: string): Promise<Set<string> | 'all' | null> {
+        if (viewer.site_admin) return 'all';
+        const detail = await best_effort(log, 'notif_org_role_failed', this._orgs_repo.get_by_id({ org_id: org.id }, token), null, { org_id: org.id });
+        if (detail === null) return null;
+        const me = detail.members.find((m) => m.user_id === viewer.user_id && m.status === 'active');
+        const role = me?.role_id ? detail.roles.find((r) => r.id === me.role_id) : undefined;
+        if (role?.is_system) return 'all';
+        return new Set(role?.permissions ?? []);
     }
 
     /**
      * Which realms this response covers: one realm (realm view), or one page
      * of Core's realm search. Only those realms' rules and channels are read.
+     * A failed realm search becomes `realm_page.status: 'error'`.
+     *
+     * @throws ApiError 403/404 when `realm_id` is given and the caller can't see that realm.
      */
     private async realm_page(
         orgs_in: OrgListItemVO[],
-        params: { org_id?: string; realm_id?: string; realm_q?: string; realm_limit?: number; realm_offset?: number },
+        params: NotificationCenterGetInput,
         token: string,
-    ): Promise<{ realm_ctx: Realm_ctx[]; realm_page: NotifRealmPageDTO }> {
+    ): Promise<{ realm_ctx: NotifRealmRefData[]; realm_page: NotifRealmPageData }> {
         const by_slug = new Map(orgs_in.map((o) => [o.slug, o]));
         const limit = params.realm_limit ?? NotificationCenterService.REALM_PAGE;
         const offset = params.realm_offset ?? 0;
@@ -93,7 +116,7 @@ export class NotificationCenterService {
         try {
             if (params.realm_id) {
                 // Realm lookup is also the membership gate.
-                const r = await this._control.realm_by_id(params.realm_id, token);
+                const r = await this._control_repo.realm_by_id(params.realm_id, token);
                 const org = r.org_slug ? by_slug.get(r.org_slug) : undefined;
                 if (!org) throw new ApiError('forbidden', 'Realm is outside this view', 403);
                 return {
@@ -101,7 +124,7 @@ export class NotificationCenterService {
                     realm_page: { offset: 0, limit: 1, total: 1, q: null, status: 'ok', error: null },
                 };
             }
-            const page = await this._control.realms_page({ org_id: params.org_id, query: q ?? undefined, limit, offset }, token);
+            const page = await this._control_repo.realms_page({ org_id: params.org_id, query: q ?? undefined, limit, offset }, token);
             const realm_ctx = page.items
                 .map((r) => ({ r, org: r.org_slug ? by_slug.get(r.org_slug) : undefined }))
                 .filter((x): x is { r: typeof x.r; org: OrgListItemVO } => Boolean(x.org))
@@ -109,25 +132,32 @@ export class NotificationCenterService {
             return { realm_ctx, realm_page: { offset, limit, total: page.total, q, status: 'ok', error: null } };
         } catch (err) {
             if (params.realm_id && err instanceof ApiError && (err.status === 403 || err.status === 404)) throw err;
+            // Org-wide data still renders; the realm section shows the error.
+            log.warn('notif_realm_page_failed', { org_id: params.org_id, realm_id: params.realm_id, ...error_fields(err) });
             return { realm_ctx: [], realm_page: { offset, limit, total: 0, q, status: 'error', error: reason(err, 'Could not load realms') } };
         }
     }
 
-    async get(
-        token: string,
-        params: { org_id?: string; realm_id?: string; realm_q?: string; realm_limit?: number; realm_offset?: number } = {},
-        viewer: Notif_viewer | null = null,
-    ): Promise<NotificationCenterDTO> {
-        const { orgs: member_orgs } = await this._orgs.get(token, { mine: true });
-        const orgs_in = params.org_id ? member_orgs.filter((o) => o.id === params.org_id) : member_orgs;
-        if (params.org_id && orgs_in.length === 0) throw new ApiError('forbidden', 'Not a member of that org', 403);
+    /**
+     * Every rule and channel the viewer can see: all org-wide data for their orgs
+     * (or one org), plus one page of realms (or one realm) with their rules and
+     * channels, each flagged with what the viewer may edit. Failures per org or
+     * realm are reported in place and set `partial`.
+     *
+     * @throws ApiError 403 when `org_id` is not one of the viewer's orgs, or `realm_id` is outside the view.
+     */
+    async get(input: NotificationCenterGetInput, token: string, viewer: NotifViewer): Promise<NotificationCenterData> {
+        const { orgs: member_orgs } = await this._orgs_repo.get({ mine: true }, token);
+        const orgs_in = input.org_id ? member_orgs.filter((o) => o.id === input.org_id) : member_orgs;
+        if (input.org_id && orgs_in.length === 0) throw new ApiError('forbidden', 'Not a member of that org', 403);
 
         const per_org = await map_limited(orgs_in, NotificationCenterService.ORG_CONCURRENCY, async (org) => {
             const [rules, channels, perms] = await Promise.allSettled([
-                this._control.org_notification_rules(org.id, token),
-                this._control.org_channels(org.id, token),
+                this._control_repo.org_notification_rules(org.id, token),
+                this._control_repo.org_channels(org.id, token),
                 this.org_permissions(org, viewer, token),
             ]);
+            warn_rejected(log, 'notif_org_read_failed', { rules, channels, perms }, { org_id: org.id });
             return { org, rules, channels, perms: perms.status === 'fulfilled' ? perms.value : null };
         });
         const has = (org_id: string, perm: string): boolean | null => {
@@ -136,33 +166,36 @@ export class NotificationCenterService {
             return p === 'all' || p.has(perm);
         };
 
-        const orgs: NotifOrgDTO[] = per_org.map(({ org, rules, channels }) => {
+        const orgs: NotifOrgData[] = per_org.map(({ org, rules, channels }) => {
             const failed = [rules, channels].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
             return {
                 id: org.id, slug: org.slug, display_name: org.display_name || org.slug, role: org.role,
                 status: failed ? 'error' : 'ok',
                 error: failed ? reason(failed.reason, 'Could not load notifications') : null,
                 // Unknown (role lookup failed) → let Core decide on write.
-                can_edit: has(org.id, ORG_EDIT) ?? true,
+                can_edit: has(org.id, ORG_RULES_EDIT) ?? true,
+                can_edit_channels: has(org.id, ORG_CHANNELS_EDIT) ?? true,
             };
         });
 
-        const { realm_ctx, realm_page } = await this.realm_page(orgs_in, params, token);
+        const { realm_ctx, realm_page } = await this.realm_page(orgs_in, input, token);
 
         const per_realm = await map_limited(realm_ctx, NotificationCenterService.REALM_CONCURRENCY, async (realm) => {
             // Org role grants realm edits in most cases; only then ask whether the viewer is a realm admin.
             const via_org = has(realm.org_id, REALM_EDIT);
             const [rules, channels, admin] = await Promise.allSettled([
-                this._control.realm_notification_rules(realm.id, token),
-                this._control.realm_channels(realm.id, token),
-                via_org === false && viewer
-                    ? this._control.realm_members(realm.id, token).then((m) => m.some((x) => x.member_type === 'user' && x.member_id === viewer.user_id && x.role === 'admin'))
+                this._control_repo.realm_notification_rules(realm.id, token),
+                this._control_repo.realm_channels(realm.id, token),
+                via_org === false
+                    ? this._control_repo.realm_members(realm.id, token).then((m) => m.some((x) => x.member_type === 'user' && x.member_id === viewer.user_id && x.role === 'admin'))
                     : Promise.resolve(via_org ?? true),
             ]);
+            // A failed realm-admin check means read-only (`can_edit: false`); Core still decides on write.
+            warn_rejected(log, 'notif_realm_read_failed', { rules, channels, admin }, { realm_id: realm.id });
             return { realm, rules, channels, can_edit: admin.status === 'fulfilled' ? admin.value : false };
         });
 
-        const realms: NotifRealmDTO[] = per_realm.map(({ realm, rules, channels, can_edit }) => {
+        const realms: NotifRealmData[] = per_realm.map(({ realm, rules, channels, can_edit }) => {
             const failed = [rules, channels].find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
             return { ...realm, status: failed ? 'error' : 'ok', error: failed ? reason(failed.reason, 'Could not load notifications') : null, can_edit };
         });
@@ -170,24 +203,11 @@ export class NotificationCenterService {
         // Channels (dedupe by id — Core may return a channel in more than one list).
         const org_by_id = new Map(orgs_in.map((o) => [o.id, o]));
         const realm_by_id = new Map(realm_ctx.map((r) => [r.id, r]));
-        const channel_map = new Map<string, NotifChannelDTO>();
-        const add_channel = (c: NotifChannelVO, fallback_org: OrgListItemVO, realm: Realm_ctx | null) => {
+        const channel_map = new Map<string, NotifChannelData>();
+        const add_channel = (c: NotifChannelVO, fallback_org: OrgListItemVO, realm: NotifRealmRefData | null) => {
             if (channel_map.has(c.id)) return;
             const org = (c.org_id && org_by_id.get(c.org_id)) || fallback_org;
-            channel_map.set(c.id, {
-                id: c.id,
-                name: c.name,
-                owner: {
-                    kind: c.user_id ? 'personal' : c.realm_id ? 'realm' : 'org',
-                    org_id: org.id,
-                    org_slug: org.slug,
-                    realm_id: realm?.id ?? null,
-                    realm_slug: realm?.slug ?? null,
-                },
-                destinations: (c.destinations ?? []).map((d) => ({ type: d.type, label: destination_label(d) })),
-                enabled: Boolean(c.enabled),
-                rule_count: c.rule_count ?? 0,
-            });
+            channel_map.set(c.id, to_notif_channel_data(c, org, realm));
         };
         for (const p of per_org) if (p.channels.status === 'fulfilled') for (const c of p.channels.value) add_channel(c, p.org, null);
         for (const p of per_realm) {
@@ -197,23 +217,9 @@ export class NotificationCenterService {
         }
 
         // Rules with scope.
-        const rules: NotifRuleDTO[] = [];
-        const to_rule = (r: NotifRuleVO, org: OrgListItemVO, realm: Realm_ctx | null): NotifRuleDTO => ({
-            id: r.id,
-            event: r.event,
-            scope: {
-                kind: realm ? (r.team_slug ? 'team' : 'realm') : 'org',
-                org_id: org.id,
-                org_slug: org.slug,
-                realm_id: realm?.id ?? null,
-                realm_slug: realm?.slug ?? null,
-                team_slug: realm ? r.team_slug ?? null : null,
-            },
-            channel_id: r.channel_id,
-            channel_name: channel_map.get(r.channel_id)?.name ?? null,
-            priority: r.priority ?? 0,
-            replaces: [],
-        });
+        const rules: NotifRuleData[] = [];
+        const to_rule = (r: NotifRuleVO, org: OrgListItemVO, realm: NotifRealmRefData | null): NotifRuleData =>
+            to_notif_rule_data(r, org, realm, channel_map.get(r.channel_id)?.name ?? null);
         for (const p of per_org) if (p.rules.status === 'fulfilled') for (const r of p.rules.value) rules.push(to_rule(r, p.org, null));
         for (const p of per_realm) {
             if (p.rules.status !== 'fulfilled') continue;
@@ -222,13 +228,9 @@ export class NotificationCenterService {
         }
         mark_replaces(rules);
 
-        let event_types: string[] = [];
-        let types_failed = false;
-        try {
-            event_types = await this._control.event_types(token);
-        } catch {
-            types_failed = true;
-        }
+        const types = await best_effort(log, 'notif_event_types_failed', this._control_repo.event_types(token), null);
+        const event_types: string[] = types ?? [];
+        const types_failed = types === null;
 
         return {
             orgs,
@@ -241,29 +243,38 @@ export class NotificationCenterService {
         };
     }
 
-    async check(token: string, params: { realm_id: string; team_slug?: string }): Promise<NotificationCheckDTO> {
+    /**
+     * Who gets told for each event in a realm (optionally for one team): per event,
+     * the rules at the winning tier and the broader rules they replace. Also lists
+     * the teams that can be checked (realm roster + teams that already have rules).
+     * Failed reads leave their part empty and set `partial`.
+     *
+     * @throws ApiError 403 when the realm's org is not one of the caller's orgs.
+     */
+    async check(input: NotificationCenterCheckInput, token: string): Promise<NotificationCheckData> {
         // Realm lookup is also the membership gate.
-        const realm = await this._control.realm_by_id(params.realm_id, token);
-        const { orgs } = await this._orgs.get(token, { mine: true });
+        const realm = await this._control_repo.realm_by_id(input.realm_id, token);
+        const { orgs } = await this._orgs_repo.get({ mine: true }, token);
         const org = orgs.find((o) => o.slug === realm.org_slug);
         if (!org) throw new ApiError('forbidden', 'Not a member of this realm’s org', 403);
 
         const [org_rules, realm_rules, org_channels, realm_channels, roster, types] = await Promise.allSettled([
-            this._control.org_notification_rules(org.id, token),
-            this._control.realm_notification_rules(realm.id, token),
-            this._control.org_channels(org.id, token),
-            this._control.realm_channels(realm.id, token),
-            this._teams.get({ realm_id: realm.id, limit: 200 }, token),
-            this._control.event_types(token),
+            this._control_repo.org_notification_rules(org.id, token),
+            this._control_repo.realm_notification_rules(realm.id, token),
+            this._control_repo.org_channels(org.id, token),
+            this._control_repo.realm_channels(realm.id, token),
+            this._teams_repo.get({ realm_id: realm.id, limit: 200 }, token),
+            this._control_repo.event_types(token),
         ]);
+        warn_rejected(log, 'notif_check_read_failed', { org_rules, realm_rules, org_channels, realm_channels, roster, types }, { realm_id: realm.id, org_id: org.id });
         const val = <T>(r: PromiseSettledResult<T>, d: T): T => (r.status === 'fulfilled' ? r.value : d);
         const partial = [org_rules, realm_rules, org_channels, realm_channels, roster, types].some((r) => r.status === 'rejected');
 
         const channel_names = new Map<string, string>();
         for (const c of [...val(org_channels, []), ...val(realm_channels, [])]) channel_names.set(c.id, c.name);
 
-        const team_slug = params.team_slug?.trim() || null;
-        const in_play: Array<Tiered_rule & { rule: NotifRuleVO }> = [
+        const team_slug = input.team_slug?.trim() || null;
+        const in_play: Array<TieredRule & { rule: NotifRuleVO }> = [
             ...val(org_rules, []).map((r) => ({ id: r.id, event: r.event, channel_id: r.channel_id, tier: 'org' as NotifScopeKind, rule: r })),
             ...val(realm_rules, [])
                 .filter((r) => !r.team_slug || (team_slug && r.team_slug === team_slug))
@@ -274,16 +285,18 @@ export class NotificationCenterService {
         const events = new Set(val(types, [] as string[]));
         for (const r of [...val(org_rules, []), ...val(realm_rules, [])]) if (!r.event.includes('*')) events.add(r.event);
 
-        const row_of = (t: Tiered_rule) => ({ rule_id: t.id, selector: t.event, tier: t.tier, channel_id: t.channel_id, channel_name: channel_names.get(t.channel_id) ?? null });
-        const rows: NotifCheckRowDTO[] = [...events].sort().map((event) => {
+        const row_of = (t: TieredRule) => to_notif_check_entry_data(t, channel_names.get(t.channel_id) ?? null);
+        const rows: NotifCheckRowData[] = [...events].sort().map((event) => {
             const { winners, replaced } = resolve_event(event, in_play);
             return { event, winners: winners.map(row_of), replaced: replaced.map(row_of) };
         });
 
-        const roster_val = val(roster, {} as unknown) as { rows?: Array<{ slug?: string }>; teams?: Array<{ slug?: string }>; data?: { rows?: Array<{ slug?: string }> } };
-        const roster_rows = roster_val.data?.rows ?? roster_val.rows ?? roster_val.teams ?? [];
+        // Realm roster: Core `teams/get { realm_id }` → `{ items: TeamData[] }`; slug falls back to name.
         const teams = new Set<string>();
-        for (const t of roster_rows) if (t.slug) teams.add(t.slug);
+        for (const t of val(roster, null)?.items ?? []) {
+            const slug = t.slug ?? t.name;
+            if (slug) teams.add(slug);
+        }
         for (const r of val(realm_rules, [])) if (r.team_slug) teams.add(r.team_slug);
 
         return {
@@ -294,53 +307,45 @@ export class NotificationCenterService {
             partial,
         };
     }
+
     /**
      * Save one rule per event at one level, all to the same channel. Core
      * takes one event per write, so the loop lives here. Partial success is
-     * reported per event; if every write fails the same way, that error is thrown.
+     * reported per event with Core's code and details (409 `locked` for a
+     * locked rule); when every write fails, the first error is thrown as Core sent it.
+     *
+     * @throws ApiError the first write's error when every write failed with an ApiError.
      */
-    async set_rules(token: string, body: { org_id?: string; realm_id?: string; team_slug?: string; events: string[]; channel_id: string }): Promise<NotifSetRulesDTO> {
-        const events = [...new Set(body.events.map((e) => e.trim()).filter(Boolean))];
-        const base = body.realm_id
-            ? { realm_id: body.realm_id, ...(body.team_slug ? { team_slug: body.team_slug } : {}) }
-            : { org_id: body.org_id! };
+    async set_rules(input: NotificationCenterSetRulesInput, token: string): Promise<NotifSetRulesData> {
+        const events = [...new Set(input.events.map((e) => e.trim()).filter(Boolean))];
+        const base = input.realm_id
+            ? { realm_id: input.realm_id, ...(input.team_slug ? { team_slug: input.team_slug } : {}) }
+            : { org_id: input.org_id! };
         const results = await map_limited(events, 4, async (event) => {
             try {
-                const rule = await this._control.set_rule({ ...base, event, channel_id: body.channel_id }, token);
+                const rule = await this._control_repo.set_rule({ ...base, event, channel_id: input.channel_id }, token);
                 return { event, rule_id: rule?.id ?? '', error: null as unknown };
             } catch (err) {
+                // One event failing must not stop the others; it is reported in `failed`.
+                log.warn('notif_set_rule_failed', { ...base, channel_id: input.channel_id, event, ...error_fields(err) });
                 return { event, rule_id: '', error: err };
             }
         });
         const failed = results.filter((r) => r.error);
         if (failed.length === results.length && failed[0]?.error instanceof ApiError) throw failed[0].error;
+        log.info('notification_rules_set', {
+            level: input.realm_id ? (input.team_slug ? 'team' : 'realm') : 'org',
+            ...base, channel_id: input.channel_id,
+            saved: results.length - failed.length, failed: failed.length,
+        });
         return {
             saved: results.filter((r) => !r.error).map((r) => ({ event: r.event, rule_id: r.rule_id })),
-            failed: failed.map((r) => ({ event: r.event, error: reason(r.error, 'Could not save this rule') })),
+            failed: failed.map((r) => ({
+                event: r.event,
+                error: reason(r.error, 'Could not save this rule'),
+                code: r.error instanceof ApiError ? r.error.code : null,
+                details: r.error instanceof ApiError ? r.error.details ?? null : null,
+            })),
         };
     }
-}
-
-/** For each rule, list broader-tier rules in the same context whose selectors overlap. */
-export function mark_replaces(rules: NotifRuleDTO[]): void {
-    for (const r of rules) {
-        if (r.scope.kind === 'org') continue;
-        r.replaces = rules
-            .filter((b) => TIER_RANK[b.scope.kind] < TIER_RANK[r.scope.kind])
-            .filter((b) => b.scope.org_id === r.scope.org_id)
-            .filter((b) => b.scope.kind === 'org' || b.scope.realm_id === r.scope.realm_id)
-            .filter((b) => selectors_overlap(b.event, r.event))
-            .map((b) => b.id);
-    }
-}
-
-const TIER_ORDER: Record<NotifScopeKind, number> = { org: 0, realm: 1, team: 2 };
-
-function sort_rules(rules: NotifRuleDTO[]): NotifRuleDTO[] {
-    // Group by event, then broad → specific so overrides read top-down.
-    return [...rules].sort((a, b) =>
-        a.event.localeCompare(b.event)
-        || TIER_ORDER[a.scope.kind] - TIER_ORDER[b.scope.kind]
-        || (a.scope.realm_slug ?? '').localeCompare(b.scope.realm_slug ?? '')
-        || (a.scope.team_slug ?? '').localeCompare(b.scope.team_slug ?? ''));
 }

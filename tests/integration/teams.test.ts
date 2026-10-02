@@ -2,13 +2,14 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { ApiClient } from '../../src/repositories/api_client.js';
-import { ApiError } from '../../src/repositories/api_error.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
+import { ApiError } from '../../src/errors/api_error.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 
+/** Core's PagedData<TeamVO> — the BFF answers `{ teams, total, limit, offset }`. */
 const MOCK_TEAM_LIST = {
-    teams: [
+    items: [
         { name: 'tdd-git', scope: 'cliq', description: 'TDD', author: 'alice', latest_version: '1.0.0', install_count: 42, tags: ['tdd'] },
     ],
     total: 1,
@@ -52,7 +53,7 @@ describe('Teams integration', () => {
 
     describe('POST /v1/teams/get', () => {
         it('returns 200 with team list (public, no auth)', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce(MOCK_TEAM_LIST);
 
             const res = await request(app)
@@ -63,13 +64,17 @@ describe('Teams integration', () => {
             expect(res.status).toBe(200);
             expect(res.body.ok).toBe(true);
             expect(res.body.data.teams).toHaveLength(1);
-            expect(res.body.data.teams[0].name).toBe('tdd-git');
-            expect(res.body.data.total).toBe(1);
+            expect(res.body.data.teams[0]).toEqual({
+                id: null, name: 'tdd-git', slug: 'tdd-git', scope: 'cliq', description: 'TDD', author: 'alice',
+                latest_version: '1.0.0', install_count: 42, tags: ['tdd'],
+            });
+            expect(res.body.data).toMatchObject({ total: 1, limit: 50, offset: 0 });
+            expect(res.body.data.items).toBeUndefined();
         });
 
         it('passes tag param through', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
-                .mockResolvedValueOnce({ teams: [], total: 0, limit: 50, offset: 0 });
+            vi.spyOn(CoreClient.prototype, 'post')
+                .mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0 });
 
             const res = await request(app)
                 .post('/v1/teams/get')
@@ -77,14 +82,14 @@ describe('Teams integration', () => {
                 .send({ tag: 'owasp' });
 
             expect(res.status).toBe(200);
-            const call = vi.mocked(ApiClient.prototype.post).mock.calls[0];
+            const call = vi.mocked(CoreClient.prototype.post).mock.calls[0];
             expect(call[1]).toEqual({ tag: 'owasp' });
         });
     });
 
     describe('POST /v1/teams/get_by_id', () => {
         it('returns 200 with team detail', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce(MOCK_TEAM_DETAIL);
 
             const res = await request(app)
@@ -108,7 +113,7 @@ describe('Teams integration', () => {
         });
 
         it('returns 404 when backend says not_found', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockRejectedValueOnce(new ApiError('not_found', 'Team not found', 404));
 
             const res = await request(app)
@@ -139,7 +144,7 @@ describe('Teams integration', () => {
                 created_at: now, last_active: now, expires_at: now + 3600,
             });
 
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ filename: 'tdd-git-1.0.0.zip', data_base64: 'ZIPDATA' });
 
             const res = await request(app)
@@ -155,7 +160,7 @@ describe('Teams integration', () => {
 
         it('returns download data for CLI/daemon Bearer PAT (no cookie)', async () => {
             const user_uuid = '11111111-1111-4111-8111-111111111111';
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ valid: true, user_id: user_uuid })
                 .mockResolvedValueOnce({
                     id: user_uuid,
@@ -224,7 +229,7 @@ describe('Teams integration', () => {
 
         it('returns 200 on success', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ name: 'my-team', scope: 'alice', version: '1.0.0' });
 
             const res = await request(app)
@@ -251,7 +256,7 @@ describe('Teams integration', () => {
 
         it('returns 403 when backend rejects non-owner', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockRejectedValueOnce(new ApiError('forbidden', 'Not the author', 403));
 
             const res = await request(app)
@@ -276,7 +281,7 @@ describe('Teams integration', () => {
 
         it('returns 200 on success', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ deleted: true });
 
             const res = await request(app)
@@ -291,7 +296,7 @@ describe('Teams integration', () => {
 
         it('returns 403 when backend rejects non-owner', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockRejectedValueOnce(new ApiError('forbidden', 'Not the author', 403));
 
             const res = await request(app)
@@ -316,7 +321,7 @@ describe('Teams integration', () => {
 
         it('returns 200 on success', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ name: 'new-name', scope: 'alice' });
 
             const res = await request(app)
@@ -353,7 +358,7 @@ describe('Teams integration', () => {
 
         it('returns 200 on success', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ status: 'draft', listed: false });
 
             const res = await request(app)
@@ -370,7 +375,7 @@ describe('Teams integration', () => {
 
     describe('POST /v1/teams/get_versions', () => {
         it('returns 200 with versions (public, no auth)', async () => {
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ name: 'tdd-git', scope: 'cliq', version: '1.0.0' });
 
             const res = await request(app)
@@ -403,7 +408,7 @@ describe('Teams integration', () => {
 
         it('returns 200 on success', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post')
+            vi.spyOn(CoreClient.prototype, 'post')
                 .mockResolvedValueOnce({ id: 'uuid', name: 'new-team', status: 'draft' });
 
             const res = await request(app)

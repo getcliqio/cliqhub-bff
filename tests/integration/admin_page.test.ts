@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { CoreApiClient } from '../../src/repositories/core_api_client.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 
@@ -37,7 +37,7 @@ describe('POST /v1/admin_home/get + /v1/admin_list/get', () => {
     it('home composes over Core with the session token', async () => {
         const sid = sess('admin');
         const tokens = new Set<string>();
-        vi.spyOn(CoreApiClient.prototype, 'post').mockImplementation(async (path: string, _b: any, token?: string) => {
+        vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string, _b: any, token?: string) => {
             tokens.add(token ?? '');
             if (path === '/v1/orgs/get') return { ok: true, data: { orgs: [], total: 5 } } as any;
             if (path === '/internal/reports/audit') return { ok: true, data: { entries: [] } } as any;
@@ -52,9 +52,18 @@ describe('POST /v1/admin_home/get + /v1/admin_list/get', () => {
 
     it('list returns accounts rows', async () => {
         const sid = sess('admin');
-        vi.spyOn(CoreApiClient.prototype, 'post').mockResolvedValue({ ok: true, data: { users: [{ id: 'u9', username: 'kim', email: 'k@x', role: 'admin' }], total: 1 } } as any);
+        vi.spyOn(CoreClient.prototype, 'post_body').mockResolvedValue({ ok: true, data: { users: [{ id: 'u9', username: 'kim', email: 'k@x', role: 'admin' }], total: 1 } } as any);
         const res = await request(app).post('/v1/admin_list/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ kind: 'accounts', query: 'kim' });
         expect(res.status).toBe(200);
         expect(res.body.data.items[0]).toMatchObject({ id: 'u9', role: 'admin' });
+    });
+
+    it('accounts include_deleted reaches Core users/get; 422 when it is not a boolean', async () => {
+        const sid = sess('admin');
+        const spy = vi.spyOn(CoreClient.prototype, 'post_body').mockResolvedValue({ ok: true, data: { users: [], total: 0 } } as any);
+        const res = await request(app).post('/v1/admin_list/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ kind: 'accounts', include_deleted: true });
+        expect(res.status).toBe(200);
+        expect(spy.mock.calls.find(([path]) => path === '/v1/users/get')![1]).toMatchObject({ include_deleted: true });
+        expect((await request(app).post('/v1/admin_list/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ kind: 'accounts', include_deleted: 'yes' })).status).toBe(422);
     });
 });

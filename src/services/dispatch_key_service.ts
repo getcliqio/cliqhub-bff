@@ -1,37 +1,25 @@
+/** Realm dispatch keys — read or rotate the realm's public key in Core. */
+
+import { get_logger } from '../lib/log.js';
 import type { DispatchKeyRepository } from '../repositories/dispatch_key_repository.js';
-import type { DispatchKeyDTO } from '../types/dto.js';
-import { ApiError } from '../repositories/api_error.js';
+import type { DispatchKeyInput, DispatchKeyData } from '../schemas/dispatch_key_types.js';
+import { to_dispatch_key_data } from '../mappers/dispatch_key_mapper.js';
 
+const log = get_logger('svc.dispatch_key');
+
+/** Realm dispatch key reads and rotation (Core `auth/get_dispatch_public_key`, `auth/rotate_dispatch_key`). */
 export class DispatchKeyService {
-    private _repo: DispatchKeyRepository;
+    constructor(private readonly _repo: DispatchKeyRepository) {}
 
-    constructor(repo: DispatchKeyRepository) {
-        this._repo = repo;
+    /** The realm's current public key. */
+    async get_public_key(input: DispatchKeyInput, token: string): Promise<DispatchKeyData> {
+        return to_dispatch_key_data(await this._repo.get_public_key(input, token), input.realm_id);
     }
 
-    async get_public_key(realm_id: string, token: string): Promise<DispatchKeyDTO> {
-        const vo = await this._repo.get_public_key(realm_id, token);
-        if (!vo.public_key_pem || vo.public_key_pem.includes('PRIVATE')) {
-            throw new ApiError('internal', 'Hub did not return a usable dispatch public key', 502);
-        }
-        return {
-            realm_id: vo.realm_id,
-            public_key_pem: vo.public_key_pem,
-            created_at: vo.created_at,
-            rotated_at: vo.rotated_at,
-        };
-    }
-
-    async regenerate(realm_id: string, token: string): Promise<DispatchKeyDTO> {
-        const vo = await this._repo.regenerate(realm_id, token);
-        if (!vo.public_key_pem || vo.public_key_pem.includes('PRIVATE')) {
-            throw new ApiError('internal', 'Hub did not return a usable dispatch public key', 502);
-        }
-        return {
-            realm_id: vo.realm_id,
-            public_key_pem: vo.public_key_pem,
-            created_at: vo.created_at,
-            rotated_at: vo.rotated_at,
-        };
+    /** Has Core generate a new key pair (realm admin; Core enforces it) and returns the new public key. */
+    async rotate(input: DispatchKeyInput, token: string): Promise<DispatchKeyData> {
+        const data = to_dispatch_key_data(await this._repo.rotate(input, token), input.realm_id);
+        log.info('dispatch_key_rotated', { realm_id: input.realm_id });
+        return data;
     }
 }

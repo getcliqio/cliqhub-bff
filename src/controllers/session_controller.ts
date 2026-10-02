@@ -1,99 +1,85 @@
-import type { Request, Response } from 'express';
+/**
+ * Session — sign in / out and act-as for the SPA (cookie) and CLI (bearer).
+ *
+ * Routes (1:1 with this controller, mounted in routes/auth.ts):
+ *   POST /v1/session/create  — sign in                       (public)
+ *   POST /v1/session/get     — the signed-in (acted-as) user
+ *   POST /v1/session/update  — act as another user, or stop  (site admins; checked in SessionService)
+ *   POST /v1/session/delete  — sign out                      (public; no-op without a session)
+ *
+ * Response envelope: `{ ok: true, data: T }` via `this.ok()`.
+ * Inbound SoT: Zod `Session*Input` in `schemas/session_types.ts`.
+ */
+
+import type { Request } from 'express';
 import { BaseController } from './base_controller.js';
 import type { SessionService } from '../services/session_service.js';
 import type { EnvConfig } from '../config/env.js';
-import {
-    session_create_schema,
-    session_update_schema,
-} from '../schemas/session_schemas.js';
+import type { ApiOkResponse, ApiRequest } from '../types/api_response.js';
+import { SessionCreateInput, SessionUpdateInput } from '../schemas/session_types.js';
+import type { SessionData, LoginData, CliLoginData, SessionDeleteData } from '../schemas/session_types.js';
+import { set_session_cookie, clear_session_cookie, wants_bearer_token } from '../lib/session_cookie.js';
+import { to_cli_login_data } from '../mappers/session_mapper.js';
 
+/** Sign in / out, session read and act-as. */
 export class SessionController extends BaseController {
-    private _session_service: SessionService;
-    private _config: EnvConfig;
-
-    constructor(session_service: SessionService, config: EnvConfig) {
+    constructor(
+        private readonly _session_service: SessionService,
+        private readonly _config: EnvConfig,
+    ) {
         super();
-        this._session_service = session_service;
-        this._config = config;
     }
 
     /**
-     * POST /v1/session/create — credentials → dual-token session + Set-Cookie.
-     * CLI (`X-Client: cli`): also return target_token as `data.token`.
+     * Signs in with username + password and sets the session cookie.
+     * A CLI client (`X-Client: cli`) also gets the bearer token and scope slugs.
+     *
+     * @param req - Body: {@link SessionCreateInput}
+     * @param res - `{ ok: true, data: LoginData | CliLoginData }`; 401 on bad credentials
      */
-    create = this.wrap(async (req: Request, res: Response) => {
-        const body = this.parse_body(session_create_schema, req);
-        const { session_id, target_token, dto } = await this._session_service.create(
-            body.username.trim().toLowerCase(),
-            body.password,
-        );
-
-        this._set_session_cookie(res, session_id);
-        if (this._wants_bearer_token(req)) {
-            this.ok(res, {
-                ...dto,
-                scopes: dto.scopes.map((s) => s.slug),
-                token: target_token,
-            });
-            return;
-        }
-        this.ok(res, dto);
-    });
-
-    /** POST /v1/session/get — identity for act_as_user_id; acting_as when unequal. */
-    get = this.wrap(async (req: Request, res: Response) => {
-        if (!req.session_data) {
-            res.status(401).json({
-                ok: false,
-                error: { code: 'unauthorized', message: 'Login required' },
-            });
-            return;
-        }
-        const dto = await this._session_service.get(req.session_data);
-        this.ok(res, dto);
-    });
-
-    /**
-     * POST /v1/session/update — `{ act_as_user_id: number | null }`.
-     * null = exit act-as. Changes only target_token + act_as_user_id.
-     */
-    update = this.wrap(async (req: Request, res: Response) => {
-        if (!req.session_data) {
-            res.status(401).json({
-                ok: false,
-                error: { code: 'unauthorized', message: 'Login required' },
-            });
-            return;
-        }
-        const body = this.parse_body(session_update_schema, req);
-        const dto = await this._session_service.update(
-            req.session_data,
-            body.act_as_user_id,
-        );
-        this.ok(res, dto);
-    });
-
-    /** POST /v1/session/delete — revoke PAT(s), destroy session, clear cookie. */
-    delete = this.wrap(async (req: Request, res: Response) => {
-        if (req.session_data) {
-            await this._session_service.delete(req.session_data);
-        }
-        res.clearCookie(this._config.cookie_name);
-        this.ok(res, { deleted: true });
-    });
-
-    private _set_session_cookie(res: Response, session_id: string): void {
-        res.cookie(this._config.cookie_name, session_id, {
-            httpOnly: true,
-            secure: this._config.node_env === 'production',
-            sameSite: 'lax',
-            maxAge: this._config.session_ttl_seconds * 1000,
-            path: '/',
-        });
+    async create(
+        req: ApiRequest<SessionCreateInput, LoginData | CliLoginData>,
+        res: ApiOkResponse<LoginData | CliLoginData>,
+    ): Promise<void> {
+        const body = this.parse_body(SessionCreateInput, req);
+        const created = await this._session_service.create(body);
+        set_session_cookie(res, this._config, created.session_id);
+        this.ok(res, wants_bearer_token(req) ? to_cli_login_data(created.login, created.target_token) : created.login);
     }
 
-    private _wants_bearer_token(req: Request): boolean {
-        const client = (req.get('x-client') ?? '').trim().toLowerCase();
-        return client === 'cli';
+    /**
+     * The signed-in user — the acted-as user while a site admin acts as someone
+     * (`acting_as` names the admin).
+     *
+     * @param req - No body
+     * @param res - `{ ok: true, data: SessionData }`
+     */
+    async get(req: Request, res: ApiOkResponse<SessionData>): Promise<void> {
+        this.ok(res, await this._session_service.get(this.session(req)));
+    }
+
+    /**
+     * Site admins: act as another user (`act_as_user_id`) or stop (`null`).
+     * Only the bearer sent to Core changes; the admin stays signed in.
+     *
+     * @param req - Body: {@link SessionUpdateInput}
+     * @param res - `{ ok: true, data: SessionData }`; 403 for non-admins
+     */
+    async update(req: ApiRequest<SessionUpdateInput, SessionData>, res: ApiOkResponse<SessionData>): Promise<void> {
+        const body = this.parse_body(SessionUpdateInput, req);
+        this.ok(res, await this._session_service.update(this.session(req), body));
+    }
+
+    /**
+     * Signs out: revokes the session's tokens, destroys it, clears the cookie.
+     * Answers the same without a session.
+     *
+     * @param req - No body
+     * @param res - `{ ok: true, data: SessionDeleteData }`
+     */
+    async delete(req: Request, res: ApiOkResponse<SessionDeleteData>): Promise<void> {
+        const data = await this._session_service.delete(req.session_data);
+        clear_session_cookie(res, this._config);
+        this.ok(res, data);
     }
 }

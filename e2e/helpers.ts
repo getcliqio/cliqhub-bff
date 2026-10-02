@@ -1,9 +1,10 @@
 import { type APIResponse, type Page, expect } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
+/** Same credentials as scripts/seed_admin.mjs, so e2e runs do not reset the local admin password. */
 export const TEST_ADMIN = {
     username: 'admin',
-    password: 'admin123',
+    password: 'admin@123',
 };
 
 export const TEST_USER = {

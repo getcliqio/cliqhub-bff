@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { ApiClient } from '../../src/repositories/api_client.js';
-import { CoreApiClient } from '../../src/repositories/core_api_client.js';
-import { ApiError } from '../../src/repositories/api_error.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
+import { ApiError } from '../../src/errors/api_error.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 const ORG_A = '11111111-1111-4111-8111-111111111111';
@@ -39,7 +39,7 @@ describe('POST /v1/overview/get', () => {
     }
 
     function mock_core() {
-        const orgs = vi.spyOn(ApiClient.prototype, 'post').mockImplementation(async (path: string) => {
+        const orgs = vi.spyOn(CoreClient.prototype, 'post').mockImplementation(async (path: string) => {
             if (path === '/v1/orgs/get') {
                 return { orgs: [
                     { id: ORG_A, slug: 'acme', display_name: 'Acme', role: 'owner', member_count: 3, scope_count: 1 },
@@ -48,7 +48,7 @@ describe('POST /v1/overview/get', () => {
             }
             throw new Error(`unexpected ${path}`);
         });
-        const core = vi.spyOn(CoreApiClient.prototype, 'post').mockImplementation(async (path: string, body: any) => {
+        const core = vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string, body: any) => {
             if (path === '/internal/dashboard/summary') {
                 return { ok: true, counts: { active_runs: 1, awaiting_input: 0, failed_24h: 0, completed_24h: 2, daemons_online: 1, daemons_total: 1 }, live_runs: [], pending_reviews: [
                     { review_id: `rev-${body.org_id.slice(0, 2)}`, title: 'Approve', requested_at: body.org_id === ORG_A ? 2 : 1, status: 'pending' },
@@ -119,7 +119,7 @@ describe('POST /v1/overview/get', () => {
 
     it('surfaces an org list failure as an error envelope', async () => {
         const sid = make_session();
-        vi.spyOn(ApiClient.prototype, 'post').mockRejectedValue(new ApiError('unauthorized', 'Token expired', 401));
+        vi.spyOn(CoreClient.prototype, 'post').mockRejectedValue(new ApiError('unauthorized', 'Token expired', 401));
         const res = await request(app).post('/v1/overview/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({});
         expect(res.status).toBe(401);
         expect(res.body).toMatchObject({ ok: false, error: { code: 'unauthorized' } });

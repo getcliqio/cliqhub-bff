@@ -1,230 +1,243 @@
+/**
+ * Wiring — repositories → services → controllers, by concern, in one place.
+ * `create_container` adds the async pieces (session store); `build_container`
+ * is the pure wiring, also used by the tests with a mock store.
+ */
+
+import type { EnvConfig } from './config/env.js';
+import type { BearerHydrator } from './middleware/session_auth.js';
+
+// ── Repositories ────────────────────────────────────────────────────
+import { CoreClient } from './repositories/core_client.js';
+import { CoreReadRepository } from './repositories/core_read_repository.js';
+import { CoreProxyRepository } from './repositories/core_proxy_repository.js';
 import { SessionStore } from './repositories/session_store.js';
-import { ApiClient } from './repositories/api_client.js';
-import { AuthRepository } from './repositories/auth_repository.js';
-import { AuthService } from './services/auth_service.js';
-import { SessionService } from './services/session_service.js';
-import { AuthController } from './controllers/auth_controller.js';
-import { SessionController } from './controllers/session_controller.js';
-import { TeamsRepository } from './repositories/teams_repository.js';
-import { TeamsService } from './services/teams_service.js';
-import { TeamsController } from './controllers/teams_controller.js';
-import { DraftsRepository } from './repositories/drafts_repository.js';
-import { DraftsService } from './services/drafts_service.js';
-import { DraftsController } from './controllers/drafts_controller.js';
-import { BuilderRepository } from './repositories/builder_repository.js';
-import { BuilderService } from './services/builder_service.js';
-import { OrgsRepository } from './repositories/orgs_repository.js';
-import { OrgsService } from './services/orgs_service.js';
-import { OrgsController } from './controllers/orgs_controller.js';
-import { InvitationsRepository } from './repositories/invitations_repository.js';
-import { InvitationsService } from './services/invitations_service.js';
-import { InvitationsController } from './controllers/invitations_controller.js';
-import { CoreApiClient } from './repositories/core_api_client.js';
-import { Core_compat_checker } from './lib/core_compat.js';
+import { IdentityRepository } from './repositories/identity_repository.js';
+import { TokensRepository } from './repositories/tokens_repository.js';
 import { DispatchKeyRepository } from './repositories/dispatch_key_repository.js';
-import { DispatchKeyService } from './services/dispatch_key_service.js';
-import { DispatchKeyController } from './controllers/dispatch_key_controller.js';
-import { AccountRepository } from './repositories/account_repository.js';
-import { AccountService } from './services/account_service.js';
-import { AccountController } from './controllers/account_controller.js';
-import { AdminRepository } from './repositories/admin_repository.js';
-import { AdminService } from './services/admin_service.js';
-import { AdminController } from './controllers/admin_controller.js';
-import { DashboardController } from './controllers/dashboard_controller.js';
-import { DashboardRepository } from './repositories/dashboard_repository.js';
-import { OverviewService } from './services/overview_service.js';
-import { InboxService } from './services/inbox_service.js';
-import { RealmRunsService } from './services/realm_runs_service.js';
-import { RealmTeamsService } from './services/realm_teams_service.js';
-import { TeamPageService } from './services/team_page_service.js';
-import { AgentPageService } from './services/agent_page_service.js';
-import { AgentPageController } from './controllers/agent_page_controller.js';
-import { AdminPageService } from './services/admin_page_service.js';
-import { AdminPageController } from './controllers/admin_page_controller.js';
-import { ReviewPageService } from './services/review_page_service.js';
-import { ReviewPageController } from './controllers/review_page_controller.js';
-import { OrgPageService } from './services/org_page_service.js';
-import { RealmHostPageService } from './services/realm_host_page_service.js';
-import { RunTelemetryService } from './services/run_telemetry_service.js';
-import { RunTelemetryController } from './controllers/run_telemetry_controller.js';
-import { RealmHostPageController } from './controllers/realm_host_page_controller.js';
-import { OrgPageController } from './controllers/org_page_controller.js';
-import { RealmDaemonsService } from './services/realm_daemons_service.js';
-import { RealmSettingsService } from './services/realm_settings_service.js';
-import { RealmSettingsController } from './controllers/realm_settings_controller.js';
-import { RealmDaemonsController } from './controllers/realm_daemons_controller.js';
-import { RealmTeamsController } from './controllers/realm_teams_controller.js';
-import { TeamPageController } from './controllers/team_page_controller.js';
-import { RealmRunsController } from './controllers/realm_runs_controller.js';
-import { InboxController } from './controllers/inbox_controller.js';
-import { OverviewController } from './controllers/overview_controller.js';
+import { UsersRepository } from './repositories/users_repository.js';
+import { OrgsRepository } from './repositories/orgs_repository.js';
+import { InvitationsRepository } from './repositories/invitations_repository.js';
+import { ReportsRepository } from './repositories/reports_repository.js';
+import { TeamsRepository } from './repositories/teams_repository.js';
+import { BuilderRepository } from './repositories/builder_repository.js';
 import { ControlRepository } from './repositories/control_repository.js';
+import { DashboardRepository } from './repositories/dashboard_repository.js';
+
+// ── Services ────────────────────────────────────────────────────────
+import { CoreCompatService } from './services/core_compat_service.js';
+import { HealthService } from './services/health_service.js';
+import { ProxyService } from './services/proxy_service.js';
+import { SessionService } from './services/session_service.js';
+import { TokensService } from './services/tokens_service.js';
+import { DispatchKeyService } from './services/dispatch_key_service.js';
+import { UsersService } from './services/users_service.js';
+import { OrgsService } from './services/orgs_service.js';
+import { InvitationsService } from './services/invitations_service.js';
+import { ReportsService } from './services/reports_service.js';
+import { TeamsService } from './services/teams_service.js';
+import { BuilderService } from './services/builder_service.js';
+import { OverviewService } from './services/overview_service.js';
+import { GettingStartedService } from './services/getting_started_service.js';
+import { InboxService } from './services/inbox_service.js';
+import { NotificationCenterService } from './services/notification_center_service.js';
+import { OrgPageService } from './services/org_page_service.js';
 import { RealmInboxService } from './services/realm_inbox_service.js';
 import { RunDetailService } from './services/run_detail_service.js';
-import { RealmInboxController } from './controllers/realm_inbox_controller.js';
-import { GettingStartedService } from './services/getting_started_service.js';
-import { GettingStartedController } from './controllers/getting_started_controller.js';
-import { NotificationCenterService } from './services/notification_center_service.js';
-import { NotificationCenterController } from './controllers/notification_center_controller.js';
-import { create_hub_passthrough } from './middleware/hub_passthrough.js';
-import type { BearerHydrator } from './middleware/session_auth.js';
-import type { EnvConfig } from './config/env.js';
+import { RealmRunsService } from './services/realm_runs_service.js';
+import { RealmTeamsService } from './services/realm_teams_service.js';
+import { RealmDaemonsService } from './services/realm_daemons_service.js';
+import { RealmSettingsService } from './services/realm_settings_service.js';
+import { RunTelemetryService } from './services/run_telemetry_service.js';
+import { RealmHostPageService } from './services/realm_host_page_service.js';
+import { TeamPageService } from './services/team_page_service.js';
+import { AgentPageService } from './services/agent_page_service.js';
+import { ReviewPageService } from './services/review_page_service.js';
+import { AdminPageService } from './services/admin_page_service.js';
 
+// ── Controllers ─────────────────────────────────────────────────────
+import { HealthController } from './controllers/health_controller.js';
+import { A2aController } from './controllers/a2a_controller.js';
+import { PassthroughController } from './controllers/passthrough_controller.js';
+import { StreamsController } from './controllers/streams_controller.js';
+import { SessionController } from './controllers/session_controller.js';
+import { AuthController } from './controllers/auth_controller.js';
+import { TokensController } from './controllers/tokens_controller.js';
+import { DispatchKeyController } from './controllers/dispatch_key_controller.js';
+import { UsersController } from './controllers/users_controller.js';
+import { OrgsController } from './controllers/orgs_controller.js';
+import { InvitationsController } from './controllers/invitations_controller.js';
+import { ReportsController } from './controllers/reports_controller.js';
+import { TeamsController } from './controllers/teams_controller.js';
+import { OverviewController } from './controllers/overview_controller.js';
+import { GettingStartedController } from './controllers/getting_started_controller.js';
+import { InboxController } from './controllers/inbox_controller.js';
+import { NotificationCenterController } from './controllers/notification_center_controller.js';
+import { OrgPageController } from './controllers/org_page_controller.js';
+import { RealmInboxController } from './controllers/realm_inbox_controller.js';
+import { RunDetailController } from './controllers/run_detail_controller.js';
+import { RealmRunsController } from './controllers/realm_runs_controller.js';
+import { RealmTeamsController } from './controllers/realm_teams_controller.js';
+import { RealmDaemonsController } from './controllers/realm_daemons_controller.js';
+import { RealmSettingsController } from './controllers/realm_settings_controller.js';
+import { RunTelemetryController } from './controllers/run_telemetry_controller.js';
+import { DaemonPageController } from './controllers/daemon_page_controller.js';
+import { WorkspacePageController } from './controllers/workspace_page_controller.js';
+import { TeamListController } from './controllers/team_list_controller.js';
+import { TeamPageController } from './controllers/team_page_controller.js';
+import { AgentListController } from './controllers/agent_list_controller.js';
+import { AgentPageController } from './controllers/agent_page_controller.js';
+import { ReviewPageController } from './controllers/review_page_controller.js';
+import { AdminHomeController } from './controllers/admin_home_controller.js';
+import { AdminListController } from './controllers/admin_list_controller.js';
+import { SlidingWindowLimiter } from './lib/sliding_window_limiter.js';
+import { FORGOT_PASSWORD_PER_ADDRESS } from './config/limits.js';
+
+/** Every singleton the app wires: config, store, Core client, repositories, services, controllers. */
 export interface Container {
     config: EnvConfig;
     session_store: SessionStore;
-    api_client: ApiClient;
-    auth_controller: AuthController;
-    session_controller: SessionController;
+    core_client: CoreClient;
+    /** Is the running Core new enough for this BFF? (Core `GET /v1/health` api_version) */
+    core_compat: CoreCompatService;
     session_service: SessionService;
-    teams_controller: TeamsController;
-    drafts_controller: DraftsController;
-    orgs_controller: OrgsController;
-    invitations_controller: InvitationsController;
-    dispatch_key_controller: DispatchKeyController;
-    account_controller: AccountController;
-    admin_controller: AdminController;
-    dashboard_controller: DashboardController;
-    overview_controller: OverviewController;
-    realm_inbox_controller: RealmInboxController;
-    getting_started_controller: GettingStartedController;
-    notification_center_controller: NotificationCenterController;
-    inbox_controller: InboxController;
-    realm_runs_controller: RealmRunsController;
-    realm_teams_controller: RealmTeamsController;
-    team_page_controller: TeamPageController;
-    agent_page_controller: AgentPageController;
-    admin_page_controller: AdminPageController;
-    review_page_controller: ReviewPageController;
-    org_page_controller: OrgPageController;
-    realm_host_page_controller: RealmHostPageController;
-    run_telemetry_controller: RunTelemetryController;
-    realm_daemons_controller: RealmDaemonsController;
-    realm_settings_controller: RealmSettingsController;
-    hub_passthrough: import('express').RequestHandler;
-    core_api_client: CoreApiClient;
     /** Hydrate opaque Bearer PATs (cliq_tok_…) into session_data. */
     hydrate_bearer: BearerHydrator;
-    /** Is the running Core new enough for this BFF? (GET /v1/health api_version) */
-    core_compat: Core_compat_checker;
+
+    // Platform
+    health_controller: HealthController;
+    a2a_controller: A2aController;
+    passthrough_controller: PassthroughController;
+    streams_controller: StreamsController;
+    // Identity
+    session_controller: SessionController;
+    auth_controller: AuthController;
+    tokens_controller: TokensController;
+    dispatch_key_controller: DispatchKeyController;
+    // Directory
+    users_controller: UsersController;
+    orgs_controller: OrgsController;
+    invitations_controller: InvitationsController;
+    reports_controller: ReportsController;
+    // Teams
+    teams_controller: TeamsController;
+    // Pages (one read per screen)
+    overview_controller: OverviewController;
+    getting_started_controller: GettingStartedController;
+    inbox_controller: InboxController;
+    notification_center_controller: NotificationCenterController;
+    org_page_controller: OrgPageController;
+    realm_inbox_controller: RealmInboxController;
+    run_detail_controller: RunDetailController;
+    realm_runs_controller: RealmRunsController;
+    realm_teams_controller: RealmTeamsController;
+    realm_daemons_controller: RealmDaemonsController;
+    realm_settings_controller: RealmSettingsController;
+    run_telemetry_controller: RunTelemetryController;
+    daemon_page_controller: DaemonPageController;
+    workspace_page_controller: WorkspacePageController;
+    team_list_controller: TeamListController;
+    team_page_controller: TeamPageController;
+    agent_list_controller: AgentListController;
+    agent_page_controller: AgentPageController;
+    review_page_controller: ReviewPageController;
+    admin_home_controller: AdminHomeController;
+    admin_list_controller: AdminListController;
 }
 
+/** The running BFF: a ready session store plus the wiring. */
 export async function create_container(config: EnvConfig): Promise<Container> {
     const session_store = new SessionStore(config);
     await session_store.init();
-    const api_client = new ApiClient(config.backend_url);
+    return build_container({
+        config,
+        session_store,
+        core_client: new CoreClient(config.core_api_url),
+        core_compat: new CoreCompatService(config.core_api_url),
+    });
+}
 
-    const auth_repo = new AuthRepository(api_client);
-    const auth_service = new AuthService(auth_repo);
-    const session_service = new SessionService(auth_repo, session_store, config);
-    const auth_controller = new AuthController(auth_service, session_service, config);
-    const session_controller = new SessionController(session_service, config);
+/** Pure wiring over the given store, Core client and Core compatibility check. */
+export function build_container(deps: {
+    config: EnvConfig;
+    session_store: SessionStore;
+    core_client: CoreClient;
+    core_compat: CoreCompatService;
+}): Container {
+    const { config, session_store, core_client, core_compat } = deps;
 
-    const teams_repo = new TeamsRepository(api_client);
-    const teams_service = new TeamsService(teams_repo);
+    // Repositories shared by several services
+    const core_reads = new CoreReadRepository(core_client);
+    const tokens_repo = new TokensRepository(core_client);
+    const orgs_repo = new OrgsRepository(core_client);
+    const invitations_repo = new InvitationsRepository(core_client);
+    const teams_repo = new TeamsRepository(core_client);
+    const control_repo = new ControlRepository(core_client);
+    const dashboard_repo = new DashboardRepository(core_client);
 
-    const builder_repo = new BuilderRepository(api_client);
-    const builder_service = new BuilderService(builder_repo);
-    const teams_controller = new TeamsController(teams_service, builder_service);
-
-    const drafts_repo = new DraftsRepository(api_client);
-    const drafts_service = new DraftsService(drafts_repo);
-    const drafts_controller = new DraftsController(drafts_service);
-
-    const orgs_repo = new OrgsRepository(api_client);
-    const orgs_service = new OrgsService(orgs_repo);
-    const orgs_controller = new OrgsController(orgs_service);
-
-    const invitations_repo = new InvitationsRepository(api_client);
-    const invitations_service = new InvitationsService(invitations_repo);
-    const invitations_controller = new InvitationsController(
-        invitations_service, session_service, config,
-    );
-
-    const core_api_client = new CoreApiClient(config.core_api_url);
-    const dispatch_key_repo = new DispatchKeyRepository(core_api_client);
-    const dispatch_key_service = new DispatchKeyService(dispatch_key_repo);
-    const dispatch_key_controller = new DispatchKeyController(dispatch_key_service);
-
-    const account_repo = new AccountRepository(api_client);
-    const account_service = new AccountService(account_repo);
-    const account_controller = new AccountController(account_service);
-
-    const admin_repo = new AdminRepository(api_client);
-    const admin_service = new AdminService(admin_repo);
-    const admin_controller = new AdminController(admin_service);
-
-    const hub_passthrough = create_hub_passthrough(core_api_client);
-    const dashboard_controller = new DashboardController(core_api_client);
-    // Cross-org overview: org list (api_client) × per-org dashboard rollups (core_api_client).
-    const control_repo = new ControlRepository(core_api_client);
+    // Services shared by several controllers
+    const proxy_service = new ProxyService(new CoreProxyRepository(core_client));
+    const session_service = new SessionService(new IdentityRepository(core_client), session_store, config);
     const inbox_service = new InboxService(orgs_repo, control_repo);
-    const inbox_controller = new InboxController(inbox_service);
-    const realm_runs_controller = new RealmRunsController(new RealmRunsService(control_repo));
-    const realm_teams_controller = new RealmTeamsController(new RealmTeamsService(control_repo, teams_repo));
-    const team_page_controller = new TeamPageController(new TeamPageService(control_repo, teams_repo));
-    const agent_page_controller = new AgentPageController(new AgentPageService(core_api_client, control_repo));
-    const core_compat = new Core_compat_checker(config.core_api_url);
-    const admin_page_controller = new AdminPageController(new AdminPageService(core_api_client, core_compat));
-    const review_page_controller = new ReviewPageController(new ReviewPageService(core_api_client, orgs_repo));
-    const org_page_controller = new OrgPageController(new OrgPageService(core_api_client));
-    const realm_host_page_controller = new RealmHostPageController(new RealmHostPageService(core_api_client, control_repo));
-    const run_telemetry_controller = new RunTelemetryController(new RunTelemetryService(core_api_client, control_repo));
-    const realm_daemons_controller = new RealmDaemonsController(new RealmDaemonsService(control_repo, teams_repo));
-    const realm_settings_controller = new RealmSettingsController(new RealmSettingsService(control_repo, auth_repo, invitations_repo));
-    const overview_controller = new OverviewController(
-        new OverviewService(orgs_repo, new DashboardRepository(core_api_client), inbox_service),
-    );
-    // Realm inbox + run detail: several Core control-plane reads composed per request.
-    const realm_inbox_controller = new RealmInboxController(
-        new RealmInboxService(control_repo),
-        new RunDetailService(control_repo),
-    );
-    const getting_started_controller = new GettingStartedController(
-        new GettingStartedService(orgs_repo, new DashboardRepository(core_api_client), control_repo, teams_repo),
-    );
-    const notification_center_controller = new NotificationCenterController(
-        new NotificationCenterService(orgs_repo, new DashboardRepository(core_api_client), control_repo, teams_repo),
-    );
-
-    const hydrate_bearer: BearerHydrator = async (token) => {
-        return session_service.hydrate_bearer(token);
-    };
+    const team_page_service = new TeamPageService(control_repo, teams_repo);
+    const agent_page_service = new AgentPageService(core_reads, control_repo);
+    const host_page_service = new RealmHostPageService(core_reads, control_repo);
+    const admin_page_service = new AdminPageService(core_reads, core_compat);
 
     return {
         config,
         session_store,
-        api_client,
-        auth_controller,
-        session_controller,
-        session_service,
-        teams_controller,
-        drafts_controller,
-        orgs_controller,
-        invitations_controller,
-        dispatch_key_controller,
-        account_controller,
-        admin_controller,
-        dashboard_controller,
-        overview_controller,
-        realm_inbox_controller,
-        getting_started_controller,
-        notification_center_controller,
-        inbox_controller,
-        realm_runs_controller,
-        realm_teams_controller,
-        team_page_controller,
-        agent_page_controller,
-        admin_page_controller,
-        review_page_controller,
-        org_page_controller,
-        realm_host_page_controller,
-        run_telemetry_controller,
-        realm_daemons_controller,
-        realm_settings_controller,
-        hub_passthrough,
-        core_api_client,
-        hydrate_bearer,
+        core_client,
         core_compat,
+        session_service,
+        hydrate_bearer: (token) => session_service.hydrate_bearer(token),
+
+        health_controller: new HealthController(new HealthService(core_compat)),
+        a2a_controller: new A2aController(proxy_service),
+        passthrough_controller: new PassthroughController(proxy_service),
+        streams_controller: new StreamsController(proxy_service),
+
+        session_controller: new SessionController(session_service, config),
+        auth_controller: new AuthController(session_service, config),
+        tokens_controller: new TokensController(new TokensService(tokens_repo)),
+        dispatch_key_controller: new DispatchKeyController(new DispatchKeyService(new DispatchKeyRepository(core_client))),
+
+        users_controller: new UsersController(
+            new UsersService(new UsersRepository(core_client), session_store, session_service), config,
+            new SlidingWindowLimiter(FORGOT_PASSWORD_PER_ADDRESS.limit, FORGOT_PASSWORD_PER_ADDRESS.window_ms),
+        ),
+        orgs_controller: new OrgsController(new OrgsService(orgs_repo, core_compat)),
+        invitations_controller: new InvitationsController(new InvitationsService(invitations_repo, session_service), config),
+        reports_controller: new ReportsController(new ReportsService(new ReportsRepository(core_client))),
+
+        teams_controller: new TeamsController(new TeamsService(teams_repo, core_compat), new BuilderService(new BuilderRepository(core_client))),
+
+        overview_controller: new OverviewController(new OverviewService(orgs_repo, dashboard_repo, inbox_service)),
+        getting_started_controller: new GettingStartedController(
+            new GettingStartedService(orgs_repo, dashboard_repo, control_repo, teams_repo),
+        ),
+        inbox_controller: new InboxController(inbox_service),
+        notification_center_controller: new NotificationCenterController(
+            new NotificationCenterService(orgs_repo, dashboard_repo, control_repo, teams_repo),
+        ),
+        org_page_controller: new OrgPageController(new OrgPageService(core_reads)),
+        realm_inbox_controller: new RealmInboxController(new RealmInboxService(control_repo)),
+        run_detail_controller: new RunDetailController(new RunDetailService(control_repo)),
+        realm_runs_controller: new RealmRunsController(new RealmRunsService(control_repo)),
+        realm_teams_controller: new RealmTeamsController(new RealmTeamsService(control_repo, teams_repo)),
+        realm_daemons_controller: new RealmDaemonsController(new RealmDaemonsService(control_repo, teams_repo)),
+        realm_settings_controller: new RealmSettingsController(
+            new RealmSettingsService(control_repo, tokens_repo, invitations_repo),
+        ),
+        run_telemetry_controller: new RunTelemetryController(new RunTelemetryService(core_reads, control_repo)),
+        daemon_page_controller: new DaemonPageController(host_page_service),
+        workspace_page_controller: new WorkspacePageController(host_page_service),
+        team_list_controller: new TeamListController(team_page_service),
+        team_page_controller: new TeamPageController(team_page_service),
+        agent_list_controller: new AgentListController(agent_page_service),
+        agent_page_controller: new AgentPageController(agent_page_service),
+        review_page_controller: new ReviewPageController(new ReviewPageService(core_reads, orgs_repo)),
+        admin_home_controller: new AdminHomeController(admin_page_service),
+        admin_list_controller: new AdminListController(admin_page_service),
     };
 }

@@ -1,51 +1,46 @@
-import type { Request, Response } from 'express';
-import { z } from 'zod';
+/**
+ * Realm dispatch keys — the public key daemons verify dispatched work with.
+ *
+ * Routes (1:1 with this controller, mounted in routes/auth.ts):
+ *   POST /v1/auth/get_dispatch_public_key  — current public key
+ *   POST /v1/auth/rotate_dispatch_key      — new key pair (realm admin, checked by Core)
+ *
+ * Route auth `token`: a session or a bearer (daemons read the key).
+ * Response envelope: `{ ok: true, data: T }` via `this.ok()`.
+ * Inbound SoT: Zod `DispatchKeyInput` in `schemas/dispatch_key_types.ts`.
+ */
+
 import { BaseController } from './base_controller.js';
 import type { DispatchKeyService } from '../services/dispatch_key_service.js';
+import type { ApiOkResponse, ApiRequest } from '../types/api_response.js';
+import { DispatchKeyInput } from '../schemas/dispatch_key_types.js';
+import type { DispatchKeyData } from '../schemas/dispatch_key_types.js';
 
-const realm_key_schema = z.object({
-    realm_id: z.string().min(1),
-});
-
+/** A realm's dispatch public key: read and rotate. */
 export class DispatchKeyController extends BaseController {
-    private _service: DispatchKeyService;
-
-    constructor(service: DispatchKeyService) {
+    constructor(private readonly _dispatch_key_service: DispatchKeyService) {
         super();
-        this._service = service;
     }
 
-    get_public_key = this.wrap(async (req: Request, res: Response) => {
-        const backend_token = this._resolve_backend_token(req);
-        if (!backend_token) {
-            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
-            return;
-        }
-        const body = this.parse_body(realm_key_schema, req);
-        const dto = await this._service.get_public_key(body.realm_id, backend_token);
-        this.ok(res, dto);
-    });
+    /**
+     * The realm's current dispatch public key.
+     *
+     * @param req - Body: {@link DispatchKeyInput}
+     * @param res - `{ ok: true, data: DispatchKeyData }`; 502 when Core sends no usable key
+     */
+    async get_public_key(req: ApiRequest<DispatchKeyInput, DispatchKeyData>, res: ApiOkResponse<DispatchKeyData>): Promise<void> {
+        const body = this.parse_body(DispatchKeyInput, req);
+        this.ok(res, await this._dispatch_key_service.get_public_key(body, this.bearer(req)));
+    }
 
-    regenerate = this.wrap(async (req: Request, res: Response) => {
-        const backend_token = this._resolve_backend_token(req);
-        if (!backend_token) {
-            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
-            return;
-        }
-        const body = this.parse_body(realm_key_schema, req);
-        const dto = await this._service.regenerate(body.realm_id, backend_token);
-        this.ok(res, dto);
-    });
-
-    /** Bearer (CLI JWT) preferred; else cookie session token. */
-    private _resolve_backend_token(req: Request): string | null {
-        const header = req.headers.authorization ?? '';
-        if (header.startsWith('Bearer ')) {
-            const bearer = header.slice(7).trim();
-            if (bearer) return bearer;
-        }
-        const session_token = req.session_data?.target_token;
-        if (session_token) return session_token;
-        return null;
+    /**
+     * Rotates the realm's dispatch key pair; daemons pick up the new public key.
+     *
+     * @param req - Body: {@link DispatchKeyInput}
+     * @param res - `{ ok: true, data: DispatchKeyData }`
+     */
+    async rotate(req: ApiRequest<DispatchKeyInput, DispatchKeyData>, res: ApiOkResponse<DispatchKeyData>): Promise<void> {
+        const body = this.parse_body(DispatchKeyInput, req);
+        this.ok(res, await this._dispatch_key_service.rotate(body, this.bearer(req)));
     }
 }

@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { error_handler } from '../../../src/middleware/error_handler.js';
-import { ApiError } from '../../../src/repositories/api_error.js';
+import { ApiError } from '../../../src/errors/api_error.js';
 
 function make_res() {
     const res: any = {
@@ -33,6 +33,14 @@ describe('error_handler', () => {
             ok: false,
             error: { code: 'not_found', message: 'Team not found' },
         });
+    });
+
+    it('includes details when the error has them (e.g. who holds a name)', () => {
+        const err = new ApiError('conflict', 'measureone is already an org', 409, { kind: 'org', slug: 'measureone', personal: false });
+        const res = make_res();
+        error_handler(err, req, res, next);
+        expect(res.status_code).toBe(409);
+        expect(res.body).toEqual({ ok: false, error: { code: 'conflict', message: 'measureone is already an org', details: { kind: 'org', slug: 'measureone', personal: false } } });
     });
 
     it('returns 500 for generic errors', () => {

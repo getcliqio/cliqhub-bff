@@ -1,23 +1,34 @@
-import type { Request, Response } from 'express';
+/**
+ * Realm › Runs — one page of a realm's runs plus the state-chip counts (BFF composition).
+ *
+ * Routes (1:1 with this controller, mounted in routes/):
+ *   POST /v1/realm_runs/get — runs page + counts (all, running, awaiting input, failed 7d)
+ *
+ * Session route (routes/route_auth.ts); Core re-checks realm membership.
+ * Response envelope: `{ ok: true, data: T }` via `this.ok()`.
+ * Inbound SoT: Zod `RealmRunsGetInput` in `schemas/realm_runs_types.ts`.
+ */
+
 import { BaseController } from './base_controller.js';
 import type { RealmRunsService } from '../services/realm_runs_service.js';
-import { realm_runs_get_schema } from '../schemas/realm_runs_schemas.js';
+import type { ApiOkResponse, ApiRequest } from '../types/api_response.js';
+import { RealmRunsGetInput } from '../schemas/realm_runs_types.js';
+import type { RealmRunsData } from '../schemas/realm_runs_types.js';
 
-/** `POST /v1/realm_runs/get` → `{ ok, data: RealmRunsDTO }` (BFF composition). */
+/** Realm › Runs page. */
 export class RealmRunsController extends BaseController {
-    private _service: RealmRunsService;
-
-    constructor(service: RealmRunsService) {
+    constructor(private readonly _realm_runs_service: RealmRunsService) {
         super();
-        this._service = service;
     }
 
-    get = this.wrap(async (req: Request, res: Response) => {
-        if (!req.session_data) {
-            res.status(401).json({ ok: false, error: { code: 'unauthorized', message: 'Login required' } });
-            return;
-        }
-        const body = this.parse_body(realm_runs_get_schema, req);
-        this.ok(res, await this._service.get(req.session_data.target_token, body));
-    });
+    /**
+     * One page of a realm's runs with the state-chip counts.
+     *
+     * @param req - Body: {@link RealmRunsGetInput}
+     * @param res - `{ ok: true, data: RealmRunsData }`; 403/404 when the realm is not visible
+     */
+    async get(req: ApiRequest<RealmRunsGetInput, RealmRunsData>, res: ApiOkResponse<RealmRunsData>): Promise<void> {
+        const body = this.parse_body(RealmRunsGetInput, req);
+        this.ok(res, await this._realm_runs_service.get(body, this.session(req).target_token));
+    }
 }

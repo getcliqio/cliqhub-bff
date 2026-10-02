@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { OverviewService } from '../../../src/services/overview_service.js';
-import { ApiError } from '../../../src/repositories/api_error.js';
+import { ApiError } from '../../../src/errors/api_error.js';
 
 const ORG_A = '11111111-1111-4111-8111-111111111111';
 const ORG_B = '22222222-2222-4222-8222-222222222222';
@@ -46,13 +46,13 @@ describe('OverviewService', () => {
 
     it('asks Core for the caller\'s own orgs with the caller\'s token', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [] });
-        await service.get('tok-effective');
-        expect(orgs_repo.get).toHaveBeenCalledWith('tok-effective', { mine: true });
+        await service.get({}, 'tok-effective');
+        expect(orgs_repo.get).toHaveBeenCalledWith({ mine: true }, 'tok-effective');
     });
 
     it('returns an empty overview for a user with no orgs', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [] });
-        const dto = await service.get('t');
+        const dto = await service.get({}, 't');
         expect(dto.orgs).toEqual([]);
         expect(dto.totals).toMatchObject({ orgs: 0, realms: 0, needs_you: 0 });
         expect(dto.partial).toBe(false);
@@ -63,9 +63,9 @@ describe('OverviewService', () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme', 'owner'), org(ORG_B, 'beta')] });
         dash_repo.summary.mockResolvedValue(summary());
         dash_repo.realms.mockResolvedValue(realms());
-        await service.get('t');
-        expect(dash_repo.summary.mock.calls.map((c) => c[0]).sort()).toEqual([ORG_A, ORG_B].sort());
-        expect(dash_repo.realms.mock.calls.map((c) => c[0]).sort()).toEqual([ORG_A, ORG_B].sort());
+        await service.get({}, 't');
+        expect(dash_repo.summary.mock.calls.map((c) => c[0].org_id).sort()).toEqual([ORG_A, ORG_B].sort());
+        expect(dash_repo.realms.mock.calls.map((c) => c[0].org_id).sort()).toEqual([ORG_A, ORG_B].sort());
         for (const call of [...dash_repo.summary.mock.calls, ...dash_repo.realms.mock.calls]) expect(call[1]).toBe('t');
     });
 
@@ -73,7 +73,7 @@ describe('OverviewService', () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme', 'owner')] });
         dash_repo.summary.mockResolvedValue(summary());
         dash_repo.realms.mockResolvedValue(realms());
-        const dto = await service.get('t');
+        const dto = await service.get({}, 't');
         const o = dto.orgs[0];
         expect(o).toMatchObject({ id: ORG_A, slug: 'acme', display_name: 'ACME', role: 'owner', status: 'ok', error: null });
         expect(o.counts).toEqual({ needs_you: 5, pending_reviews: 4, awaiting_input: 1, active_runs: 2, failed_24h: 1, completed_24h: 5, daemons_online: 3, daemons_total: 4 });
@@ -85,14 +85,14 @@ describe('OverviewService', () => {
 
     it('merges needs_you (pending reviews + awaiting runs) and live runs, newest first, tagged by org', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme'), org(ORG_B, 'beta')] });
-        dash_repo.summary.mockImplementation(async (id: string) => (id === ORG_A
+        dash_repo.summary.mockImplementation(async ({ org_id: id }: { org_id: string }) => (id === ORG_A
             ? summary()
             : summary({
                 live_runs: [{ run_id: 'b-run', state: 'running', started_at: 5000 }],
                 pending_reviews: [{ review_id: 'b-rev', phase: 'qa', requested_at: 6000, status: 'pending' }],
             })));
         dash_repo.realms.mockResolvedValue(realms());
-        const dto = await service.get('t');
+        const dto = await service.get({}, 't');
         expect(dto.needs_you.map((i) => [i.id, i.kind, i.org_slug])).toEqual([
             ['b-rev', 'review', 'beta'],
             ['rev-1', 'review', 'acme'],
@@ -105,12 +105,12 @@ describe('OverviewService', () => {
 
     it('keeps other orgs when one org fails and flags partial', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme'), org(ORG_B, 'beta')] });
-        dash_repo.summary.mockImplementation(async (id: string) => {
+        dash_repo.summary.mockImplementation(async ({ org_id: id }: { org_id: string }) => {
             if (id === ORG_B) throw new ApiError('forbidden', 'No access to org', 403);
             return summary();
         });
         dash_repo.realms.mockResolvedValue(realms());
-        const dto = await service.get('t');
+        const dto = await service.get({}, 't');
         expect(dto.partial).toBe(true);
         const beta = dto.orgs.find((o) => o.slug === 'beta')!;
         expect(beta).toMatchObject({ status: 'error', error: 'No access to org', realms: [] });
@@ -123,27 +123,27 @@ describe('OverviewService', () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme')] });
         dash_repo.summary.mockResolvedValue(summary());
         dash_repo.realms.mockRejectedValue(new Error('ECONNRESET 10.0.0.4:4000'));
-        const dto = await service.get('t');
+        const dto = await service.get({}, 't');
         expect(dto.orgs[0].error).toBe('Could not load rollups');
     });
 
     it('propagates a failure of the org list itself (e.g. expired session)', async () => {
         orgs_repo.get.mockRejectedValue(new ApiError('unauthorized', 'Session expired', 401));
-        await expect(service.get('t')).rejects.toMatchObject({ status: 401 });
+        await expect(service.get({}, 't')).rejects.toMatchObject({ status: 401 });
     });
 
     it('filters by org_ids intersected with membership', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme'), org(ORG_B, 'beta')] });
         dash_repo.summary.mockResolvedValue(summary());
         dash_repo.realms.mockResolvedValue(realms());
-        const dto = await service.get('t', { org_ids: [ORG_B] });
+        const dto = await service.get({ org_ids: [ORG_B] }, 't');
         expect(dto.orgs.map((o) => o.slug)).toEqual(['beta']);
         expect(dash_repo.summary).toHaveBeenCalledTimes(1);
     });
 
     it('rejects org_ids the caller is not a member of (403, no fan-out)', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme')] });
-        await expect(service.get('t', { org_ids: [ORG_A, ORG_C] })).rejects.toMatchObject({ status: 403, code: 'forbidden' });
+        await expect(service.get({ org_ids: [ORG_A, ORG_C] }, 't')).rejects.toMatchObject({ status: 403, code: 'forbidden' });
         expect(dash_repo.summary).not.toHaveBeenCalled();
     });
 
@@ -160,7 +160,7 @@ describe('OverviewService', () => {
             return summary({ live_runs: [], pending_reviews: [] });
         });
         dash_repo.realms.mockResolvedValue({ realms: [] });
-        const dto = await service.get('t');
+        const dto = await service.get({}, 't');
         expect(dto.orgs).toHaveLength(10);
         expect(dto.orgs.map((o) => o.slug)).toEqual(many.map((o) => o.slug)); // order preserved
         expect(peak).toBeLessThanOrEqual(OverviewService.CONCURRENCY);
@@ -171,8 +171,27 @@ describe('OverviewService', () => {
         const reviews = Array.from({ length: 40 }, (_, i) => ({ review_id: `r${i}`, requested_at: i, status: 'pending' }));
         dash_repo.summary.mockResolvedValue(summary({ pending_reviews: reviews, live_runs: [] }));
         dash_repo.realms.mockResolvedValue(realms());
-        const dto = await service.get('t');
+        const dto = await service.get({}, 't');
         expect(dto.needs_you).toHaveLength(OverviewService.MAX_ITEMS);
         expect(dto.needs_you[0].id).toBe('r39');
+    });
+
+    it('composes the bell summary through InboxService over the selected orgs', async () => {
+        const inbox = { summary: vi.fn().mockResolvedValue({ new_count: 2, capped: false, latest: [], status: 'ok' }) };
+        const svc = new OverviewService(orgs_repo as any, dash_repo as any, inbox as any);
+        orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme'), org(ORG_B, 'beta')] });
+        dash_repo.summary.mockResolvedValue(summary());
+        dash_repo.realms.mockResolvedValue(realms());
+        const dto = await svc.get({ org_ids: [ORG_B], inbox_seen_ms: 123 }, 't');
+        expect(inbox.summary).toHaveBeenCalledWith({ orgs: [expect.objectContaining({ id: ORG_B })], seen_ms: 123 }, 't');
+        expect(dto.inbox).toMatchObject({ new_count: 2, status: 'ok' });
+    });
+
+    it('an inbox failure never fails the overview', async () => {
+        const inbox = { summary: vi.fn().mockRejectedValue(new Error('down')) };
+        const svc = new OverviewService(orgs_repo as any, dash_repo as any, inbox as any);
+        orgs_repo.get.mockResolvedValue({ orgs: [] });
+        const dto = await svc.get({}, 't');
+        expect(dto.inbox).toEqual({ new_count: 0, capped: false, latest: [], status: 'error' });
     });
 });

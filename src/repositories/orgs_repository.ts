@@ -1,213 +1,139 @@
-import type { ApiClient } from './api_client.js';
+/**
+ * Orgs — Core calls. Reads use `/v1/orgs/*`; member / role writes and the
+ * site-admin create / delete use `/internal/orgs/*`. Returns Core's `data` (VO).
+ */
+
+import type { CoreClient } from './core_client.js';
 import type {
-    OrgListResponseVO,
-    OrgDetailVO,
-    OrgUpdateResponseVO,
-    OrgLeaveResponseVO,
-    OrgAddMemberResponseVO,
-    OrgRemoveMemberResponseVO,
-    OrgRolesListResponseVO,
-    OrgRoleResponseVO,
-    OrgDeleteRoleResponseVO,
-    UsersUpdateRoleResponseVO,
-    OrgCreateScopeResponseVO,
-    OrgDeleteScopeResponseVO,
-    OrgAssignScopeMemberResponseVO,
-    OrgUnassignScopeMemberResponseVO,
-} from '../types/vo.js';
+    OrgsGetVO, OrgsGetAllVO, OrgsNewVO, OrgsDeleteVO, OrgDetailVO, OrgsUpdateVO, OrgsLeaveVO,
+    OrgsRemoveMemberVO, OrgsListRolesVO, OrgsRoleVO, OrgsDeleteRoleVO,
+    OrgsNewScopeVO, OrgsUpdateScopeVO, OrgsDeleteScopeVO, OrgsAssignScopeMemberVO,
+    OrgsUnassignScopeMemberVO, OrgsGetScopesVO,
+} from '../types/core/orgs.js';
+import type {
+    OrgsGetInput, OrgsNewInput, OrgIdInput, OrgsUpdateInput,
+    OrgsRemoveMemberInput, OrgRoleIdInput, OrgsCreateRoleInput, OrgsUpdateRoleInput,
+    OrgsNewScopeInput, OrgsUpdateScopeInput, OrgScopeIdInput, OrgScopeMemberInput,
+} from '../schemas/orgs_types.js';
+import type { SortDir } from '../lib/core_list.js';
 
-export interface GetScopesResponseVO {
-    items: Array<{
-        id: string;
-        slug: string;
-        display_name: string | null;
-        visibility: 'public' | 'private';
-        scope_type: 'user' | 'org';
-        owner_id: string;
-        org_id: string | null;
-        member_count?: number;
-        team_count?: number;
-        created_at: string;
-    }>;
-    total: number;
-    offset: number;
-    limit: number;
+/** `orgs/get` body for the site-admin list, in Core's field names (OrgsGetInput). */
+export interface OrgsGetAllFilter {
+    query?: string;
+    limit?: number;
+    offset?: number;
+    exclude_personal?: boolean;
+    status?: string;
+    include_deleted?: boolean;
+    sort_by?: string;
+    sort_dir?: SortDir;
 }
 
-export interface UpdateScopeResponseVO {
-    updated: boolean;
+/** `orgs/get_scopes` body, in Core's field names (OrgsGetScopesInput). */
+export interface OrgsGetScopesFilter {
+    user_id?: string;
+    org_id?: string;
+    query?: string;
+    limit?: number;
+    offset?: number;
 }
 
-/** Reads (get/get_by_id/list_roles) use Core `/v1/orgs/*`; writes stay `/internal/orgs/*`. */
+/** Core org, member, role and publishing-scope calls. */
 export class OrgsRepository {
-    private _client: ApiClient;
+    constructor(private readonly _client: CoreClient) {}
 
-    constructor(client: ApiClient) {
-        this._client = client;
+    /** `POST /v1/orgs/get` — caller's orgs. */
+    async get(input: OrgsGetInput, token: string): Promise<OrgsGetVO> {
+        return this._client.post<OrgsGetVO>('/v1/orgs/get', input, token);
     }
 
-    async get(token: string, params: { mine?: boolean } = {}): Promise<OrgListResponseVO> {
-        return this._client.post<OrgListResponseVO>(
-            '/v1/orgs/get', params, token,
-        );
+    /** `POST /v1/orgs/get` as a site admin — every org, paged. */
+    async get_all(filter: OrgsGetAllFilter, token: string): Promise<OrgsGetAllVO> {
+        return this._client.post<OrgsGetAllVO>('/v1/orgs/get', filter, token);
     }
 
-    async get_by_id(params: { org_id: string }, token: string): Promise<OrgDetailVO> {
-        return this._client.post<OrgDetailVO>(
-            '/v1/orgs/get_by_id', params, token,
-        );
+    /** `POST /internal/orgs/new` */
+    async new(input: OrgsNewInput, token: string): Promise<OrgsNewVO> {
+        return this._client.post<OrgsNewVO>('/internal/orgs/new', input, token);
     }
 
-    async update(
-        params: { org_id: string; display_name: string },
-        token: string,
-    ): Promise<OrgUpdateResponseVO> {
-        return this._client.post<OrgUpdateResponseVO>(
-            '/internal/orgs/update', params, token,
-        );
+    /** `POST /internal/orgs/delete` */
+    async delete(input: OrgIdInput, token: string): Promise<OrgsDeleteVO> {
+        return this._client.post<OrgsDeleteVO>('/internal/orgs/delete', input, token);
     }
 
-    async leave(params: { org_id: string }, token: string): Promise<OrgLeaveResponseVO> {
-        return this._client.post<OrgLeaveResponseVO>(
-            '/internal/orgs/leave', params, token,
-        );
+    /** `POST /v1/orgs/get_by_id` */
+    async get_by_id(input: OrgIdInput, token: string): Promise<OrgDetailVO> {
+        return this._client.post<OrgDetailVO>('/v1/orgs/get_by_id', input, token);
     }
 
-    async add_member(
-        params: { org_id: string; username?: string; email?: string; user_id?: string },
-        token: string,
-    ): Promise<OrgAddMemberResponseVO> {
-        return this._client.post<OrgAddMemberResponseVO>(
-            '/internal/orgs/add_member', params, token,
-        );
+    /** `POST /internal/orgs/update` */
+    async update(input: OrgsUpdateInput, token: string): Promise<OrgsUpdateVO> {
+        return this._client.post<OrgsUpdateVO>('/internal/orgs/update', input, token);
     }
 
-    async remove_member(
-        params: { org_id: string; user_id: string },
-        token: string,
-    ): Promise<OrgRemoveMemberResponseVO> {
-        return this._client.post<OrgRemoveMemberResponseVO>(
-            '/internal/orgs/remove_member', params, token,
-        );
+    /** `POST /internal/orgs/leave` */
+    async leave(input: OrgIdInput, token: string): Promise<OrgsLeaveVO> {
+        return this._client.post<OrgsLeaveVO>('/internal/orgs/leave', input, token);
     }
 
-    async list_roles(
-        params: { org_id: string },
-        token: string,
-    ): Promise<OrgRolesListResponseVO> {
-        return this._client.post<OrgRolesListResponseVO>(
-            '/v1/orgs/list_roles', params, token,
-        );
+    /** `POST /internal/orgs/remove_member` */
+    async remove_member(input: OrgsRemoveMemberInput, token: string): Promise<OrgsRemoveMemberVO> {
+        return this._client.post<OrgsRemoveMemberVO>('/internal/orgs/remove_member', input, token);
     }
 
-    async get_role(
-        params: { org_id: string; role_id: string },
-        token: string,
-    ): Promise<OrgRoleResponseVO> {
-        return this._client.post<OrgRoleResponseVO>(
-            '/internal/orgs/get_role', params, token,
-        );
+    /** `POST /v1/orgs/list_roles` */
+    async list_roles(input: OrgIdInput, token: string): Promise<OrgsListRolesVO> {
+        return this._client.post<OrgsListRolesVO>('/v1/orgs/list_roles', input, token);
     }
 
-    async create_role(
-        params: { org_id: string; slug: string; name: string; permissions: string[] },
-        token: string,
-    ): Promise<OrgRoleResponseVO> {
-        return this._client.post<OrgRoleResponseVO>(
-            '/internal/orgs/create_role', params, token,
-        );
+    /** `POST /internal/orgs/get_role` */
+    async get_role(input: OrgRoleIdInput, token: string): Promise<OrgsRoleVO> {
+        return this._client.post<OrgsRoleVO>('/internal/orgs/get_role', input, token);
     }
 
-    async update_role(
-        params: { org_id: string; role_id: string; name?: string; permissions?: string[] },
-        token: string,
-    ): Promise<OrgRoleResponseVO> {
-        return this._client.post<OrgRoleResponseVO>(
-            '/internal/orgs/update_role', params, token,
-        );
+    /** `POST /internal/orgs/create_role` */
+    async create_role(input: OrgsCreateRoleInput, token: string): Promise<OrgsRoleVO> {
+        return this._client.post<OrgsRoleVO>('/internal/orgs/create_role', input, token);
     }
 
-    async delete_role(
-        params: { org_id: string; role_id: string },
-        token: string,
-    ): Promise<OrgDeleteRoleResponseVO> {
-        return this._client.post<OrgDeleteRoleResponseVO>(
-            '/internal/orgs/delete_role', params, token,
-        );
+    /** `POST /internal/orgs/update_role` */
+    async update_role(input: OrgsUpdateRoleInput, token: string): Promise<OrgsRoleVO> {
+        return this._client.post<OrgsRoleVO>('/internal/orgs/update_role', input, token);
     }
 
-    async update_user_role(
-        params: { user_id: string; org_id: string; role_id: string },
-        token: string,
-    ): Promise<UsersUpdateRoleResponseVO> {
-        return this._client.post<UsersUpdateRoleResponseVO>(
-            '/internal/users/update_role', params, token,
-        );
+    /** `POST /internal/orgs/delete_role` */
+    async delete_role(input: OrgRoleIdInput, token: string): Promise<OrgsDeleteRoleVO> {
+        return this._client.post<OrgsDeleteRoleVO>('/internal/orgs/delete_role', input, token);
     }
 
-    async new_scope(
-        params: { org_id: string; slug: string; display_name?: string; visibility?: 'public' | 'private' },
-        token: string,
-    ): Promise<OrgCreateScopeResponseVO> {
-        return this._client.post<OrgCreateScopeResponseVO>(
-            '/v1/orgs/new_scope',
-            { org_id: params.org_id, slug: params.slug, display_name: params.display_name, visibility: params.visibility },
-            token,
-        );
+    /** `POST /v1/orgs/new_scope` */
+    async new_scope(input: OrgsNewScopeInput, token: string): Promise<OrgsNewScopeVO> {
+        return this._client.post<OrgsNewScopeVO>('/v1/orgs/new_scope', input, token);
     }
 
-    async update_scope(
-        params: { org_id: string; scope_id: string; display_name?: string; visibility?: 'public' | 'private' },
-        token: string,
-    ): Promise<UpdateScopeResponseVO> {
-        return this._client.post<UpdateScopeResponseVO>(
-            '/v1/orgs/update_scope',
-            params,
-            token,
-        );
+    /** `POST /v1/orgs/update_scope` */
+    async update_scope(input: OrgsUpdateScopeInput, token: string): Promise<OrgsUpdateScopeVO> {
+        return this._client.post<OrgsUpdateScopeVO>('/v1/orgs/update_scope', input, token);
     }
 
-    async delete_scope(
-        params: { org_id: string; scope_id: string },
-        token: string,
-    ): Promise<OrgDeleteScopeResponseVO> {
-        return this._client.post<OrgDeleteScopeResponseVO>(
-            '/v1/orgs/delete_scope',
-            params,
-            token,
-        );
+    /** `POST /v1/orgs/delete_scope` */
+    async delete_scope(input: OrgScopeIdInput, token: string): Promise<OrgsDeleteScopeVO> {
+        return this._client.post<OrgsDeleteScopeVO>('/v1/orgs/delete_scope', input, token);
     }
 
-    async assign_scope_member(
-        params: { org_id: string; scope_id: string; user_id: string },
-        token: string,
-    ): Promise<OrgAssignScopeMemberResponseVO> {
-        return this._client.post<OrgAssignScopeMemberResponseVO>(
-            '/v1/orgs/assign_scope_member',
-            params,
-            token,
-        );
+    /** `POST /v1/orgs/assign_scope_member` */
+    async assign_scope_member(input: OrgScopeMemberInput, token: string): Promise<OrgsAssignScopeMemberVO> {
+        return this._client.post<OrgsAssignScopeMemberVO>('/v1/orgs/assign_scope_member', input, token);
     }
 
-    async unassign_scope_member(
-        params: { org_id: string; scope_id: string; user_id: string },
-        token: string,
-    ): Promise<OrgUnassignScopeMemberResponseVO> {
-        return this._client.post<OrgUnassignScopeMemberResponseVO>(
-            '/v1/orgs/unassign_scope_member',
-            params,
-            token,
-        );
+    /** `POST /v1/orgs/unassign_scope_member` */
+    async unassign_scope_member(input: OrgScopeMemberInput, token: string): Promise<OrgsUnassignScopeMemberVO> {
+        return this._client.post<OrgsUnassignScopeMemberVO>('/v1/orgs/unassign_scope_member', input, token);
     }
 
-    async get_scopes(
-        params: { user_id: string; org_id?: string; search?: string; limit?: number; offset?: number },
-        token: string,
-    ): Promise<GetScopesResponseVO> {
-        return this._client.post<GetScopesResponseVO>(
-            '/v1/orgs/get_scopes',
-            params,
-            token,
-        );
+    /** `POST /v1/orgs/get_scopes` */
+    async get_scopes(filter: OrgsGetScopesFilter, token: string): Promise<OrgsGetScopesVO> {
+        return this._client.post<OrgsGetScopesVO>('/v1/orgs/get_scopes', filter, token);
     }
 }

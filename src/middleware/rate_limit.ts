@@ -1,6 +1,13 @@
+/**
+ * Fixed-window rate limiter for the builder (LLM) routes: per IP + user + path,
+ * with separate signed-in / anonymous limits from config.
+ */
+
 import type { Request, Response, NextFunction } from 'express';
 import type { EnvConfig } from '../config/env.js';
+import { ApiError } from '../errors/api_error.js';
 
+/** One key's current window. */
 interface WindowEntry {
     count: number;
     reset_at: number;
@@ -9,6 +16,7 @@ interface WindowEntry {
 /**
  * In-memory rate limiter keyed by IP + optional user id.
  * Per-process only — good enough for single-instance BFF.
+ * Answers 429 `rate_limited` with `Retry-After` over the limit.
  */
 export function create_rate_limiter(config: EnvConfig) {
     const buckets = new Map<string, WindowEntry>();
@@ -25,7 +33,7 @@ export function create_rate_limiter(config: EnvConfig) {
         res: Response,
         next: NextFunction,
     ): void {
-        const user_id = (req as any).session_data?.user_id;
+        const user_id = req.session_data?.user_id;
         const limit = user_id
             ? config.rate_limit_builder_auth
             : config.rate_limit_builder_anon;
@@ -46,13 +54,7 @@ export function create_rate_limiter(config: EnvConfig) {
                 (entry.reset_at - now) / 1000,
             );
             res.set('Retry-After', String(retry_after));
-            res.status(429).json({
-                ok: false,
-                error: {
-                    code: 'rate_limited',
-                    message: 'Too many requests, try again later',
-                },
-            });
+            next(new ApiError('rate_limited', 'Too many requests, try again later', 429));
             return;
         }
 

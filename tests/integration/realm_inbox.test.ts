@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { CoreApiClient } from '../../src/repositories/core_api_client.js';
-import { ApiError } from '../../src/repositories/api_error.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
+import { ApiError } from '../../src/errors/api_error.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 
@@ -36,7 +36,7 @@ describe('BFF realm composition routes', () => {
     }
 
     function mock_core() {
-        return vi.spyOn(CoreApiClient.prototype, 'post').mockImplementation(async (path: string, body: any) => {
+        return vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string, body: any) => {
             if (path === '/v1/realms/get_by_id') return { ok: true, realm: { id: 'realm-1', slug: 'prod', name: 'Prod', org_slug: 'acme' } } as any;
             if (path === '/v1/reviews/get') return { ok: true, data: { items: [{ review_id: 'rev-1', run_id: 'r1', title: 'Approve', requested_at: 3, status: 'pending' }], total: 1 } } as any;
             if (path === '/v1/runs/get') {
@@ -96,7 +96,7 @@ describe('BFF realm composition routes', () => {
 
     it('realm inbox passes a Core 403 through as an error envelope', async () => {
         const sid = make_session();
-        vi.spyOn(CoreApiClient.prototype, 'post').mockRejectedValue(new ApiError('forbidden', 'Not a realm member', 403));
+        vi.spyOn(CoreClient.prototype, 'post_body').mockRejectedValue(new ApiError('forbidden', 'Not a realm member', 403));
         const res = await request(app).post('/v1/realm_inbox/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ org_slug: 'acme', slug: 'prod' });
         expect(res.status).toBe(403);
         expect(res.body).toMatchObject({ ok: false, error: { code: 'forbidden' } });

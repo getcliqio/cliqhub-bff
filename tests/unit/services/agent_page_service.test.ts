@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { AgentPageService, group_versions, is_secret, mask } from '../../../src/services/agent_page_service.js';
+import { AgentPageService } from '../../../src/services/agent_page_service.js';
+import { group_versions, is_secret, mask } from '../../../src/mappers/agent_page_mapper.js';
+import { CoreReadRepository } from '../../../src/repositories/core_read_repository.js';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const R1 = { id: 'r-prod', slug: 'prod-us', name: 'prod-us' };
@@ -16,7 +18,7 @@ const JIRA_DEFS = { required: [{ key: 'base_url' }, { key: 'email' }, { key: 'ap
 function fake(opts: { usage?: boolean } = {}) {
 	const calls: Array<{ path: string; body: Record<string, unknown> }> = [];
 	const core = {
-		post: vi.fn(async (path: string, body: Record<string, unknown>) => {
+		post_body: vi.fn(async (path: string, body: Record<string, unknown>) => {
 			calls.push({ path, body });
 			if (path === '/v1/agents/get') {
 				const rows = [
@@ -47,7 +49,7 @@ function fake(opts: { usage?: boolean } = {}) {
 		realms_page: vi.fn(async () => ({ items: [R1, R2].map((r) => ({ ...r, org_slug: 'acme' })), total: 2 })),
 		realm_by_slug: vi.fn(async () => ({ ...R1, org_slug: 'acme' })),
 	};
-	return { svc: new AgentPageService(core as never, control as never), calls, core, control };
+	return { svc: new AgentPageService(new CoreReadRepository(core as never), control as never), calls, core, control };
 }
 
 describe('helpers', () => {
@@ -70,7 +72,7 @@ describe('helpers', () => {
 describe('AgentPageService.list (org)', () => {
 	it('one agent per name, org setup, realm overrides, used by, attention', async () => {
 		const { svc, calls } = fake();
-		const d = await svc.list('tok', { org_id: ORG });
+		const d = await svc.list({ org_id: ORG }, 'tok');
 		expect(calls.find((c) => c.path === '/v1/agents/get')!.body).toEqual({ org_id: ORG, include_manifest: false, include_usage: true });
 		expect(d.items.map((i) => i.name)).toEqual(['cursor', 'jira', 'matcher']); // in use + not ready first
 		const jira = d.items.find((i) => i.name === 'jira')!;
@@ -85,7 +87,7 @@ describe('AgentPageService.list (org)', () => {
 
 	it('an older Core (no used_by) → no usage, marked partial', async () => {
 		const { svc } = fake({ usage: false });
-		const d = await svc.list('tok', { org_id: ORG });
+		const d = await svc.list({ org_id: ORG }, 'tok');
 		expect(d.counts.in_use).toBeNull();
 		expect(d.attention).toBeNull();
 		expect(d.items[0].used_by).toBeNull();
@@ -96,7 +98,7 @@ describe('AgentPageService.list (org)', () => {
 describe('AgentPageService.list (realm)', () => {
 	it('uses the realm’s effective setup, its overrides, and teams used here', async () => {
 		const { svc, calls, control } = fake();
-		const d = await svc.list('tok', { org_id: ORG, realm: { org_slug: 'acme', slug: 'prod-us' } });
+		const d = await svc.list({ org_id: ORG, realm: { org_slug: 'acme', slug: 'prod-us' } }, 'tok');
 		expect(control.realm_by_slug).toHaveBeenCalledWith('acme', 'prod-us', 'tok');
 		expect(calls.filter((c) => c.path === '/v1/agents/get_settings').map((c) => c.body)).toEqual([{ org_id: ORG, realm_id: 'r-prod' }]);
 		const jira = d.items.find((i) => i.name === 'jira')!;
@@ -111,7 +113,7 @@ describe('AgentPageService.list (realm)', () => {
 describe('AgentPageService.page', () => {
 	it('org settings: fields with sources; secrets never leave unmasked; overrides card', async () => {
 		const { svc } = fake();
-		const d = await svc.page('tok', { org_id: ORG, id: JIRA });
+		const d = await svc.page({ org_id: ORG, id: JIRA }, 'tok');
 		expect(d.agent).toMatchObject({ name: 'jira', version: '1.2.0', versions: [{ version: '1.2.0', newest: true }, { version: '1.1.0', newest: false }] });
 		expect(d.settings!.scope).toBe('org');
 		expect(d.settings!.fields.map((f) => [f.key, f.set, f.source, f.required])).toEqual([['base_url', true, 'org', true], ['email', false, null, true], ['api_token', false, null, true]]);
@@ -123,7 +125,7 @@ describe('AgentPageService.page', () => {
 
 	it('realm settings: effective values, org value underneath, secret masked', async () => {
 		const { svc } = fake();
-		const d = await svc.page('tok', { org_id: ORG, id: JIRA, realm: { org_slug: 'acme', slug: 'prod-us' } });
+		const d = await svc.page({ org_id: ORG, id: JIRA, realm: { org_slug: 'acme', slug: 'prod-us' } }, 'tok');
 		const f = Object.fromEntries(d.settings!.fields.map((x) => [x.key, x]));
 		expect(d.settings).toMatchObject({ scope: 'realm', realm: R1, ready: true });
 		expect(f.email).toMatchObject({ value: 'prod@acme.com', source: 'realm', org_value: null });
@@ -135,7 +137,7 @@ describe('AgentPageService.page', () => {
 
 	it('realms view: every realm, used ones first, key sources', async () => {
 		const { svc } = fake();
-		const d = await svc.page('tok', { org_id: ORG, id: JIRA, view: 'realms' });
+		const d = await svc.page({ org_id: ORG, id: JIRA, view: 'realms' }, 'tok');
 		expect(d.required_keys).toEqual(['base_url', 'email', 'api_token']);
 		expect(d.realms!.map((r) => [r.realm.slug, r.ready, r.used_here])).toEqual([['eu-lenders', false, ['acme/digest']], ['prod-us', true, ['acme/triage']]]);
 		expect(d.realms![1].keys).toEqual({ base_url: 'org', email: 'realm', api_token: 'realm' });
@@ -144,7 +146,7 @@ describe('AgentPageService.page', () => {
 
 	it('manifest view includes the manifest', async () => {
 		const { svc, calls } = fake();
-		const d = await svc.page('tok', { org_id: ORG, id: JIRA, view: 'manifest' });
+		const d = await svc.page({ org_id: ORG, id: JIRA, view: 'manifest' }, 'tok');
 		expect(d.manifest).toEqual({ name: 'jira' });
 		expect(calls.find((c) => c.path === '/v1/agents/get_details')!.body).toMatchObject({ include_manifest: true });
 	});

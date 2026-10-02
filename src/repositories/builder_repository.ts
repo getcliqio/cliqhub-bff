@@ -1,18 +1,14 @@
-import type { ApiClient } from './api_client.js';
-import type { TeamsBuildInput } from '../schemas/builder_schemas.js';
+/** Team builder — the single Core call `POST /v1/teams/build` (shape depends on `action`). */
 
-/**
- * Single upstream path: POST /v1/teams/build with `action`.
- * Response shape varies by action; callers map via BuilderService.
- */
+import type { CoreClient } from './core_client.js';
+import type { TeamsBuildInput } from '../schemas/builder_types.js';
+
+/** Core's AI team builder (`post`, no body timeout — LLM calls are slow). */
 export class BuilderRepository {
-    private _client: ApiClient;
+    constructor(private readonly _client: CoreClient) {}
 
-    constructor(client: ApiClient) {
-        this._client = client;
-    }
-
-    async build<T>(params: TeamsBuildInput, token?: string): Promise<T> {
-        return this._client.post<T>('/v1/teams/build', params, token);
+    /** `POST /v1/teams/build`; the caller names the VO for its action. */
+    async build<T>(input: TeamsBuildInput, token?: string): Promise<T> {
+        return this._client.post<T>('/v1/teams/build', input, token);
     }
 }

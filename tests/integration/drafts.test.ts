@@ -3,7 +3,7 @@ import { hub_legacy_uuid } from '../helpers/hub_legacy_uuid.js';
 import request from 'supertest';
 import type { Express } from 'express';
 import { create_test_app } from '../helpers/test_container.js';
-import { ApiClient } from '../../src/repositories/api_client.js';
+import { CoreClient } from '../../src/repositories/core_client.js';
 
 const CSRF = { 'X-Requested-With': 'XMLHttpRequest' };
 
@@ -49,8 +49,8 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
 
     describe('POST /v1/teams/get (status=draft)', () => {
         it('returns 200 with draft teams (auth optional for catalog get)', async () => {
-            vi.spyOn(ApiClient.prototype, 'post').mockResolvedValueOnce({
-                teams: [{ id: hub_legacy_uuid(1), name: 'draft-1', scope: 'alice', status: 'draft' }],
+            vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
+                items: [{ id: hub_legacy_uuid(1), name: 'draft-1', scope: 'alice', status: 'draft' }],
                 total: 1, limit: 50, offset: 0,
             });
 
@@ -60,12 +60,17 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
                 .send({ status: 'draft', mine: true });
             expect(res.status).toBe(200);
             expect(res.body.data.teams).toHaveLength(1);
+            expect(res.body.data.teams[0]).toMatchObject({ name: 'draft-1', scope: 'alice', status: 'draft' });
+            expect(res.body.data).toMatchObject({ total: 1, limit: 50, offset: 0 });
+            const call = vi.mocked(CoreClient.prototype.post).mock.calls[0];
+            expect(call[0]).toBe('/v1/teams/get');
+            expect(call[1]).toMatchObject({ status: 'draft', mine: true });
         });
 
         it('returns 200 with draft teams', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post').mockResolvedValueOnce({
-                teams: [{ id: hub_legacy_uuid(1), name: 'draft-1', scope: 'alice', status: 'draft' }],
+            vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
+                items: [{ id: hub_legacy_uuid(1), name: 'draft-1', scope: 'alice', status: 'draft' }],
                 total: 1, limit: 50, offset: 0,
             });
 
@@ -78,6 +83,33 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
             expect(res.status).toBe(200);
             expect(res.body.data.teams).toHaveLength(1);
         });
+
+        it('returns 422 for an unknown status', async () => {
+            const res = await request(app)
+                .post('/v1/teams/get')
+                .set(CSRF)
+                .send({ status: 'archived' });
+            expect(res.status).toBe(422);
+            expect(res.body.error.code).toBe('invalid_params');
+        });
+    });
+
+    describe('/v1/drafts/* (removed)', () => {
+        for (const p of ['/v1/drafts/get', '/v1/drafts/create', '/v1/drafts/update', '/v1/drafts/delete', '/v1/drafts/publish']) {
+            it(`POST ${p} answers the JSON 404`, async () => {
+                const sid = make_session();
+                const spy = vi.spyOn(CoreClient.prototype, 'post');
+                const res = await request(app)
+                    .post(p)
+                    .set(CSRF)
+                    .set('Cookie', `test_sid=${sid}`)
+                    .send({});
+                expect(res.status).toBe(404);
+                expect(res.headers['content-type']).toContain('application/json');
+                expect(res.body).toEqual({ ok: false, error: { code: 'not_found', message: 'Unknown API route' } });
+                expect(spy).not.toHaveBeenCalled();
+            });
+        }
     });
 
     describe('POST /v1/teams/create', () => {
@@ -91,7 +123,7 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
 
         it('returns 200 on create', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post').mockResolvedValueOnce({
+            vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
                 id: hub_legacy_uuid(1), name: 'draft-team', scope: 'alice', status: 'draft',
             });
 
@@ -129,7 +161,7 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
 
         it('returns 200 on update', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post').mockResolvedValueOnce({
+            vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
                 id: hub_legacy_uuid(1), name: 'draft-team', status: 'draft', version: '0.1.1',
             });
 
@@ -146,7 +178,7 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
     describe('POST /v1/teams/delete', () => {
         it('returns 200 on delete', async () => {
             const sid = make_session();
-            vi.spyOn(ApiClient.prototype, 'post').mockResolvedValueOnce({ deleted: true });
+            vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({ deleted: true });
 
             const res = await request(app)
                 .post('/v1/teams/delete')

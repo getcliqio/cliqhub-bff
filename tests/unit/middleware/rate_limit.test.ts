@@ -18,6 +18,7 @@ function config(): EnvConfig {
         rate_limit_builder_auth: 3,
         rate_limit_window_ms: 60_000,
         static_dir: '',
+        trust_proxy: false,
     };
 }
 
@@ -54,10 +55,9 @@ describe('create_rate_limiter', () => {
 
         const res = mock_res();
         limiter(req, res, next);
-        expect(res.status_code).toBe(429);
         expect(res.headers['Retry-After']).toBeTruthy();
-        expect(res.body.error.code).toBe('rate_limited');
-        expect(next).toHaveBeenCalledTimes(2);
+        expect(next).toHaveBeenCalledTimes(3);
+        expect(next).toHaveBeenLastCalledWith(expect.objectContaining({ code: 'rate_limited', status: 429 }));
     });
 
     it('uses the authenticated limit when session user is present', () => {
@@ -74,8 +74,7 @@ describe('create_rate_limiter', () => {
         limiter(req, mock_res(), next);
         expect(next).toHaveBeenCalledTimes(3);
 
-        const res = mock_res();
-        limiter(req, res, next);
-        expect(res.status_code).toBe(429);
+        limiter(req, mock_res(), next);
+        expect(next).toHaveBeenLastCalledWith(expect.objectContaining({ code: 'rate_limited', status: 429 }));
     });
 });

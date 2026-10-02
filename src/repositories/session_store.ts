@@ -1,6 +1,15 @@
+/**
+ * Browser sessions in Postgres (`bff.sessions`): one row per cookie, holding
+ * the dual Core tokens (see {@link SessionRecord}). Not a Core client — the
+ * only repository that talks to the BFF's own database.
+ */
+
 import pg from 'pg';
 import { randomUUID } from 'node:crypto';
 import type { EnvConfig } from '../config/env.js';
+import { get_logger } from '../lib/log.js';
+
+const log = get_logger('repo.session_store');
 
 /**
  * BFF browser session row.
@@ -43,8 +52,10 @@ export interface SessionRecord {
     expires_at: number;
 }
 
+/** A new session row; `create` assigns the id. */
 export type SessionCreateInput = Omit<SessionRecord, 'session_id'>;
 
+/** Columns `update_act_as` swaps to the target user (the actor's columns stay). */
 export type SessionActAsUpdate = {
     act_as_user_id: string;
     username: string;
@@ -62,15 +73,44 @@ export type SessionActAsUpdate = {
 /** Arbitrary constant key for the schema-setup advisory lock. */
 const SESSION_SCHEMA_LOCK = 7_310_422_001;
 
-/** Every column the current code reads/writes; a table missing any of them is recreated. */
-export const REQUIRED_SESSION_COLUMNS = [
-    'session_id', 'user_id', 'act_as_user_id', 'username', 'email', 'role', 'actor_role',
-    'actor_username', 'user_token', 'target_token', 'scopes_json', 'org_slugs_json',
-    'default_realm_id', 'default_realm_slug', 'default_realm_qualified',
-    'actor_default_realm_id', 'actor_default_realm_slug', 'actor_default_realm_qualified',
-    'orgs_json', 'created_at', 'last_active', 'expires_at',
-] as const;
+/**
+ * Every column the current code reads/writes, with the type a missing one is
+ * added with. Schema changes are additive only: an older table gains the new
+ * columns and keeps its rows, so no BFF version ever signs users out by
+ * rebuilding the table (two versions may share one database).
+ */
+export const SESSION_COLUMNS: ReadonlyArray<readonly [name: string, ddl: string]> = [
+    ['session_id', 'TEXT PRIMARY KEY'],
+    ['user_id', 'TEXT NOT NULL'],
+    ['act_as_user_id', 'TEXT NOT NULL'],
+    ['username', 'TEXT NOT NULL'],
+    ['email', 'TEXT NOT NULL'],
+    ['role', "TEXT NOT NULL DEFAULT 'user'"],
+    ['actor_role', "TEXT NOT NULL DEFAULT 'user'"],
+    ['actor_username', 'TEXT NOT NULL'],
+    ['user_token', 'TEXT NOT NULL'],
+    ['target_token', 'TEXT NOT NULL'],
+    ['scopes_json', "TEXT NOT NULL DEFAULT '[]'"],
+    ['org_slugs_json', "TEXT NOT NULL DEFAULT '[]'"],
+    ['default_realm_id', 'TEXT'],
+    ['default_realm_slug', 'TEXT'],
+    ['default_realm_qualified', 'TEXT'],
+    ['actor_default_realm_id', 'TEXT'],
+    ['actor_default_realm_slug', 'TEXT'],
+    ['actor_default_realm_qualified', 'TEXT'],
+    ['orgs_json', "TEXT NOT NULL DEFAULT '[]'"],
+    ['created_at', 'BIGINT NOT NULL'],
+    ['last_active', 'BIGINT NOT NULL'],
+    ['expires_at', 'BIGINT NOT NULL'],
+];
 
+/** Column type for `ADD COLUMN` on an existing table (NOT NULL needs a default there). */
+function add_column_ddl(ddl: string): string {
+    if (!/NOT NULL/.test(ddl) || /DEFAULT/.test(ddl)) return ddl;
+    return `${ddl} DEFAULT ${ddl.startsWith('BIGINT') ? '0' : "''"}`;
+}
+
+/** Session rows: create / find (with expiry and idle checks) / act-as swaps / delete. */
 export class SessionStore {
     private _pool: pg.Pool;
     private _idle_seconds: number;
@@ -82,19 +122,14 @@ export class SessionStore {
             idleTimeoutMillis: 30_000,
         });
         this._pool.on('error', (err) => {
-            console.error(
-                JSON.stringify({
-                    ts: new Date().toISOString(),
-                    level: 'ERROR',
-                    component: 'bff-session-pool',
-                    msg: 'idle_client_error',
-                    ctx: { code: (err as NodeJS.ErrnoException).code, message: err.message },
-                }),
-            );
+            // An idle pooled client lost its connection; pg discards it and the next
+            // query opens a new one. Logged only — without a listener the process would crash.
+            log.error('idle_client_error', { code: (err as NodeJS.ErrnoException).code, error: err.message });
         });
         this._idle_seconds = config.session_idle_seconds;
     }
 
+    /** A store over an existing pool (tests, shared pools); skips the constructor's pool setup. */
     static from_pool(pool: pg.Pool, config: EnvConfig): SessionStore {
         const store = Object.create(SessionStore.prototype) as SessionStore;
         store._pool = pool;
@@ -103,60 +138,32 @@ export class SessionStore {
     }
 
     /**
-     * Idempotent schema setup — safe to run on every start and from several
-     * processes at once (watch-mode restarts, two local BFFs on one DB).
-     *
-     * - Existing sessions survive a restart (no more sign-out on every boot).
-     * - A table from an older layout (missing a current column) is still
-     *   hard-cut: dropped and recreated, as before.
-     * - One simple-protocol query = one implicit transaction; the advisory
-     *   lock serialises concurrent starters so they cannot race on CREATE.
+     * Idempotent, additive schema setup — safe on every start and from several
+     * processes at once (watch-mode restarts, two BFF versions on one DB).
+     * Existing sessions always survive: the table is created when missing and
+     * gains any missing column; it is never dropped or rebuilt. One
+     * simple-protocol query = one implicit transaction; the advisory lock
+     * serialises concurrent starters.
      */
     async init(): Promise<void> {
+        const create_columns = SESSION_COLUMNS.map(([name, ddl]) => `${name} ${ddl}`).join(',\n                ');
+        const add_columns = SESSION_COLUMNS
+            .filter(([name]) => name !== 'session_id')
+            .map(([name, ddl]) => `ALTER TABLE bff.sessions ADD COLUMN IF NOT EXISTS ${name} ${add_column_ddl(ddl)};`)
+            .join('\n            ');
         await this._pool.query(`
             SELECT pg_advisory_xact_lock(${SESSION_SCHEMA_LOCK});
             CREATE SCHEMA IF NOT EXISTS bff;
-            DO $$
-            BEGIN
-                IF to_regclass('bff.sessions') IS NOT NULL AND NOT EXISTS (
-                    SELECT 1 FROM information_schema.columns
-                    WHERE table_schema = 'bff' AND table_name = 'sessions'
-                      AND column_name IN (${REQUIRED_SESSION_COLUMNS.map((c) => `'${c}'`).join(', ')})
-                    GROUP BY table_name
-                    HAVING count(*) = ${REQUIRED_SESSION_COLUMNS.length}
-                ) THEN
-                    DROP TABLE bff.sessions;
-                END IF;
-            END $$;
             CREATE TABLE IF NOT EXISTS bff.sessions (
-                session_id                    TEXT PRIMARY KEY,
-                user_id                       TEXT NOT NULL,
-                act_as_user_id                TEXT NOT NULL,
-                username                      TEXT NOT NULL,
-                email                         TEXT NOT NULL,
-                role                          TEXT NOT NULL DEFAULT 'user',
-                actor_role                    TEXT NOT NULL DEFAULT 'user',
-                actor_username                TEXT NOT NULL,
-                user_token                    TEXT NOT NULL,
-                target_token                  TEXT NOT NULL,
-                scopes_json                   TEXT NOT NULL DEFAULT '[]',
-                org_slugs_json                TEXT NOT NULL DEFAULT '[]',
-                default_realm_id              TEXT,
-                default_realm_slug            TEXT,
-                default_realm_qualified       TEXT,
-                actor_default_realm_id        TEXT,
-                actor_default_realm_slug      TEXT,
-                actor_default_realm_qualified TEXT,
-                orgs_json                     TEXT NOT NULL DEFAULT '[]',
-                created_at                    BIGINT NOT NULL,
-                last_active                   BIGINT NOT NULL,
-                expires_at                    BIGINT NOT NULL
+                ${create_columns}
             );
+            ${add_columns}
             CREATE INDEX IF NOT EXISTS idx_sessions_expires ON bff.sessions(expires_at);
             CREATE INDEX IF NOT EXISTS idx_sessions_user ON bff.sessions(user_id);
         `);
     }
 
+    /** Inserts a session row and returns its new random id (the cookie value). */
     async create(record: SessionCreateInput): Promise<string> {
         const session_id = randomUUID();
         await this._pool.query(
@@ -196,6 +203,7 @@ export class SessionStore {
         return session_id;
     }
 
+    /** The live session, or null when missing, expired or idle too long (those rows are deleted). */
     async find(session_id: string): Promise<SessionRecord | null> {
         const { rows } = await this._pool.query(
             'SELECT * FROM bff.sessions WHERE session_id = $1',
@@ -220,6 +228,7 @@ export class SessionStore {
         return this._normalize(row);
     }
 
+    /** Bumps `last_active` (sliding idle timeout). */
     async touch(session_id: string): Promise<void> {
         const now = Math.floor(Date.now() / 1000);
         await this._pool.query(
@@ -228,6 +237,7 @@ export class SessionStore {
         );
     }
 
+    /** Deletes one session (sign-out). */
     async destroy(session_id: string): Promise<void> {
         await this._pool.query(
             'DELETE FROM bff.sessions WHERE session_id = $1',
@@ -318,6 +328,7 @@ export class SessionStore {
         );
     }
 
+    /** Deletes every session of a user. */
     async destroy_user(user_id: string): Promise<void> {
         await this._pool.query(
             'DELETE FROM bff.sessions WHERE user_id = $1',
@@ -325,6 +336,7 @@ export class SessionStore {
         );
     }
 
+    /** Deletes expired rows; returns how many. */
     async prune_expired(): Promise<number> {
         const now = Math.floor(Date.now() / 1000);
         const result = await this._pool.query(
@@ -334,10 +346,12 @@ export class SessionStore {
         return result.rowCount ?? 0;
     }
 
+    /** Ends the pool (shutdown). */
     async close(): Promise<void> {
         await this._pool.end();
     }
 
+    /** Row → record: pg BIGINT strings to numbers, unknown roles to `user`, missing columns to defaults. */
     private _normalize(row: SessionRecord): SessionRecord {
         return {
             ...row,
