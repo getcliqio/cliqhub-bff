@@ -80,6 +80,8 @@ export const AdminListGetInput = z.discriminatedUnion('kind', [
             .describe('Only this target type (e.g. user)'),
         target_id: z.string().trim().max(200).optional()
             .describe('Only this target id (Core API 3)'),
+        admin_id: z.string().uuid().optional()
+            .describe('Only actions by this admin'),
         limit: limit_field(50),
         offset: OffsetField,
         ...sort_fields(['created_at', 'action']),
@@ -123,6 +125,13 @@ export const AdminListGetInput = z.discriminatedUnion('kind', [
         query: QueryField,
         run_id: z.string().trim().max(200).optional()
             .describe('Only this run\'s lines'),
+        org_id: OrgIdField,
+        realm_id: z.string().trim().max(200).optional()
+            .describe('Only lines from this realm'),
+        team: z.string().trim().max(200).optional()
+            .describe('Only lines from runs of this team'),
+        daemon_id: z.string().trim().max(200).optional()
+            .describe('Only lines from this daemon'),
         limit: limit_field(100, 200),
         offset: OffsetField,
     }),
@@ -224,6 +233,15 @@ export interface AdminListData {
     org_options?: AdminOrgOptionData[];
     /** `sort_by` keys Core applies to this list today (lib/core_list.ts); the SPA shows sort headers only for these. */
     sortable: string[];
+    /** Logs and audit: counts per value of each filter (org, realm, team, run, daemon / action, target type, admin). */
+    facets?: Record<string, AdminFacetData[]>;
+}
+
+/** One value of a filter with how many rows have it. */
+export interface AdminFacetData {
+    value: string;
+    label: string;
+    count: number;
 }
 
 /** One "needs attention" card on the admin home. */

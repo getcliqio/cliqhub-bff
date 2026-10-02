@@ -21,6 +21,7 @@
 import { get_logger } from '../lib/log.js';
 import { best_effort } from '../lib/best_effort.js';
 import { core_query, core_sort, sortable_keys } from '../lib/core_list.js';
+import type { AdminFacetData } from '../schemas/admin_page_types.js';
 import type { CoreReadRepository, CoreRead } from '../repositories/core_read_repository.js';
 import type { CoreCompatService } from './core_compat_service.js';
 import type { CoreCompatData } from '../schemas/health_types.js';
@@ -133,7 +134,13 @@ export class AdminPageService {
         if (suspended != null && suspended > 0) {
             attention.push({ id: 'suspended', severity: 'info', title: `${suspended} suspended account${suspended === 1 ? '' : 's'}`, detail: 'They can’t sign in until unsuspended.', href: '/admin/accounts?filter=suspended', action: 'Review' });
         }
-        const ownerless = (orgs?.items ?? []).filter((o) => num(o.owner_count) === 0);
+        // An org with a named owner who hasn't accepted yet (invited by email, or membership pending) has an owner on the way, not none.
+        const has_named_owner = (o: Record<string, unknown>) => Boolean(o.owner) || o.status === 'waiting_for_owner';
+        const ownerless = (orgs?.items ?? []).filter((o) => num(o.owner_count) === 0 && !has_named_owner(o));
+        const pending_owner = (orgs?.items ?? []).filter((o) => num(o.owner_count) === 0 && has_named_owner(o));
+        if (pending_owner.length) {
+            attention.push({ id: 'owner_pending', severity: 'info', title: `${pending_owner.length} org${pending_owner.length === 1 ? ' is' : 's are'} waiting for their owner to accept`, detail: `${pending_owner.slice(0, 3).map((o) => o.slug).join(', ')}${pending_owner.length > 3 ? '…' : ''} — the owner has been invited and hasn’t accepted yet.`, href: pending_owner.length === 1 ? `/admin/orgs/${pending_owner[0].id}` : '/admin/orgs', action: 'See invite' });
+        }
         if (ownerless.length) {
             attention.push({ id: 'ownerless', severity: 'warn', title: `${ownerless.length} org${ownerless.length === 1 ? ' has' : 's have'} no owner`, detail: `${ownerless.slice(0, 3).map((o) => o.slug).join(', ')}${ownerless.length > 3 ? '…' : ''} — nobody can manage roles or delete them.`, href: ownerless.length === 1 ? `/admin/orgs/${ownerless[0].id}` : '/admin/orgs', action: 'Fix' });
         }
@@ -235,12 +242,13 @@ export class AdminPageService {
                 ...(p.target_type ? { target_type: p.target_type } : {}),
                 ...(v3 && p.since_ms != null ? { since_ms: p.since_ms } : {}),
                 ...(v3 && p.target_id ? { target_id: p.target_id } : {}),
+                ...(p.admin_id ? { admin_id: p.admin_id } : {}),
                 ...core_sort('reports.audit', p, {}, api),
                 ...page,
             };
-            const d = data_of<{ entries?: AdminAuditRowData[]; total?: number }>(await this._reads.read('reports.audit', body, token)) ?? {};
+            const d = data_of<{ entries?: AdminAuditRowData[]; total?: number; facets?: Record<string, AdminFacetData[]> }>(await this._reads.read('reports.audit', body, token)) ?? {};
             const entries = (d.entries ?? []).map(to_audit_row);
-            return { kind: 'audit', filter: p.filter, items: entries, total: num(d.total) ?? entries.length, ...page, counts: {}, hub_wide: true, needs_org: false, unsupported, sortable: sortable_keys('reports.audit', api) };
+            return { kind: 'audit', filter: p.filter, items: entries, total: num(d.total) ?? entries.length, ...page, counts: {}, hub_wide: true, needs_org: false, unsupported, sortable: sortable_keys('reports.audit', api), ...(d.facets ? { facets: d.facets } : {}) };
         }
 
         if (p.kind === 'realms') {
@@ -292,24 +300,50 @@ export class AdminPageService {
         if (p.kind === 'logs') {
             // Site admins may omit realm_id on runs/get_logs (hub-wide on every Core version).
             const range_ms = RANGE_MS[p.range];
+            const [realms, org_options] = await Promise.all([this._realm_map(token, v3), this._org_options(token)]);
+            // An org narrows to its realms (Core searches several realms at once for site admins).
+            const org_slug = p.org_id ? org_options?.find((o) => o.id === p.org_id)?.slug ?? null : null;
+            const org_realms = org_slug ? [...realms.values()].filter((r) => r.org_slug === org_slug).map((r) => r.id) : null;
             const body: Record<string, unknown> = {
                 ...(p.query ? { q: p.query } : {}),
                 ...(p.filter !== 'all' ? { levels: [p.filter] } : {}),
                 ...(p.run_id ? { run_ids: [p.run_id] } : {}),
+                ...(p.realm_id ? { realm_id: p.realm_id } : org_realms ? { realm_ids: org_realms.length ? org_realms : ['none'] } : {}),
+                ...(p.team ? { teams: [p.team] } : {}),
+                ...(p.daemon_id ? { daemon_ids: [p.daemon_id] } : {}),
                 ...(range_ms != null ? { since_ms: Math.floor((this._now() - range_ms) / 60_000) * 60_000 } : {}),
                 ...page,
             };
-            const [res, realms] = await Promise.all([this._reads.read('runs.get_logs', body, token), this._realm_map(token, v3)]);
+            const res = await this._reads.read('runs.get_logs', body, token);
             const d = data_of<Record<string, unknown>>(res) ?? {};
             const lines = (Array.isArray(d.lines) ? d.lines : []) as Array<Record<string, unknown>>;
-            const facets = (d.facets as { level?: Array<{ value: string; count: number }> } | undefined)?.level ?? [];
-            const by_level = new Map(facets.map((f) => [f.value, f.count]));
+            type Facet = Array<{ value: string; label?: string; count: number }>;
+            const core_facets = (d.facets ?? {}) as Record<string, Facet | undefined>;
+            const by_level = new Map((core_facets.level ?? []).map((f) => [f.value, f.count]));
             const items = lines.map((l) => to_log_row(l, realms));
+            const label = (f: Facet | undefined, name: (v: string) => string | null = () => null): AdminFacetData[] =>
+                (f ?? []).map((x) => ({ value: x.value, label: name(x.value) ?? x.label ?? x.value, count: x.count }));
+            const realm_facet = label(core_facets.realm_id, (v) => { const r = realms.get(v); return r ? `${r.org_slug ? `${r.org_slug} › ` : ''}${r.slug}` : null; });
+            // Org counts add up the realm counts (lines carry the realm, not the org).
+            const org_counts = new Map<string, number>();
+            for (const f of core_facets.realm_id ?? []) {
+                const slug = realms.get(f.value)?.org_slug;
+                const org = slug ? org_options?.find((o) => o.slug === slug) : undefined;
+                if (org) org_counts.set(org.id, (org_counts.get(org.id) ?? 0) + f.count);
+            }
             return {
                 kind: 'logs', filter: p.filter, items, total: num(d.total) ?? items.length, ...page,
                 // Level chip counts come from Core's level facet (only meaningful before a level is picked).
                 counts: p.filter === 'all' ? { all: num(d.total), error: by_level.get('error') ?? 0, warn: by_level.get('warn') ?? 0, info: by_level.get('info') ?? 0, debug: by_level.get('debug') ?? 0 } : {},
                 hub_wide: true, needs_org: false, unsupported: [], sortable: [],
+                ...(org_options ? { org_options } : {}),
+                facets: {
+                    org: (org_options ?? []).filter((o) => org_counts.has(o.id) || o.id === p.org_id).map((o) => ({ value: o.id, label: o.display_name || o.slug, count: org_counts.get(o.id) ?? 0 })).sort((a, b) => b.count - a.count),
+                    realm: realm_facet,
+                    team: label(core_facets.team),
+                    run: label(core_facets.run_id),
+                    daemon: label(core_facets.daemon_id),
+                },
             };
         }
 

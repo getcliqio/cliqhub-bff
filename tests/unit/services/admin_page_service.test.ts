@@ -37,7 +37,7 @@ describe('AdminPageService.home', () => {
         const c = core((path, body) => {
             const t = (n: number) => ({ ok: true, data: { items: [], total: n } });
             if (path === '/v1/users/get') return { ok: true, data: { users: [], total: body.suspended ? 2 : body.role ? 3 : 184 } };
-            if (path === '/v1/orgs/get') return { ok: true, data: { orgs: [{ id: 'o1', slug: 'acme-labs', owner_count: 0 }, { id: 'o2', slug: 'm1', owner_count: '1' }], total: 2 } };
+            if (path === '/v1/orgs/get') return { ok: true, data: { orgs: [{ id: 'o1', slug: 'acme-labs', owner_count: 0 }, { id: 'o2', slug: 'm1', owner_count: '1' }, { id: 'o3', slug: 'invited-co', owner_count: 0, status: 'waiting_for_owner', owner: { username: null, status: 'invited' } }], total: 3 } };
             if (path === '/v1/realms/get') return t(41);
             if (path === '/v1/daemons/get') return t(body.status === 'online' ? 57 : body.status === 'offline' ? 4 : 64);
             if (path === '/v1/runs/get') { expect(body.since_ms).toBe(NOW - 86_400_000); return t(body.state ? 38 : 1208); }
@@ -47,9 +47,11 @@ describe('AdminPageService.home', () => {
         });
         const dto = await new AdminPageService(new CoreReadRepository(c.client), compat(3), () => NOW).home({}, 'tok');
         expect(dto.hub_wide).toBe(true);
-        expect(dto.counts).toEqual({ accounts: 184, suspended: 2, admins: 3, orgs: 2, realms: 41, daemons: { online: 57, total: 64, offline: 4 }, runs_24h: { total: 1208, failed: 38 } });
-        expect(dto.attention.map((a) => a.id)).toEqual(['daemons_offline', 'suspended', 'ownerless']);
-        expect(dto.attention.find((a) => a.id === 'ownerless')!.href).toBe('/admin/orgs/o1');
+        expect(dto.counts).toEqual({ accounts: 184, suspended: 2, admins: 3, orgs: 3, realms: 41, daemons: { online: 57, total: 64, offline: 4 }, runs_24h: { total: 1208, failed: 38 } });
+        expect(dto.attention.map((a) => a.id)).toEqual(['daemons_offline', 'suspended', 'owner_pending', 'ownerless']);
+        // An invited owner who hasn't accepted is not "no owner".
+        expect(dto.attention.find((a) => a.id === 'ownerless')).toMatchObject({ title: '1 org has no owner', href: '/admin/orgs/o1' });
+        expect(dto.attention.find((a) => a.id === 'owner_pending')).toMatchObject({ severity: 'info', href: '/admin/orgs/o3' });
         expect(c.calls.filter((x) => x.path === '/v1/daemons/get').every((x) => x.body.all === true)).toBe(true);
     });
 
@@ -175,6 +177,36 @@ describe('AdminPageService.list', () => {
         expect(body).not.toHaveProperty('realm_id');
         expect(dto.counts).toMatchObject({ all: 40, error: 4, info: 36, warn: 0 });
         expect(dto.items[0]).toMatchObject({ id: 'l1', level: 'error', realm: null });
+    });
+
+    it('logs: an org narrows to its realms; facets per org, realm, team, run and daemon', async () => {
+        const c = core((p) => {
+            if (p === '/v1/realms/get') return { ok: true, data: { items: [{ id: 'r1', slug: 'prod', org_slug: 'm1' }, { id: 'r2', slug: 'stg', org_slug: 'm1' }, { id: 'r9', slug: 'other', org_slug: 'acme' }], total: 3 } };
+            if (p === '/v1/orgs/get') return { ok: true, data: { orgs: [{ id: 'o1', slug: 'm1', display_name: 'MeasureOne' }, { id: 'o2', slug: 'acme', display_name: 'Acme' }], total: 2 } };
+            return { ok: true, lines: [], total: 7, facets: {
+                level: [], realm_id: [{ value: 'r1', count: 5 }, { value: 'r2', count: 2 }], team: [{ value: '@cliq/dev', count: 7 }],
+                run_id: [{ value: 'x1', label: 'nightly (x1)', count: 7 }], daemon_id: [{ value: 'd1', label: 'mac (d1)', count: 7 }],
+            } };
+        });
+        const dto = await new AdminPageService(new CoreReadRepository(c.client), compat(3), () => NOW).list({ kind: 'logs', filter: 'all', range: '24h', org_id: 'o1', team: '@cliq/dev', limit: 100, offset: 0 }, 'tok');
+        expect(c.calls.find((x) => x.path === '/v1/runs/get_logs')!.body).toMatchObject({ realm_ids: ['r1', 'r2'], teams: ['@cliq/dev'] });
+        expect(dto.facets).toEqual({
+            org: [{ value: 'o1', label: 'MeasureOne', count: 7 }],
+            realm: [{ value: 'r1', label: 'm1 › prod', count: 5 }, { value: 'r2', label: 'm1 › stg', count: 2 }],
+            team: [{ value: '@cliq/dev', label: '@cliq/dev', count: 7 }],
+            run: [{ value: 'x1', label: 'nightly (x1)', count: 7 }],
+            daemon: [{ value: 'd1', label: 'mac (d1)', count: 7 }],
+        });
+        await new AdminPageService(new CoreReadRepository(c.client), compat(3), () => NOW).list({ kind: 'logs', filter: 'all', range: '24h', org_id: 'o1', realm_id: 'r2', limit: 100, offset: 0 }, 'tok');
+        expect(c.calls.filter((x) => x.path === '/v1/runs/get_logs').at(-1)!.body).toMatchObject({ realm_id: 'r2' });
+    });
+
+    it('audit: passes the admin filter and Core facets through', async () => {
+        const facets = { action: [{ value: 'user.suspend', label: 'user.suspend', count: 2 }], target_type: [], admin: [{ value: 'u1', label: 'sapan', count: 2 }] };
+        const c = core(() => ({ ok: true, data: { entries: [], total: 0, facets } }));
+        const dto = await new AdminPageService(new CoreReadRepository(c.client), compat(3)).list({ kind: 'audit', filter: 'all', admin_id: '11111111-1111-4111-8111-111111111111', limit: 50, offset: 0 }, 'tok');
+        expect(c.calls[0].body).toMatchObject({ admin_id: '11111111-1111-4111-8111-111111111111' });
+        expect(dto.facets).toEqual(facets);
     });
 
     it('workspaces and scopes map Core rows', async () => {
