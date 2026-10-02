@@ -150,7 +150,89 @@ describe('TeamPageService.list', () => {
     });
 });
 
+describe('TeamPageService.list — marketplace (source catalog)', () => {
+    const CATALOG = [
+        { id: 'f', name: 'feature-dev', scope: 'cliq', description: 'Ticket to PR', latest_version: '1.4.2', author: 'cliq', tags: ['engineering', 'tdd'],
+            install_count: 40, version_count: 12, fork_count: 3, verified: true, created_at: 10, updated_at: 900,
+            phases: [{ name: 'design', type: 'standard', agent: 'claude-code' }, { name: 'design-review', type: 'gate', agent: 'hug' }, { name: 'check', type: 'gate', agent: null }] },
+        { id: 'c', name: 'content-review', scope: 'cliq', description: 'Draft and edit', latest_version: '2.0.0', author: 'cliq', tags: ['content'],
+            install_count: 90, version_count: 4, fork_count: 0, verified: true, created_at: 30, updated_at: 500,
+            phases: [{ name: 'draft', type: 'standard', agent: 'claude-code' }] },
+        { id: 'i', name: 'incident', scope: 'opsguild', description: 'PagerDuty triage', latest_version: '0.3.0', author: 'ops', tags: ['engineering'],
+            install_count: 5, version_count: 2, fork_count: 1, verified: false, created_at: 20, updated_at: 700,
+            phases: [{ name: 'pull', type: 'pull', agent: 'jira' }, { name: 'triage', type: 'standard', agent: 'claude-code' }] },
+    ];
+    function catalog_mocks() {
+        const m = mocks();
+        m.teams.get = vi.fn().mockImplementation(async (f: { with_workflow?: boolean; realm_id?: string; offset?: number }) => {
+            if (f.realm_id === 'r1') return { items: [{ slug: 'feature-dev', label: '@cliq/feature-dev', version: '1.4.0', in_team_list: true, installed_count: 2, online_daemon_count: 1, missing_agents: [] }], total: 1 };
+            if (f.with_workflow) return { items: f.offset ? [] : CATALOG, total: CATALOG.length };
+            return { items: [], total: 0 };
+        });
+        return m;
+    }
+
+    it('lists every catalog team most installed first, with facets over the whole catalog', async () => {
+        const m = catalog_mocks();
+        const r = await svc(m).list({ source: 'catalog' }, 'tok');
+        expect(m.teams.get).toHaveBeenCalledWith({ with_workflow: true, limit: 100, offset: 0 }, 'tok');
+        expect(r.items.map((i) => i.name)).toEqual(['content-review', 'feature-dev', 'incident']);
+        expect(r.items[1].catalog).toEqual({ tags: ['engineering', 'tdd'], install_count: 40, version_count: 12, fork_count: 3, verified: true, updated_at: 900, has: ['human', 'gate'], runnable: false });
+        expect(r.items[2].catalog?.has).toEqual(['connector']);
+        expect(r.facets).toEqual({
+            tags: [{ tag: 'engineering', count: 2 }, { tag: 'content', count: 1 }, { tag: 'tdd', count: 1 }],
+            publishers: [{ scope: 'cliq', count: 2, verified: true }, { scope: 'opsguild', count: 1, verified: false }],
+            has: { human: 1, gate: 1, team: 0, connector: 1 },
+            verified: 2, installed: null, runnable: null,
+        });
+        expect(r.sortable).toEqual(['popular', 'newest', 'updated', 'name']);
+    });
+
+    it('filters by tags, publisher, verified and workflow features, and sorts by newest / updated / name', async () => {
+        const m = catalog_mocks();
+        const s = svc(m);
+        expect((await s.list({ source: 'catalog', tags: ['engineering'] }, 't')).items.map((i) => i.name)).toEqual(['feature-dev', 'incident']);
+        expect((await s.list({ source: 'catalog', scope: 'opsguild' }, 't')).items.map((i) => i.name)).toEqual(['incident']);
+        expect((await s.list({ source: 'catalog', verified: true, has: ['human'] }, 't')).items.map((i) => i.name)).toEqual(['feature-dev']);
+        expect((await s.list({ source: 'catalog', q: 'tdd' }, 't')).items.map((i) => i.name)).toEqual(['feature-dev']);
+        expect((await s.list({ source: 'catalog', sort_by: 'newest' }, 't')).items.map((i) => i.name)).toEqual(['content-review', 'incident', 'feature-dev']);
+        expect((await s.list({ source: 'catalog', sort_by: 'updated' }, 't')).items.map((i) => i.name)).toEqual(['feature-dev', 'incident', 'content-review']);
+        expect((await s.list({ source: 'catalog', sort_by: 'name' }, 't')).items.map((i) => i.name)).toEqual(['content-review', 'feature-dev', 'incident']);
+    });
+
+    it('with a realm: install state, behind flag, runnable teams and their counts', async () => {
+        const m = catalog_mocks();
+        const r = await svc(m).list({ source: 'catalog', realm_id: 'r1' }, 'tok');
+        const fd = r.items.find((i) => i.name === 'feature-dev')!;
+        expect(fd.installs).toEqual([expect.objectContaining({ realm_id: 'r1', version: '1.4.0', behind: true })]);
+        expect(fd.catalog?.runnable).toBe(true);
+        expect(r.facets).toMatchObject({ installed: 1, runnable: 1 });
+        expect((await svc(m).list({ source: 'catalog', realm_id: 'r1', runnable: true }, 'tok')).items.map((i) => i.name)).toEqual(['feature-dev']);
+    });
+
+    it('refuses sort keys of the other mode', async () => {
+        const m = catalog_mocks();
+        await expect(svc(m).list({ source: 'catalog', sort_by: 'status' }, 't')).rejects.toMatchObject({ status: 422 });
+        await expect(svc(m).list({ sort_by: 'popular' }, 't')).rejects.toMatchObject({ status: 422 });
+    });
+});
+
 describe('TeamPageService.page', () => {
+    it('header: where a fork came from, its fork count and when its working copy was saved', async () => {
+        const m = mocks();
+        m.teams.get_by_id = vi.fn().mockResolvedValue(team({
+            forked_from: { team_id: 'o1', scope: 'cliq', name: 'feature-dev', version: '1.4.2', latest_version: '1.5.0' },
+            fork_count: 2, draft: { manifest: 'name: x', description: null, saved_at: '2026-10-03T10:00:00.000Z' },
+        }));
+        const r = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'settings' }, 't');
+        expect(r.team).toMatchObject({
+            forked_from: { team_id: 'o1', scope: 'cliq', name: 'feature-dev', version: '1.4.2', latest_version: '1.5.0' },
+            fork_count: 2, draft_saved_at: '2026-10-03T10:00:00.000Z',
+        });
+        const plain = await svc(mocks()).page({ scope: 'acme', name: 'feature-dev', view: 'settings' }, 't');
+        expect(plain.team).toMatchObject({ forked_from: null, fork_count: 0, draft_saved_at: null });
+    });
+
     it('overview: header, permissions, counts, installs', async () => {
         const m = mocks();
         const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview' }, 'tok');

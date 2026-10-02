@@ -40,6 +40,12 @@ export interface TeamVO {
     slug?: string;
     label?: string;
     sample_team_id?: string | null;
+    /** Catalog with_workflow: latest version's phases in order. */
+    phases?: { name: string; type: string | null; agent: string | null }[];
+    /** Catalog with_workflow: how many teams were forked from this one. */
+    fork_count?: number;
+    /** Catalog with_workflow: published by a verified (platform) scope. */
+    verified?: boolean;
 }
 
 /** `teams/get` in every mode. */
@@ -84,6 +90,12 @@ export interface TeamDetailVO {
     can_edit?: boolean;
     can_delete?: boolean;
     can_toggle_listing?: boolean;
+    /** Where this team was forked from; null for an original. Name and scope are null when the origin is hidden or gone. */
+    forked_from?: { team_id: string; scope: string | null; name: string | null; version: string | null; latest_version: string | null } | null;
+    /** How many teams were forked from this one. */
+    fork_count?: number;
+    /** Unversioned working copy (editors only). */
+    draft?: { manifest: string; description: string | null; saved_at: string | null } | null;
 }
 
 /** Core `TeamMutationData` */
@@ -94,6 +106,8 @@ export interface TeamMutationVO {
     status: 'draft' | 'published';
     version: string | null;
     listed?: boolean;
+    /** teams/update: when the working copy was saved, or null after a version was minted. */
+    draft_saved_at?: string | null;
 }
 
 /** `teams/download` — the archive, base64. */

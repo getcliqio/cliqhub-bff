@@ -37,6 +37,10 @@ export function to_team_list_item_data(vo: TeamVO): TeamListItemData {
         coverage_label: vo.coverage_label,
         missing_agents: vo.missing_agents,
         last_run_at: vo.last_run_at,
+        ...(vo.phases ? { phases: vo.phases } : {}),
+        ...(vo.version_count !== undefined ? { version_count: vo.version_count } : {}),
+        ...(vo.fork_count !== undefined ? { fork_count: vo.fork_count } : {}),
+        ...(vo.verified !== undefined ? { verified: vo.verified } : {}),
     };
 }
 
@@ -89,6 +93,9 @@ export function to_team_detail_data(vo: TeamDetailVO): TeamDetailData {
         can_edit: vo.can_edit === true,
         can_delete: vo.can_delete === true,
         can_toggle_listing: vo.can_toggle_listing === true,
+        forked_from: vo.forked_from ?? null,
+        fork_count: vo.fork_count ?? 0,
+        draft: vo.draft ?? null,
     };
 }
 
@@ -101,6 +108,7 @@ export function to_team_mutation_data(vo: TeamMutationVO): TeamMutationData {
         status: vo.status,
         version: vo.version,
         listed: vo.listed,
+        ...(vo.draft_saved_at !== undefined ? { draft_saved_at: vo.draft_saved_at } : {}),
     };
 }
 

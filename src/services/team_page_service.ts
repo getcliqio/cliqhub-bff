@@ -13,10 +13,13 @@
 import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
 import type { TeamsRepository } from '../repositories/teams_repository.js';
 import type { TeamVO } from '../types/core/teams.js';
-import type {
-    TeamListGetInput, TeamPageGetInput,
-    TeamHeaderData, TeamInstallData, TeamListData, TeamListRowData, TeamPageData, TeamPhaseData,
+import {
+    CATALOG_HAS,
+    type CatalogHas, type TeamCatalogFacetsData, type TeamCatalogRowData,
+    type TeamListGetInput, type TeamPageGetInput,
+    type TeamHeaderData, type TeamInstallData, type TeamListData, type TeamListRowData, type TeamPageData, type TeamPhaseData,
 } from '../schemas/team_page_types.js';
+import { ApiError } from '../errors/api_error.js';
 import { is_newer, parse_label } from '../mappers/realm_teams_mapper.js';
 import {
     type TeamPageRealm, label_of, kind_of_phase, to_team_phases_data, to_team_inputs_data, diff_versions,
@@ -31,6 +34,15 @@ const log = get_logger('svc.team_page');
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 /** Page size for reading the caller's whole "mine" list (Core's max). */
 const MINE_PAGE = 200;
+/** Core caps catalog pages at 100. */
+const CATALOG_PAGE = 100;
+
+/** `[value, count]` pairs, most frequent first, then by value. */
+function count_by(values: string[]): Array<[string, number]> {
+    const m = new Map<string, number>();
+    for (const v of values) m.set(v, (m.get(v) ?? 0) + 1);
+    return [...m.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
 type Realm = TeamPageRealm;
 
 // ── helpers ──────────────────────────────────────────────────────────────
@@ -55,6 +67,10 @@ export class TeamPageService {
     static readonly DEFAULT_LIMIT = 25;
     /** `team_list/get` sort keys (sorted here, over the whole list). */
     static readonly SORTABLE = ['name', 'status'] as const;
+    /** Marketplace sort keys. */
+    static readonly CATALOG_SORTABLE = ['popular', 'newest', 'updated', 'name'] as const;
+    /** Most catalog teams the marketplace reads. */
+    static readonly CATALOG_CAP = 1000;
     /** Realms inspected for "installed in" — beyond this the answer is marked partial. */
     static readonly REALM_CAP = 25;
 
@@ -129,6 +145,10 @@ export class TeamPageService {
      * @param token - The caller's Core token
      */
     async list(input: TeamListGetInput, token: string): Promise<TeamListData> {
+        if (input.source === 'catalog') return this._catalog(input, token);
+        if (input.sort_by && !(TeamPageService.SORTABLE as readonly string[]).includes(input.sort_by)) {
+            throw new ApiError('invalid_params', `sort_by '${input.sort_by}' applies to the marketplace only`, 422, { field: 'sort_by' });
+        }
         const limit = input.limit ?? TeamPageService.DEFAULT_LIMIT;
         const offset = input.offset ?? 0;
         const status = input.status ?? 'all';
@@ -185,6 +205,110 @@ export class TeamPageService {
         };
     }
 
+    // ── marketplace ──────────────────────────────────────────────────────
+
+    /** Every catalog team the caller can see, with workflow details, read page by page (capped). */
+    private async _catalog_all(token: string): Promise<TeamVO[]> {
+        const out: TeamVO[] = [];
+        for (let offset = 0; offset < TeamPageService.CATALOG_CAP; offset += CATALOG_PAGE) {
+            const page = await this._teams.get({ with_workflow: true, limit: CATALOG_PAGE, offset }, token);
+            out.push(...(page.items ?? []));
+            if (!page.items?.length || out.length >= page.total) break;
+        }
+        return out;
+    }
+
+    /**
+     * The marketplace: every catalog team the caller can see, filtered, sorted
+     * and paged here so facet counts cover the whole catalog. Install state is
+     * read for one realm (`realm_id`) only.
+     *
+     * @param input - search, facets (tags, publisher scope, verified, has, runnable), realm, paging, sort
+     * @param token - The caller's Core token
+     */
+    private async _catalog(input: TeamListGetInput, token: string): Promise<TeamListData> {
+        const limit = input.limit ?? TeamPageService.DEFAULT_LIMIT;
+        const offset = input.offset ?? 0;
+        if (input.sort_by && !(TeamPageService.CATALOG_SORTABLE as readonly string[]).includes(input.sort_by)) {
+            throw new ApiError('invalid_params', `sort_by '${input.sort_by}' does not apply to the marketplace`, 422, { field: 'sort_by' });
+        }
+        const q = input.q?.toLowerCase();
+        const all = (await this._catalog_all(token)).filter((t) => !q
+            || String(t.name ?? '').toLowerCase().includes(q)
+            || String(t.description ?? '').toLowerCase().includes(q)
+            || (t.tags ?? []).some((tag) => tag.toLowerCase().includes(q)));
+
+        const realm = input.realm_id ? await best_effort(log, 'catalog_realm_failed', this._realm(token, input.realm_id), null, { realm_id: input.realm_id }) : null;
+        const latest = new Map(all.map((t) => [label_of(str(t.scope), String(t.name)), str(t.latest_version) && t.latest_version !== '0.0.0' ? String(t.latest_version) : null]));
+        const installs = realm ? await this._installs_by_label(token, [realm], (l) => latest.get(l) ?? null) : null;
+
+        const rows = all.map((t) => {
+            const scope = str(t.scope);
+            const name = String(t.name);
+            const label = label_of(scope, name);
+            const kinds = (t.phases ?? []).map((p) => kind_of_phase(p.type ?? 'standard', p.agent));
+            const inst = installs?.map.get(label) ?? [];
+            const runnable = inst.some((i) => i.installed_count > 0 && i.online_daemon_count > 0 && i.missing_agents.length === 0);
+            const has = CATALOG_HAS.filter((h) => kinds.includes(h));
+            return { t, scope, name, label, kinds, inst, catalog: {
+                tags: (t.tags ?? []).map(String), install_count: t.install_count ?? 0,
+                version_count: t.version_count ?? 0, fork_count: t.fork_count ?? 0, verified: t.verified === true,
+                updated_at: typeof t.updated_at === 'number' ? t.updated_at : null, has, runnable,
+            } satisfies TeamCatalogRowData };
+        });
+
+        const facets: TeamCatalogFacetsData = {
+            tags: count_by(rows.flatMap((r) => r.catalog.tags)).map(([tag, count]) => ({ tag, count })),
+            publishers: count_by(rows.map((r) => r.scope ?? '')).filter(([scope]) => scope)
+                .map(([scope, count]) => ({ scope, count, verified: rows.some((r) => r.scope === scope && r.catalog.verified) })),
+            has: Object.fromEntries(CATALOG_HAS.map((h) => [h, rows.filter((r) => r.catalog.has.includes(h)).length])) as Record<CatalogHas, number>,
+            verified: rows.filter((r) => r.catalog.verified).length,
+            installed: realm ? rows.filter((r) => r.inst.length > 0).length : null,
+            runnable: realm ? rows.filter((r) => r.catalog.runnable).length : null,
+        };
+
+        const filtered = rows
+            .filter((r) => !input.tags?.length || r.catalog.tags.some((tag) => input.tags!.includes(tag)))
+            .filter((r) => !input.scope || r.scope === input.scope)
+            .filter((r) => !input.verified || r.catalog.verified)
+            .filter((r) => !input.has?.length || input.has.every((h) => r.catalog.has.includes(h)))
+            .filter((r) => !input.runnable || r.catalog.runnable);
+
+        const sort = input.sort_by ?? 'popular';
+        const dir = input.sort_dir === 'asc' ? 1 : input.sort_dir === 'desc' ? -1 : (sort === 'name' ? 1 : -1);
+        const by_label = (a: typeof rows[number], b: typeof rows[number]) => a.label.localeCompare(b.label);
+        filtered.sort((a, b) => {
+            const d = sort === 'name' ? by_label(a, b)
+                : sort === 'newest' ? Number(a.t.created_at ?? 0) - Number(b.t.created_at ?? 0)
+                    : sort === 'updated' ? Number(a.catalog.updated_at ?? 0) - Number(b.catalog.updated_at ?? 0)
+                        : a.catalog.install_count - b.catalog.install_count;
+            return d * dir || by_label(a, b);
+        });
+
+        const items: TeamListRowData[] = filtered.slice(offset, offset + limit).map((r) => ({
+            id: str(r.t.id), name: r.name, scope: r.scope, description: String(r.t.description ?? ''),
+            status: r.t.status === 'draft' || r.t.visibility === 'draft' ? 'draft' : 'published',
+            latest_version: latest.get(r.label) ?? null, author: str(r.t.author),
+            phase_types: (r.t.phases ?? []).map((p) => p.type ?? 'standard'), phase_kinds: r.kinds,
+            installs: r.inst, catalog: r.catalog,
+        }));
+        return {
+            items, total: filtered.length, offset, limit,
+            counts: { all: rows.length, published: rows.length, draft: 0 },
+            realms_checked: realm ? 1 : 0, realms_total: realm ? 1 : 0,
+            partial: Boolean(input.realm_id && (!realm || installs?.failed)),
+            sortable: [...TeamPageService.CATALOG_SORTABLE],
+            facets,
+        };
+    }
+
+    /** One realm the caller sees, by id. */
+    private async _realm(token: string, realm_id: string): Promise<Realm | null> {
+        const r = await this._control.realms_page({ limit: 100, offset: 0 }, token);
+        const x = r.items.find((i) => i.id === realm_id);
+        return x ? { id: x.id, slug: x.slug, name: x.name || x.slug, org_slug: x.org_slug ?? null } : null;
+    }
+
     // ── one team, one tab ────────────────────────────────────────────────
 
     /**
@@ -213,6 +337,9 @@ export class TeamPageService {
             author: str(raw.author), listed: raw.listed !== false,
             tags: (raw.tags ?? []).map(String),
             can_edit: Boolean(raw.can_edit), can_delete: Boolean(raw.can_delete), can_toggle_listing: Boolean(raw.can_toggle_listing),
+            forked_from: raw.forked_from ?? null,
+            fork_count: raw.fork_count ?? 0,
+            draft_saved_at: raw.draft?.saved_at ?? null,
         };
         const run_scope = { team_id, ...(input.org_id ? { org_id: input.org_id } : {}) };
         // Started now, awaited last (only when the tab didn't already count runs).

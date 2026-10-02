@@ -25,18 +25,38 @@ const OffsetField = z.number().int().min(0).optional()
 
 // ─── Inputs ─────────────────────────────────────────────────────────────────
 
-/** POST /v1/team_list/get */
+/** Workflow features a marketplace team can be filtered by (builder phase kinds). */
+export const CATALOG_HAS = ['human', 'gate', 'team', 'connector'] as const;
+export type CatalogHas = (typeof CATALOG_HAS)[number];
+
+/**
+ * POST /v1/team_list/get — `source: 'mine'` (default) is the caller's teams;
+ * `source: 'catalog'` is the marketplace: every team the caller can see, with
+ * facet counts, filtered and sorted in the BFF.
+ */
 export const TeamListGetInput = z.object({
+    source: z.enum(['mine', 'catalog']).optional()
+        .describe("'mine' (default): the caller's teams; 'catalog': the marketplace"),
     org_id: z.string().uuid().optional()
-        .describe('Only this org\'s realms count for "installed in"'),
+        .describe('mine: only this org\'s realms count for "installed in"'),
     scope: SlugField.optional()
-        .describe('Only teams owned by this scope (the org\'s slug)'),
+        .describe('Only teams owned by this scope (mine: the org\'s slug; catalog: the publisher)'),
     status: z.enum(['all', 'published', 'draft']).optional()
-        .describe('Lifecycle filter (default all)'),
+        .describe('mine: lifecycle filter (default all)'),
+    tags: z.array(SlugField).max(20).optional()
+        .describe('catalog: teams with any of these tags (categories)'),
+    verified: z.boolean().optional()
+        .describe('catalog: only teams from verified publishers'),
+    has: z.array(z.enum(CATALOG_HAS)).max(4).optional()
+        .describe('catalog: teams whose workflow has all of these (human review, gate, sub-team, connector)'),
+    realm_id: z.string().trim().min(1).max(128).optional()
+        .describe('catalog: show install state in this realm'),
+    runnable: z.boolean().optional()
+        .describe('catalog (with realm_id): only teams installed there on an online daemon with every agent set up'),
     q: QField,
     limit: LimitField,
     offset: OffsetField,
-    ...sort_fields(['name', 'status'], 'sorted in the BFF over the whole list (default: Core\'s order)'),
+    ...sort_fields(['name', 'status', 'popular', 'newest', 'updated'], 'sorted in the BFF over the whole list; mine: name | status (default Core\'s order); catalog: popular (default) | newest | updated | name'),
 }).strict();
 export type TeamListGetInput = z.infer<typeof TeamListGetInput>;
 
@@ -130,6 +150,34 @@ export interface TeamListRowData {
     /** Builder kinds (agent, gate, human, connector, fetch, script, team), same order. */
     phase_kinds: string[] | null;
     installs: TeamInstallData[];
+    /** catalog: marketplace details. */
+    catalog?: TeamCatalogRowData;
+}
+
+/** Marketplace details of one team (team_list/get source catalog). */
+export interface TeamCatalogRowData {
+    tags: string[];
+    install_count: number;
+    version_count: number;
+    fork_count: number;
+    verified: boolean;
+    /** Unix ms. */
+    updated_at: number | null;
+    /** Workflow features present (human, gate, team, connector). */
+    has: CatalogHas[];
+    /** Installed in the requested realm, on an online daemon, with every agent set up. */
+    runnable: boolean;
+}
+
+/** Facet counts over the marketplace teams matching the search text. */
+export interface TeamCatalogFacetsData {
+    tags: { tag: string; count: number }[];
+    publishers: { scope: string; count: number; verified: boolean }[];
+    has: Record<CatalogHas, number>;
+    verified: number;
+    /** Installed in the requested realm (null without realm_id). */
+    installed: number | null;
+    runnable: number | null;
 }
 
 /** `team_list/get` — one page of the caller's teams with status counts. */
@@ -145,6 +193,8 @@ export interface TeamListData {
     partial: boolean;
     /** `sort_by` keys this list accepts. */
     sortable: string[];
+    /** catalog: facet counts. */
+    facets?: TeamCatalogFacetsData;
 }
 
 /** One published version. */
@@ -173,6 +223,12 @@ export interface TeamHeaderData {
     can_edit: boolean;
     can_delete: boolean;
     can_toggle_listing: boolean;
+    /** Where this team was forked from (origin hidden or gone → null name/scope); null for an original. */
+    forked_from: { team_id: string; scope: string | null; name: string | null; version: string | null; latest_version: string | null } | null;
+    /** How many teams were forked from this one. */
+    fork_count: number;
+    /** When the unversioned working copy was last saved (editors only); null when there is none. */
+    draft_saved_at: string | null;
 }
 
 /** A run of the team, with its realm link. */

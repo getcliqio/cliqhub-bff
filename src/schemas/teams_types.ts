@@ -77,6 +77,8 @@ export const TeamsGetInput = z.object({
         .describe('Page size (default 50, max 200)'),
     offset: z.number().int().min(0).optional()
         .describe('Zero-based page offset'),
+    with_workflow: z.boolean().optional()
+        .describe('Catalog: also return each team\'s phases, version and fork counts and verified publisher'),
 });
 export type TeamsGetInput = z.infer<typeof TeamsGetInput>;
 
@@ -118,6 +120,11 @@ export const TeamsCreateInput = z.object({
         .describe('Scope (publisher) slug the caller can write to'),
     description: z.string().optional()
         .describe('Short summary'),
+    forked_from: z.object({
+        team_id: z.string().uuid().describe('Team to fork'),
+        version: z.string().optional().describe('Version to fork from; latest when omitted'),
+    }).strict().optional()
+        .describe('Start as a copy of this team version; the new team records where it came from'),
     manifest: z.union([z.string(), z.record(z.unknown())]).optional()
         .describe('Team manifest as YAML text or an object'),
     team_json: z.string().optional()
@@ -125,7 +132,10 @@ export const TeamsCreateInput = z.object({
 });
 export type TeamsCreateInput = z.infer<typeof TeamsCreateInput>;
 
-/** POST /v1/teams/update — patch-bumps the draft unless `bump` says otherwise. */
+/**
+ * POST /v1/teams/update — `save_as: 'draft'` keeps edits as the team's working
+ * copy; otherwise mints the next version (patch unless `bump` says otherwise).
+ */
 export const TeamsUpdateInput = z.object({
     name: z.string().optional()
         .describe('Team name (lookup)'),
@@ -139,6 +149,10 @@ export const TeamsUpdateInput = z.object({
         .describe('New builder canvas JSON'),
     bump: z.enum(['minor', 'major']).optional()
         .describe('Version bump (default patch)'),
+    save_as: z.enum(['draft', 'version']).optional()
+        .describe("'draft': save as the working copy, no version; 'version' (default): mint the next version"),
+    changelog: z.string().max(2000).optional()
+        .describe('What changed in the version being minted'),
 }).refine(has_name_or_id, { message: NameOrIdMessage });
 export type TeamsUpdateInput = z.infer<typeof TeamsUpdateInput>;
 
@@ -232,6 +246,14 @@ export interface TeamListItemData {
     missing_agents?: string[];
     /** Unix ms. */
     last_run_at?: number | null;
+    /** Catalog with_workflow: latest version's phases in order. */
+    phases?: { name: string; type: string | null; agent: string | null }[];
+    /** Catalog with_workflow. */
+    version_count?: number;
+    /** Catalog with_workflow. */
+    fork_count?: number;
+    /** Catalog with_workflow: published by a verified (platform) scope. */
+    verified?: boolean;
 }
 
 /** `teams/get` — the same shape in every mode. */
@@ -289,6 +311,22 @@ export interface TeamDetailData {
     can_edit: boolean;
     can_delete: boolean;
     can_toggle_listing: boolean;
+    /** Where this team was forked from; null for an original. */
+    forked_from: TeamForkOriginData | null;
+    /** How many teams were forked from this one. */
+    fork_count: number;
+    /** Unversioned working copy (only for people who can edit). */
+    draft: { manifest: string; description: string | null; saved_at: string | null } | null;
+}
+
+/** The team (and version) a fork came from. `name`/`scope` are null when the origin is hidden or gone. */
+export interface TeamForkOriginData {
+    team_id: string;
+    scope: string | null;
+    name: string | null;
+    version: string | null;
+    /** The origin's latest version, when visible — newer than `version` means updates upstream. */
+    latest_version: string | null;
 }
 
 /** `teams/create`, `update`, `publish`, `unpublish`, `rename` — the team after the write. */
@@ -299,6 +337,8 @@ export interface TeamMutationData {
     status: 'draft' | 'published';
     version: string | null;
     listed?: boolean;
+    /** teams/update: when the working copy was saved; null after a version was minted. */
+    draft_saved_at?: string | null;
 }
 
 /** `teams/download` */
