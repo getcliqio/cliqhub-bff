@@ -15,6 +15,7 @@ function repo() {
         runs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
         run_by_id: vi.fn(),
         run_phases: vi.fn().mockResolvedValue([]),
+        run_artifacts: vi.fn().mockResolvedValue([]),
     };
 }
 
@@ -128,6 +129,25 @@ describe('RunDetailService', () => {
         expect(dto.realm).toEqual(realm);
         expect(dto.reviews).toEqual([{ id: 'rev-1', title: 'Approve plan', phase: 'gate', requested_at: 9, message: null }]);
         expect(dto.partial).toBe(false);
+    });
+
+    it("lists the files the run's phases produced, oldest first; a failed read only marks the section", async () => {
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'running' });
+        control.run_artifacts.mockResolvedValue([
+            { artifact_id: 'a2', run_id: 'r1', phase: 'tests', name: 'report.xml', description: null, mime_type: 'text/xml', size_bytes: 9, download_url: 'https://x/2', created_at: 20 },
+            { artifact_id: 'a1', run_id: 'r1', phase: 'architect', name: 'design.md', description: 'HMAC design', mime_type: 'text/markdown', size_bytes: 6100, download_url: 'https://x/1', created_at: 10 },
+        ]);
+        const dto = await service.get({ run_id: 'r1' }, 'tok');
+        expect(control.run_artifacts).toHaveBeenCalledWith('r1', 'tok');
+        expect(dto.artifacts).toEqual([
+            { artifact_id: 'a1', phase: 'architect', name: 'design.md', description: 'HMAC design', mime_type: 'text/markdown', size_bytes: 6100, download_url: 'https://x/1', created_at: 10 },
+            { artifact_id: 'a2', phase: 'tests', name: 'report.xml', description: null, mime_type: 'text/xml', size_bytes: 9, download_url: 'https://x/2', created_at: 20 },
+        ]);
+        control.run_artifacts.mockRejectedValue(new ApiError('upstream', 'r2 down', 502));
+        const down = await service.get({ run_id: 'r1' }, 'tok');
+        expect(down.artifacts).toEqual([]);
+        expect(down.sections.artifacts).toEqual({ status: 'error', error: 'r2 down' });
+        expect(down.partial).toBe(true);
     });
 
     it('a run without a realm skips realm reads and is not partial', async () => {

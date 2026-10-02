@@ -3,7 +3,8 @@
  *
  * Composes Core: `/v1/runs/get_by_id` (required) → `/v1/runs/get_status` (phases)
  * + `/v1/runs/get { realm_id, query: run_id }` (team / workspace labels)
- * + `/v1/realms/get_by_id { realm_id }` + `/v1/reviews/get` (pending, filtered to the run).
+ * + `/v1/realms/get_by_id { realm_id }` + `/v1/reviews/get` (pending, filtered to the run)
+ * + `/v1/artifacts/get { run_id }` (files the phases produced).
  */
 
 import type { ControlRepository } from '../repositories/control_repository.js';
@@ -45,16 +46,17 @@ export class RunDetailService {
         // status, but it may be created without being passed there.
         skip.catch(() => undefined);
 
-        const [phases, labels, realm, reviews] = await Promise.allSettled([
+        const [phases, labels, realm, reviews, artifacts] = await Promise.allSettled([
             this._control.run_phases(run_id, token),
             realm_id ? this._control.runs({ realm_id, query: run_id, limit: 5 }, token) : skip,
             realm_id ? this._control.realm_by_id(realm_id, token) : skip,
             realm_id ? this._control.pending_reviews(realm_id, token, 100) : skip,
+            this._control.run_artifacts(run_id, token),
         ]);
 
         // `skip` is a run without a realm, not a failure — don't warn about it.
-        if (realm_id) warn_rejected(log, 'run_detail_section_failed', { phases, labels, realm, reviews }, { run_id, realm_id });
-        else warn_rejected(log, 'run_detail_section_failed', { phases }, { run_id });
+        if (realm_id) warn_rejected(log, 'run_detail_section_failed', { phases, labels, realm, reviews, artifacts }, { run_id, realm_id });
+        else warn_rejected(log, 'run_detail_section_failed', { phases, artifacts }, { run_id });
 
         const match: ControlRunVO | undefined = labels.status === 'fulfilled'
             ? labels.value.items.find((r) => r.run_id === run_id)
@@ -65,6 +67,7 @@ export class RunDetailService {
             labels: to_section_data(labels),
             realm: to_section_data(realm),
             reviews: to_section_data(reviews),
+            artifacts: to_section_data(artifacts),
         };
 
         return {
@@ -78,9 +81,15 @@ export class RunDetailService {
             reviews: reviews.status === 'fulfilled'
                 ? reviews.value.items.filter((r) => r.run_id === run_id).map(to_run_detail_review_data)
                 : [],
+            artifacts: artifacts.status === 'fulfilled'
+                ? artifacts.value.map((a) => ({
+                    artifact_id: a.artifact_id, phase: a.phase, name: a.name, description: a.description ?? null,
+                    mime_type: a.mime_type, size_bytes: a.size_bytes, download_url: a.download_url ?? null, created_at: a.created_at ?? null,
+                })).sort((a, b) => (a.created_at ?? 0) - (b.created_at ?? 0))
+                : [],
             sections,
             // A run without a realm has nothing more to load — that is not "partial".
-            partial: realm_id ? Object.values(sections).some((s) => s.status === 'error') : sections.phases.status === 'error',
+            partial: realm_id ? Object.values(sections).some((s) => s.status === 'error') : sections.phases.status === 'error' || sections.artifacts.status === 'error',
         };
     }
 }

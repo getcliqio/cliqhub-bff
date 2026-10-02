@@ -23,6 +23,19 @@ import type { InAppNotificationPageVO, InAppNotificationVO, NotifChannelVO, Noti
 export type ControlRunState = 'running' | 'awaiting_input' | 'completed' | 'failed' | 'cancelled' | 'crashed';
 
 /** `runs/get` filter for one realm (sorted newest-updated first unless `sort_by`, default 25). */
+/** One run artifact (`artifacts/get`). */
+export interface ControlArtifactVO {
+    artifact_id: string;
+    run_id: string;
+    phase: string;
+    name: string;
+    description: string | null;
+    mime_type: string;
+    size_bytes: number;
+    download_url?: string | null;
+    created_at?: number | null;
+}
+
 /** One org of the caller's (`orgs/get mine`). */
 export interface ControlOrgVO { id: string; slug: string; display_name: string; role: string }
 
@@ -174,6 +187,12 @@ export class ControlRepository {
     async realm_daemons(realm_id: string, limit: number, token: string): Promise<ControlPageVO<ControlDaemonVO>> {
         const res = await this._core.post_body<{ data?: Partial<ControlPageVO<ControlDaemonVO>> }>('/v1/daemons/get', { realm_id, limit, offset: 0 }, token);
         return page(res.data);
+    }
+
+    /** `POST /v1/artifacts/get { run_id }` — files a run's phases produced. */
+    async run_artifacts(run_id: string, token: string): Promise<ControlArtifactVO[]> {
+        const res = await this._core.post_body<{ data?: ControlArtifactVO[] }>('/v1/artifacts/get', { run_id }, token);
+        return Array.isArray(res.data) ? res.data : [];
     }
 
     /** `POST /v1/orgs/get { mine: true }` — the orgs the caller belongs to, with their role. */
