@@ -89,8 +89,8 @@ describe('OrgsService', () => {
 
         it.each([['slug', 'acme'], ['display name', 'Acme Corp']])('search by %s → Core `query`', async (_w, term) => {
             mock_repo.get_all.mockResolvedValue(PAGE);
-            await service.get_all({ search: term, limit: 25, offset: 0, exclude_personal: true }, 'jwt');
-            expect(mock_repo.get_all).toHaveBeenCalledWith({ query: term, limit: 25, offset: 0, exclude_personal: true }, 'jwt');
+            await service.get_all({ search: term, limit: 25, offset: 0 }, 'jwt');
+            expect(mock_repo.get_all).toHaveBeenCalledWith({ query: term, limit: 25, offset: 0 }, 'jwt');
         });
 
         it('`query` wins over `search`; sort is held back while Core cannot sort orgs', async () => {

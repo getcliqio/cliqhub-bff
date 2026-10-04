@@ -70,8 +70,6 @@ export const OrgsGetAllInput = z.object({
     query: QueryField,
     limit: LimitField,
     offset: OffsetField,
-    exclude_personal: z.boolean().optional()
-        .describe('Leave out personal (single-user) orgs'),
     status: OrgStatusField.optional()
         .describe('Only orgs in this state'),
     include_deleted: z.boolean().optional()

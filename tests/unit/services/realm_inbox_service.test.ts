@@ -15,6 +15,7 @@ function repo() {
         runs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
         run_by_id: vi.fn(),
         run_phases: vi.fn().mockResolvedValue([]),
+        run_artifacts: vi.fn().mockResolvedValue([]),
     };
 }
 
@@ -127,7 +128,26 @@ describe('RunDetailService', () => {
         expect(dto.phases[1]).toMatchObject({ started_at: null, error: null, agent: null });
         expect(dto.realm).toEqual(realm);
         expect(dto.reviews).toEqual([{ id: 'rev-1', title: 'Approve plan', phase: 'gate', requested_at: 9, message: null }]);
+        expect(control.run_artifacts).toHaveBeenCalledWith('r1', 'tok');
+        expect(dto.artifacts).toEqual([]);
+        expect(dto.sections.artifacts.status).toBe('ok');
         expect(dto.partial).toBe(false);
+    });
+
+    it('lists the run\'s stored files without their expiring download links', async () => {
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'completed' });
+        control.run_artifacts.mockResolvedValue([{ artifact_id: 'a1', run_id: 'r1', phase: 'report', name: 'report.pdf', description: null, mime_type: 'application/pdf', size_bytes: 2048, download_url: 'https://r2/x?sig', created_at: 5 }]);
+        const dto = await service.get({ run_id: 'r1' }, 'tok');
+        expect(dto.artifacts).toEqual([{ artifact_id: 'a1', phase: 'report', name: 'report.pdf', description: null, mime_type: 'application/pdf', size_bytes: 2048, created_at: 5 }]);
+    });
+
+    it('artifacts failing keeps the page and flags partial, also for a run without a realm', async () => {
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: null, state: 'completed' });
+        control.run_artifacts.mockRejectedValue(new ApiError('upstream', 'storage down', 502));
+        const dto = await service.get({ run_id: 'r1' }, 'tok');
+        expect(dto.artifacts).toEqual([]);
+        expect(dto.sections.artifacts).toEqual({ status: 'error', error: 'storage down' });
+        expect(dto.partial).toBe(true);
     });
 
     it('a run without a realm skips realm reads and is not partial', async () => {

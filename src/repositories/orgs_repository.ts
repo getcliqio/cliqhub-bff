@@ -22,7 +22,6 @@ export interface OrgsGetAllFilter {
     query?: string;
     limit?: number;
     offset?: number;
-    exclude_personal?: boolean;
     status?: string;
     include_deleted?: boolean;
     sort_by?: string;

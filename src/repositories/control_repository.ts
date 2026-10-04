@@ -15,8 +15,7 @@ import type { CoreClient } from './core_client.js';
 import type { SortDir } from '../lib/core_list.js';
 import type {
     ControlDaemonVO, ControlPageVO, ControlRealmListItemVO, ControlRealmMemberVO, ControlRealmVO,
-    ControlReviewVO, ControlRunPhaseVO, ControlRunVO,
-} from '../types/core/control.js';
+    ControlReviewVO, ControlRunPhaseVO, ControlRunVO, ControlArtifactVO } from '../types/core/control.js';
 import type { InAppNotificationPageVO, InAppNotificationVO, NotifChannelVO, NotifRuleVO } from '../types/core/notifications.js';
 
 /** Core run states (`runs/get` `state` filter). */
@@ -188,6 +187,12 @@ export class ControlRepository {
     async run_by_id(run_id: string, token: string): Promise<ControlRunVO | null> {
         const res = await this._core.post_body<{ data: ControlRunVO | null }>('/v1/runs/get_by_id', { run_id }, token);
         return res.data ?? null;
+    }
+
+    /** `POST /v1/artifacts/get { run_id }` — the files the run stored (no download links kept: they expire). */
+    async run_artifacts(run_id: string, token: string): Promise<ControlArtifactVO[]> {
+        const res = await this._core.post_body<{ data: ControlArtifactVO[] }>('/v1/artifacts/get', { run_id }, token);
+        return Array.isArray(res.data) ? res.data : [];
     }
 
     /** `POST /v1/runs/get_status { run_id }` — a run's phases. */

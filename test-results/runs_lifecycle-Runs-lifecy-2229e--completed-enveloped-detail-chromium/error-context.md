@@ -12,7 +12,7 @@
 # Error details
 
 ```
-error: insert or update on table "teams" violates foreign key constraint "teams_daemon_id_fkey"
+error: column "scope_id" of relation "teams" does not exist
 ```
 
 # Test source
@@ -119,7 +119,7 @@ error: insert or update on table "teams" violates foreign key constraint "teams_
   146 |         expect(scope.rows[0]?.id, 'cliq scope missing in e2e DB').toBeTruthy();
   147 |         const scope_id = String(scope.rows[0].id);
 > 148 |         await pool.query(
-      |         ^ error: insert or update on table "teams" violates foreign key constraint "teams_daemon_id_fkey"
+      |         ^ error: column "scope_id" of relation "teams" does not exist
   149 |             `INSERT INTO cliq.teams
   150 |                 (id, daemon_id, scope_id, slug, version, description, manifest, created_at, updated_at)
   151 |              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,

@@ -1,7 +1,7 @@
 /** Run detail — Core run phases and reviews → run detail rows. */
 
-import type { ControlRunPhaseVO, ControlReviewVO } from '../types/core/control.js';
-import type { RunDetailPhaseData, RunDetailReviewData } from '../schemas/run_detail_types.js';
+import type { ControlArtifactVO, ControlRunPhaseVO, ControlReviewVO } from '../types/core/control.js';
+import type { RunDetailArtifactData, RunDetailPhaseData, RunDetailReviewData } from '../schemas/run_detail_types.js';
 import { num_or_null } from './realm_inbox_mapper.js';
 
 /** Run phase row (status, timing, error, agent). */
@@ -25,5 +25,18 @@ export function to_run_detail_review_data(r: ControlReviewVO): RunDetailReviewDa
         phase: r.phase ?? null,
         requested_at: num_or_null(r.requested_at),
         message: r.message ?? null,
+    };
+}
+
+/** `artifacts/get` row → run page artifact (the expiring download link is dropped). */
+export function to_run_detail_artifact_data(a: ControlArtifactVO): RunDetailArtifactData {
+    return {
+        artifact_id: String(a.artifact_id),
+        phase: a.phase ?? '',
+        name: a.name ?? '',
+        description: a.description ?? null,
+        mime_type: a.mime_type ?? 'application/octet-stream',
+        size_bytes: Number(a.size_bytes) || 0,
+        created_at: typeof a.created_at === 'number' ? a.created_at : null,
     };
 }

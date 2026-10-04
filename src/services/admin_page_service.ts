@@ -160,9 +160,9 @@ export class AdminPageService {
         };
     }
 
-    /** Org picker options (non-personal orgs); undefined when the read fails, so the picker is hidden. */
+    /** Org picker options (every live org); undefined when the read fails, so the picker is hidden. */
     private async _org_options(token: string): Promise<AdminListData['org_options']> {
-        const res = await best_effort(log, 'admin_org_options_failed', this._reads.read('orgs.get', { limit: 100, exclude_personal: true }, token), null);
+        const res = await best_effort(log, 'admin_org_options_failed', this._reads.read('orgs.get', { limit: 100 }, token), null);
         return res ? paged<Record<string, unknown>>(res, 'orgs').items.map((o) => ({ id: String(o.id), slug: String(o.slug ?? ''), display_name: String(o.display_name ?? o.slug ?? '') })) : undefined;
     }
 

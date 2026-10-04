@@ -43,8 +43,19 @@ export interface RunDetailReviewData {
     message: string | null;
 }
 
+/** A file the run stored; downloads go through `artifacts/get_by_id` (fresh link). */
+export interface RunDetailArtifactData {
+    artifact_id: string;
+    phase: string;
+    name: string;
+    description: string | null;
+    mime_type: string;
+    size_bytes: number;
+    created_at: number | null;
+}
+
 /** Sections of the run page that load (and can fail) independently. */
-export type RunDetailSectionKey = 'phases' | 'labels' | 'realm' | 'reviews';
+export type RunDetailSectionKey = 'phases' | 'labels' | 'realm' | 'reviews' | 'artifacts';
 
 /** `run_detail/get` — the run, its phases, realm and pending reviews, with per-section status. */
 export interface RunDetailData {
@@ -54,6 +65,8 @@ export interface RunDetailData {
     realm: ControlRealmData | null;
     /** Pending human reviews attached to this run. */
     reviews: RunDetailReviewData[];
+    /** Files the run stored (empty when none). */
+    artifacts: RunDetailArtifactData[];
     sections: Record<RunDetailSectionKey, InboxSectionStatusData>;
     partial: boolean;
 }

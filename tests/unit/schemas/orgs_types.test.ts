@@ -31,8 +31,8 @@ describe('OrgsGetAllInput', () => {
         expect(OrgsGetAllInput.safeParse({}).success).toBe(true);
     });
 
-    it('accepts search with paging and exclude_personal', () => {
-        expect(OrgsGetAllInput.safeParse({ search: 'acme', limit: 20, offset: 0, exclude_personal: true }).success).toBe(true);
+    it('accepts search with paging', () => {
+        expect(OrgsGetAllInput.safeParse({ search: 'acme', limit: 20, offset: 0 }).success).toBe(true);
     });
 
     it('rejects limit over 100', () => {

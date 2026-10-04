@@ -46,6 +46,7 @@ describe('BFF realm composition routes', () => {
             }
             if (path === '/v1/runs/get_by_id') return { ok: true, data: body.run_id === 'r1' ? { run_id: 'r1', realm_id: 'realm-1', state: 'awaiting_input' } : null } as any;
             if (path === '/v1/runs/get_status') return { ok: true, data: [{ phase: 'plan', status: 'completed' }] } as any;
+            if (path === '/v1/artifacts/get') return { ok: true, data: [{ artifact_id: 'a1', run_id: 'r1', phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, download_url: 'https://r2/x', created_at: 4 }] } as any;
             throw new Error(`unexpected ${path}`);
         });
     }
@@ -102,7 +103,7 @@ describe('BFF realm composition routes', () => {
         expect(res.body).toMatchObject({ ok: false, error: { code: 'forbidden' } });
     });
 
-    it('run detail composes run + phases + labels + realm + reviews', async () => {
+    it('run detail composes run + phases + labels + realm + reviews + artifacts', async () => {
         const sid = make_session();
         mock_core();
         const res = await request(app).post('/v1/run_detail/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ run_id: 'r1' });
@@ -111,6 +112,8 @@ describe('BFF realm composition routes', () => {
         expect(res.body.data.phases).toHaveLength(1);
         expect(res.body.data.realm.slug).toBe('prod');
         expect(res.body.data.reviews.map((r: any) => r.id)).toEqual(['rev-1']);
+        expect(res.body.data.artifacts).toEqual([{ artifact_id: 'a1', phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, created_at: 4 }]);
+        expect(res.body.data.sections.artifacts.status).toBe('ok');
     });
 
     it('run detail 404s for an unknown run', async () => {

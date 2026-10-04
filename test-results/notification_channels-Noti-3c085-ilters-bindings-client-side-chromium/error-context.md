@@ -26,16 +26,88 @@ Call log:
 ```
 
 ```yaml
-- heading "Unexpected Application Error!" [level=2]
-- heading "dests.map is not a function" [level=3]
-- text: "TypeError: dests.map is not a function at destinations_summary (http://localhost:3010/src/pages/account/notification_settings_page.tsx:70:15) at http://localhost:3010/src/pages/account/notification_settings_page.tsx:1375:25 at Array.map (<anonymous>) at Channels_tab (http://localhost:3010/src/pages/account/notification_settings_page.tsx:1373:25) at Object.react_stack_bottom_frame (http://localhost:3010/node_modules/.vite/deps/react-dom_client.js?v=a51e6d2f:12866:12) at renderWithHooks (http://localhost:3010/node_modules/.vite/deps/react-dom_client.js?v=a51e6d2f:4213:19) at updateFunctionComponent (http://localhost:3010/node_modules/.vite/deps/react-dom_client.js?v=a51e6d2f:5569:16) at beginWork (http://localhost:3010/node_modules/.vite/deps/react-dom_client.js?v=a51e6d2f:6140:20) at runWithFiberInDEV (http://localhost:3010/node_modules/.vite/deps/react-dom_client.js?v=a51e6d2f:851:66) at performUnitOfWork (http://localhost:3010/node_modules/.vite/deps/react-dom_client.js?v=a51e6d2f:8429:92)"
-- paragraph: 💿 Hey developer 👋
-- paragraph:
-  - text: You can provide a way better UX than this when your app throws errors by providing your own
-  - code: ErrorBoundary
-  - text: or
-  - code: errorElement
-  - text: prop on your route.
+- complementary "Primary":
+  - link "CliqHub CliqHub":
+    - /url: /home
+    - img "CliqHub"
+    - text: CliqHub
+  - 'button "Switch view (current: Cliq)"': Viewing org · admin Cliq
+  - link "Back to all my work":
+    - /url: /home
+  - navigation "Main":
+    - text: Work
+    - link "Overview":
+      - /url: /home?org=cliq
+    - link "Inbox":
+      - /url: /inbox?org=cliq
+    - text: Build
+    - link "Teams":
+      - /url: /teams?org=cliq
+    - link "Marketplace":
+      - /url: /browse
+    - text: Manage
+    - link "Notifications":
+      - /url: /notifications?org=cliq
+    - link "Agents":
+      - /url: /agents?org=cliq
+    - link "Organization":
+      - /url: /orgs/0847bf6a-9a2c-4c3e-be62-4ccc3a9210e4
+  - text: Realms 3
+  - link "No daemons e2e-filt-muqwbfp4":
+    - /url: /o/cliq/realms/e2e-filt-muqwbfp4/inbox
+    - img "No daemons"
+    - text: e2e-filt-muqwbfp4
+  - link "No daemons e2e-slack-muqwaz3n":
+    - /url: /o/cliq/realms/e2e-slack-muqwaz3n/inbox
+    - img "No daemons"
+    - text: e2e-slack-muqwaz3n
+  - link "No daemons default":
+    - /url: /o/cliq/realms/default/inbox
+    - img "No daemons"
+    - text: default
+  - link "Getting started 1 of 4 done":
+    - /url: /getting-started
+    - text: Getting started 1 / 4
+  - link "Docs":
+    - /url: https://docs.getcliq.io
+  - button "Admin SITE"
+  - button "AD admin @admin · site admin"
+- banner:
+  - navigation "Breadcrumb":
+    - link "All my work":
+      - /url: /home
+    - link "Cliq":
+      - /url: /home?org=cliq
+    - text: Notifications
+  - button "Notifications"
+  - button "Refresh"
+- main:
+  - heading "Notifications" [level=1]
+  - paragraph: Who gets told what — every org, realm and team you can see, in one place. Each rule says when, where it applies and where it goes.
+  - tablist "Notifications":
+    - tab "Rules" [selected]
+    - tab "Channels"
+    - tab "Check a realm"
+    - tab "Custom events"
+  - text: Org-wide rules, plus realm and team rules for
+  - textbox "Search realms":
+    - /placeholder: Search realms…
+  - text: Realms 1–3 of 3
+  - button "Previous realms" [disabled]: ‹
+  - button "Next realms" [disabled]: ›
+  - text: default e2e-filt-muqwbfp4 e2e-slack-muqwaz3n
+  - textbox "Search rules":
+    - /placeholder: Search event or channel…
+  - group "Applies to":
+    - button "All levels" [pressed]
+    - button "Org-wide"
+    - button "Realm"
+    - button "Team in realm"
+  - button "Only ones I can edit"
+  - text: "Most specific wins: team › realm › org"
+  - button "New rule"
+  - paragraph: No rules here yet
+  - paragraph: Rules say when to notify, where it applies and where to send it.
 ```
 
 # Test source

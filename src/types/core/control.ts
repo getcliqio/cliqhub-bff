@@ -94,3 +94,16 @@ export interface ControlRealmMemberVO {
     role: string;
     created_at?: number | string;
 }
+
+/** `artifacts/get` row — a file a run stored (Core ArtifactData). */
+export interface ControlArtifactVO {
+    artifact_id: string;
+    run_id: string;
+    phase: string;
+    name: string;
+    description: string | null;
+    mime_type: string;
+    size_bytes: number;
+    download_url?: string;
+    created_at: number;
+}

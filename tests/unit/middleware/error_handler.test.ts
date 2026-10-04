@@ -36,11 +36,11 @@ describe('error_handler', () => {
     });
 
     it('includes details when the error has them (e.g. who holds a name)', () => {
-        const err = new ApiError('conflict', 'measureone is already an org', 409, { kind: 'org', slug: 'measureone', personal: false });
+        const err = new ApiError('conflict', 'The name measureone is already taken.', 409, { kind: 'org', slug: 'measureone', personal: false });
         const res = make_res();
         error_handler(err, req, res, next);
         expect(res.status_code).toBe(409);
-        expect(res.body).toEqual({ ok: false, error: { code: 'conflict', message: 'measureone is already an org', details: { kind: 'org', slug: 'measureone', personal: false } } });
+        expect(res.body).toEqual({ ok: false, error: { code: 'conflict', message: 'The name measureone is already taken.', details: { kind: 'org', slug: 'measureone', personal: false } } });
     });
 
     it('returns 500 for generic errors', () => {

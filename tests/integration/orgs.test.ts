@@ -99,11 +99,11 @@ describe('Orgs integration', () => {
             const post = vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce(PAGE);
 
             const res = await request(app).post('/v1/orgs/get').set(CSRF).set('Cookie', `test_sid=${sid}`)
-                .send({ limit: 25, offset: 0, exclude_personal: true, search: term });
+                .send({ limit: 25, offset: 0, search: term });
 
             expect(res.status).toBe(200);
             expect(post).toHaveBeenCalledTimes(1);
-            expect(post).toHaveBeenCalledWith('/v1/orgs/get', { query: term, limit: 25, offset: 0, exclude_personal: true }, 'jwt-admin');
+            expect(post).toHaveBeenCalledWith('/v1/orgs/get', { query: term, limit: 25, offset: 0 }, 'jwt-admin');
         });
 
         it('accepts Core\'s own `query`, drops a blank search, never forwards unknown fields', async () => {
@@ -149,14 +149,14 @@ describe('Orgs integration', () => {
             });
             const details = { kind: 'scope', slug: 'measureone', scope_type: 'user', org_slug: null, owner_username: 'measureone' };
             vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
-                ok: false, error: 'measureone is already a scope (user, owned by user measureone)', code: 'conflict', details,
+                ok: false, error: 'The name measureone is already taken.', code: 'conflict', details,
             }), { status: 409, headers: { 'content-type': 'application/json' } }));
 
             const res = await request(app).post('/v1/orgs/new').set(CSRF).set('Cookie', `test_sid=${sid}`)
                 .send({ slug: 'measureone', owner: { email: 'sapan@example.test' } });
 
             expect(res.status).toBe(409);
-            expect(res.body).toEqual({ ok: false, error: { code: 'conflict', message: 'measureone is already a scope (user, owned by user measureone)', details } });
+            expect(res.body).toEqual({ ok: false, error: { code: 'conflict', message: 'The name measureone is already taken.', details } });
         });
     });
 

@@ -19,9 +19,9 @@ describe('upstream_error', () => {
     });
     it('passes Core conflict details through (both envelopes)', () => {
         const details = { kind: 'scope', slug: 'measureone', scope_type: 'user', owner_username: 'measureone' };
-        const flat = upstream_error(409, { ok: false, error: 'measureone is already a scope (user, owned by user measureone)', code: 'conflict', details }, 'POST', '/internal/orgs/new');
-        expect(flat).toMatchObject({ code: 'conflict', status: 409, message: 'measureone is already a scope (user, owned by user measureone)', details });
-        const nested = upstream_error(409, { ok: false, error: { code: 'conflict', message: 'measureone is already an org', details: { kind: 'org', slug: 'measureone' } } }, 'POST', '/x');
+        const flat = upstream_error(409, { ok: false, error: 'The name measureone is already taken.', code: 'conflict', details }, 'POST', '/internal/orgs/new');
+        expect(flat).toMatchObject({ code: 'conflict', status: 409, message: 'The name measureone is already taken.', details });
+        const nested = upstream_error(409, { ok: false, error: { code: 'conflict', message: 'The name measureone is already taken.', details: { kind: 'org', slug: 'measureone' } } }, 'POST', '/x');
         expect(nested.details).toEqual({ kind: 'org', slug: 'measureone' });
         expect(upstream_error(409, { ok: false, error: 'x', details: ['not', 'an object'] }, 'POST', '/x').details).toBeUndefined();
     });

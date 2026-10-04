@@ -50,7 +50,6 @@ export class OrgsService {
             ...core_query(input.query, input.search),
             ...(input.limit != null ? { limit: input.limit } : {}),
             ...(input.offset != null ? { offset: input.offset } : {}),
-            ...(input.exclude_personal != null ? { exclude_personal: input.exclude_personal } : {}),
             ...(input.status ? { status: input.status } : {}),
             ...(input.include_deleted != null ? { include_deleted: input.include_deleted } : {}),
             ...core_sort('orgs.get', input, {}, api),
