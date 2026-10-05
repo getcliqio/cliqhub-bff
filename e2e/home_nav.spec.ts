@@ -10,7 +10,7 @@ test.describe('Home & navigation — positive', () => {
 
     test('browse teams is public', async ({ page }) => {
         await page.goto('/browse');
-        await expect(page.getByRole('heading', { name: /find the perfect team/i })).toBeVisible();
+        await expect(page.getByRole('heading', { name: 'Marketplace', level: 1 })).toBeVisible({ timeout: 10_000 });
     });
 
     test('authenticated member sees slim sidebar links', async ({ page }) => {

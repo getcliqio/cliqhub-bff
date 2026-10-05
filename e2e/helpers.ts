@@ -115,8 +115,9 @@ export async function expect_api_denied(res: APIResponse): Promise<void> {
 
 /** Assert protected page redirects unauthenticated users to login. */
 export async function expect_login_redirect(page: Page, path: string): Promise<void> {
-    await page.goto(path);
-    await page.waitForURL((url) => url.pathname.includes('/login'), { timeout: 10_000 });
+    await page.goto(path, { waitUntil: 'commit' });
+    // The SPA redirects mid-load; waiting for `load` races the aborted first document.
+    await page.waitForURL((url) => url.pathname.includes('/login'), { timeout: 10_000, waitUntil: 'commit' });
     expect(page.url()).toContain('/login');
 }
 
