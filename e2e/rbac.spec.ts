@@ -1,13 +1,24 @@
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import {
     api_login,
     api_post,
     expect_admin_blocked,
     expect_api_denied,
+    expect_api_ok,
     expect_login_redirect,
+    unique_slug,
     TEST_ADMIN,
     TEST_USER,
 } from './helpers';
+
+const MEMBER_SURFACES: Array<{ path: string; lands_on: RegExp }> = [
+    { path: '/settings', lands_on: /\/settings/ },
+    { path: '/tokens', lands_on: /\/settings\?tab=tokens/ },
+    { path: '/teams', lands_on: /\/teams/ },
+    { path: '/scopes', lands_on: /\/settings\?tab=scopes/ },
+    { path: '/realms', lands_on: /\/realms/ },
+];
 
 test.describe('RBAC — positive', () => {
     test('admin can open every admin section', async ({ page }) => {
@@ -16,22 +27,33 @@ test.describe('RBAC — positive', () => {
             await page.goto(path);
             await expect(page).toHaveURL(new RegExp(path.replace(/\//g, '\\/')));
             await expect(page.getByText(/site admin/i).first()).toBeVisible({ timeout: 10_000 });
+            await expect(page.locator('h1').first()).toBeVisible({ timeout: 10_000 });
         }
     });
 
     test('member can access account surfaces', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
-        for (const path of ['/settings', '/tokens', '/teams', '/scopes', '/realms']) {
+        for (const { path, lands_on } of MEMBER_SURFACES) {
             await page.goto(path);
-            await expect(page).toHaveURL(new RegExp(path.replace(/\//g, '\\/')));
+            await expect(page).toHaveURL(lands_on);
             await expect(page.locator('h1').first()).toBeVisible({ timeout: 10_000 });
         }
-        await page.goto('/daemons');
-        await page.waitForURL(/\/realms\/[^/]+\/daemons/, { timeout: 10_000 });
-        await expect(page.getByRole('heading', { name: 'Daemons' })).toBeVisible({ timeout: 10_000 });
         await page.goto('/organizations');
-        await page.waitForURL(/\/realms/, { timeout: 10_000 });
-        await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible({ timeout: 10_000 });
+        await page.waitForURL(/\/orgs?(\/|\?|$)/, { timeout: 10_000 });
+        await expect(page.locator('h1').first()).toBeVisible({ timeout: 10_000 });
+    });
+
+    test('new account: /daemons opens its default realm daemons', async ({ page }) => {
+        const username = unique_slug('rbacd');
+        await expect_api_ok(await api_post(page, '/v1/auth/signup', {
+            username,
+            email: `${username}@example.com`,
+            password: 'Longpass1!',
+        }));
+        await api_login(page, username, 'Longpass1!');
+        await page.goto('/daemons');
+        await page.waitForURL(/\/o\/[^/]+\/realms\/[^/]+\/daemons/, { timeout: 10_000 });
+        await expect(page.getByRole('navigation', { name: 'Breadcrumb' }).getByText('Daemons', { exact: true })).toBeVisible({ timeout: 10_000 });
     });
 });
 
@@ -52,8 +74,9 @@ test.describe('RBAC — negative', () => {
 
     test('member cannot mint privileged hub ops via BFF', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
-        await expect_api_denied(await api_post(page, '/v1/users/suspend', { user_id: 1 }));
-        await expect_api_denied(await api_post(page, '/v1/scopes/delete', { scope_id: 1 }));
+        await expect_api_denied(await api_post(page, '/v1/users/suspend', { user_id: randomUUID() }));
+        await expect_api_denied(await api_post(page, '/v1/users/set_role', { user_id: randomUUID(), role: 'admin' }));
+        await expect_api_denied(await api_post(page, '/v1/orgs/delete', { org_id: randomUUID() }));
         await expect_api_denied(await api_post(page, '/v1/reports/audit', {}));
     });
 

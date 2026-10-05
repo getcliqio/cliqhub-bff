@@ -2,6 +2,7 @@
  * E2E (API via SPA origin): resource-path admin + grant denial.
  * Complements UI specs with hard HTTP assertions.
  */
+import { randomUUID } from 'node:crypto';
 import { test, expect } from '@playwright/test';
 import {
     api_login,
@@ -34,10 +35,9 @@ test.describe('Grants & resource paths — positive', () => {
         const body = await expect_api_ok(await api_post(page, '/v1/users/new', {
             username,
             email: `${username}@example.com`,
-            password: 'Longpass1!',
             display_name: username,
         }));
-        expect((body.data as { username?: string })?.username).toBe(username);
+        expect((body.data as { user?: { username?: string } })?.user?.username).toBe(username);
 
         const list = await expect_api_ok(await api_post(page, '/v1/users/get', {
             search: username,
@@ -84,7 +84,6 @@ test.describe('Grants & resource paths — negative', () => {
         await expect_api_denied(await api_post(page, '/v1/users/new', {
             username: unique_slug('nope'),
             email: `nope-${Date.now()}@example.com`,
-            password: 'Longpass1!',
         }));
     });
 
@@ -96,16 +95,16 @@ test.describe('Grants & resource paths — negative', () => {
     test('unauthenticated privileged routes denied', async ({ page }) => {
         await expect_api_denied(await api_post(page, '/v1/reports/audit', {}));
         await expect_api_denied(await api_post(page, '/v1/users/get', {}));
-        await expect_api_denied(await api_post(page, '/v1/scopes/new', {
+        await expect_api_denied(await api_post(page, '/v1/admin_list/get', { kind: 'accounts' }));
+        await expect_api_denied(await api_post(page, '/v1/orgs/new_scope', {
+            org_id: randomUUID(),
             slug: unique_slug('x'),
-            owner_username: 'admin',
             visibility: 'public',
-            scope_type: 'user',
         }));
     });
 
     test('member cannot delete org', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
-        await expect_api_denied(await api_post(page, '/v1/orgs/delete', { org_id: 1 }));
+        await expect_api_denied(await api_post(page, '/v1/orgs/delete', { org_id: randomUUID() }));
     });
 });

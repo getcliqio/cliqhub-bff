@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { api_login, api_post, expect_api_ok, TEST_ADMIN, TEST_USER } from './helpers';
 
 const MINIMAL_TEAM = {
@@ -11,7 +11,9 @@ const MINIMAL_TEAM = {
     }],
 };
 
-async function open_builder_canvas(page: import('@playwright/test').Page): Promise<void> {
+const PALETTE_TILES = ['agent', 'gate', 'human', 'connector', 'script', 'fetch', 'team'];
+
+async function open_builder_canvas(page: Page): Promise<void> {
     const me = await expect_api_ok(await api_post(page, '/v1/session/get', {}));
     const me_data = (me.data ?? me) as {
         user?: { username?: string };
@@ -34,49 +36,46 @@ async function open_builder_canvas(page: import('@playwright/test').Page): Promi
     const draft_id = draft.id ?? draft.team_id;
     expect(draft_id, `draft id missing: ${JSON.stringify(body)}`).toBeTruthy();
     await page.goto(`/builder?draft=${draft_id}`);
-    // Compact inspector uses title="Add phase" with accessible name "+".
-    await expect(page.getByTitle('Add phase')).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId('build-panel')).toBeVisible({ timeout: 15_000 });
+}
+
+async function expect_builder_start(page: Page): Promise<void> {
+    await page.goto('/builder');
+    await expect(page.getByRole('heading', { name: 'What should your team do?', level: 1 })).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByLabel('Describe your team')).toBeVisible();
+    await expect(page.getByRole('button', { name: /generate team/i })).toBeDisabled();
+    await expect(page.getByRole('button', { name: /blank canvas/i })).toBeVisible();
 }
 
 test.describe('Builder — positive', () => {
-    test('builder spark view loads for admin', async ({ page }) => {
+    test('builder start view loads for admin', async ({ page }) => {
         await api_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
-        await page.goto('/builder');
-        await expect(page.getByRole('heading', { name: /build a team/i })).toBeVisible({ timeout: 10_000 });
-        await expect(
-            page.getByText(/what team do you want to build/i)
-                .or(page.getByRole('button', { name: /build my team/i }))
-                .or(page.getByPlaceholder(/development team/i))
-                .first(),
-        ).toBeVisible({ timeout: 10_000 });
+        await expect_builder_start(page);
     });
 
     test('builder loads for member', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
-        await page.goto('/builder');
-        await expect(page.getByRole('heading', { name: /build a team/i })).toBeVisible({ timeout: 10_000 });
-        await expect(
-            page.getByText(/what team do you want to build/i)
-                .or(page.getByRole('button', { name: /build my team/i }))
-                .or(page.getByPlaceholder(/development team/i))
-                .first(),
-        ).toBeVisible({ timeout: 10_000 });
+        await expect_builder_start(page);
     });
 });
 
 test.describe('Builder — negative / constraints', () => {
-    test('add phase options exclude legacy hug/exec types when canvas open', async ({ page }) => {
+    test('add-phase palette excludes legacy hug/exec/pull/push types when canvas open', async ({ page }) => {
         await api_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
         await open_builder_canvas(page);
 
-        await page.getByTitle('Add phase').click();
-        const joined = (await page.getByRole('button').allTextContents()).join(' ').toLowerCase();
-        expect(joined).toContain('standard');
-        expect(joined).toContain('gate');
-        expect(joined).toContain('team');
-        expect(joined).not.toMatch(/\bhug\b/);
-        expect(joined).not.toMatch(/\bexec\b/);
-        expect(joined).not.toMatch(/\bpull\b/);
-        expect(joined).not.toMatch(/\bpush\b/);
+        const panel = page.getByTestId('build-panel');
+        await expect(panel.getByText('Add a phase')).toBeVisible();
+        for (const kind of PALETTE_TILES) {
+            await expect(panel.getByTestId(`tile-${kind}`)).toBeVisible();
+        }
+        for (const legacy of ['hug', 'exec', 'pull', 'push', 'standard']) {
+            await expect(panel.getByTestId(`tile-${legacy}`)).toHaveCount(0);
+        }
+        const tiles = (await panel.locator('[data-testid^="tile-"]').allTextContents()).join(' ').toLowerCase();
+        expect(tiles).not.toMatch(/\bhug\b/);
+        expect(tiles).not.toMatch(/\bexec\b/);
+        expect(tiles).not.toMatch(/\bpull\b/);
+        expect(tiles).not.toMatch(/\bpush\b/);
     });
 });

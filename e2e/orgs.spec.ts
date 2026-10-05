@@ -1,7 +1,8 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
     api_login,
     api_post,
+    api_session_get,
     expect_api_ok,
     expect_login_redirect,
     unique_slug,
@@ -9,90 +10,101 @@ import {
     TEST_USER,
 } from './helpers';
 
-async function ensure_admin_org(page: import('@playwright/test').Page): Promise<number> {
-    const listed = await expect_api_ok(await api_post(page, '/v1/orgs/get', { mine: true }));
-    const data = (listed.data ?? listed) as { orgs?: Array<{ id: number; slug?: string }> };
-    const orgs = data.orgs ?? [];
-    if (orgs.length > 0) return orgs[0].id;
+async function session_user_id(page: Page): Promise<string> {
+    const me = await expect_api_ok(await api_session_get(page));
+    const user = ((me.data ?? me) as { user?: { id?: string } }).user;
+    expect(user?.id, `session user id missing: ${JSON.stringify(me)}`).toBeTruthy();
+    return String(user!.id);
+}
 
-    const slug = unique_slug('e2e-org');
+async function api_create_org(page: Page, prefix: string): Promise<string> {
+    const slug = unique_slug(prefix);
     const created = await expect_api_ok(await api_post(page, '/v1/orgs/new', {
         slug,
         display_name: `E2E Org ${slug}`,
-        admin_username: TEST_ADMIN.username,
+        owner: { user_id: await session_user_id(page) },
     }));
-    const org = ((created.org ?? created.data) as { id?: string | number });
-    expect(org?.id).toBeTruthy();
+    const org = ((created.data ?? created) as { org?: { id?: string } }).org;
+    expect(org?.id, `org id missing: ${JSON.stringify(created)}`).toBeTruthy();
     return String(org!.id);
 }
 
-async function open_first_org(page: import('@playwright/test').Page): Promise<void> {
+async function ensure_admin_org(page: Page): Promise<string> {
+    const listed = await expect_api_ok(await api_post(page, '/v1/orgs/get', { mine: true }));
+    const data = (listed.data ?? listed) as { orgs?: Array<{ id: string }> };
+    const orgs = data.orgs ?? [];
+    if (orgs.length > 0) return String(orgs[0].id);
+    return api_create_org(page, 'e2e-org');
+}
+
+async function open_first_org(page: Page): Promise<void> {
     const org_id = await ensure_admin_org(page);
     await page.goto(`/orgs/${org_id}`);
-    await page.waitForURL(/\/orgs\/[^/]+/);
+    await expect(page.getByRole('tablist', { name: 'Organization' })).toBeVisible({ timeout: 10_000 });
+}
+
+async function expect_org_surface(page: Page): Promise<void> {
+    await page.goto('/organizations');
+    await page.waitForURL(/\/orgs?(\/|\?|$)/, { timeout: 10_000 });
+    await expect(
+        page.getByRole('heading', { name: 'Choose an organization', level: 1 })
+            .or(page.getByRole('tablist', { name: 'Organization' }))
+            .first(),
+    ).toBeVisible({ timeout: 10_000 });
 }
 
 test.describe('Orgs UI — positive', () => {
-    test('member can open accounts page', async ({ page }) => {
+    test('member can open organization page', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
-        await page.goto('/organizations');
-        await page.waitForURL(/\/realms/, { timeout: 10_000 });
-        await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible({ timeout: 10_000 });
+        await expect_org_surface(page);
     });
 
-    test('admin can open accounts page', async ({ page }) => {
+    test('admin can open organization page', async ({ page }) => {
         await api_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
-        await page.goto('/organizations');
-        await page.waitForURL(/\/realms/, { timeout: 10_000 });
-        await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible({ timeout: 10_000 });
+        await expect_org_surface(page);
     });
 
     test('org detail tabs update the URL', async ({ page }) => {
         await api_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
         await open_first_org(page);
-        await expect(page.getByRole('button', { name: 'Overview' })).toBeVisible({ timeout: 10_000 });
-        await page.getByRole('button', { name: 'Members' }).click();
-        await expect(page).toHaveURL(/tab=members/);
-        await page.getByRole('button', { name: 'Scopes' }).click();
+        await expect(page.getByRole('tab', { name: 'Members' })).toHaveAttribute('aria-selected', 'true');
+        await page.getByRole('tab', { name: 'Roles' }).click();
+        await expect(page).toHaveURL(/tab=roles/);
+        await expect(page.getByTestId('roles-grid')).toBeVisible();
+        await page.getByRole('tab', { name: 'Scopes' }).click();
         await expect(page).toHaveURL(/tab=scopes/);
-        await page.getByRole('button', { name: 'Settings' }).click();
+        await page.getByRole('tab', { name: 'Settings' }).click();
         await expect(page).toHaveURL(/tab=settings/);
-        await expect(page.getByText(/org agent settings/i)).toBeVisible();
+        await expect(page.getByRole('textbox', { name: 'Organization name' })).toBeVisible();
+        await page.getByRole('tab', { name: 'Members' }).click();
+        await expect(page).not.toHaveURL(/tab=/);
+        await expect(page.getByLabel('Filter members')).toBeVisible();
     });
 
     // Role CRUD + member assignment use /v1/orgs/*_role and /v1/users/update_role;
     // delete-with-members 409 is covered in unit/integration (org_role_service + BFF orgs).
     test('list_roles API returns roles for an org', async ({ page }) => {
         await api_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
-        const slug = unique_slug('e2e-roles');
-        const created = await expect_api_ok(await api_post(page, '/v1/orgs/new', {
-            slug,
-            display_name: `E2E Roles ${slug}`,
-            admin_username: TEST_ADMIN.username,
-        }));
-        const org = ((created.org ?? created.data) as { id?: number });
-        expect(org?.id).toBeTruthy();
-        const listed = await expect_api_ok(await api_post(page, '/v1/orgs/list_roles', { org_id: org!.id }));
+        const org_id = await api_create_org(page, 'e2e-roles');
+        const listed = await expect_api_ok(await api_post(page, '/v1/orgs/list_roles', { org_id }));
         const data = (listed.data ?? listed) as { roles?: unknown[] };
         expect(Array.isArray(data.roles)).toBe(true);
         expect((data.roles ?? []).length).toBeGreaterThan(0);
     });
 
-    test('members filter query is sent in users POST body', async ({ page }) => {
+    test('members filter narrows the list without touching the URL', async ({ page }) => {
         await api_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
         await open_first_org(page);
-        await page.getByRole('button', { name: 'Members' }).click();
         await expect(page.getByLabel('Filter members')).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByTestId(`member-${TEST_ADMIN.username}`)).toBeVisible({ timeout: 10_000 });
 
-        const filter_req = page.waitForRequest((req) =>
-            req.url().includes('/v1/users/get')
-            && req.method() === 'POST'
-            && (req.postDataJSON() as { query?: string })?.query === 'no-such-member-xyz',
-        );
         await page.getByLabel('Filter members').fill('no-such-member-xyz');
-        await page.getByRole('button', { name: /^apply$/i }).click();
-        await filter_req;
+        await expect(page.getByText('No members match.')).toBeVisible({ timeout: 5_000 });
+        await expect(page.getByTestId(`member-${TEST_ADMIN.username}`)).toHaveCount(0);
         await expect(page).not.toHaveURL(/[?&]q=/);
+
+        await page.getByLabel('Filter members').fill(TEST_ADMIN.username);
+        await expect(page.getByTestId(`member-${TEST_ADMIN.username}`)).toBeVisible();
     });
 });
 
@@ -101,15 +113,13 @@ test.describe('Orgs UI — negative', () => {
         await expect_login_redirect(page, '/organizations');
     });
 
-    test('member without org admin role has no add-member control', async ({ page }) => {
+    test('member without org admin role has no invite control', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
         const listed = await expect_api_ok(await api_post(page, '/v1/orgs/get', { mine: true }));
-        const data = (listed.data ?? listed) as { orgs?: Array<{ id: number; my_role?: string }> };
+        const data = (listed.data ?? listed) as { orgs?: Array<{ id: string; my_role?: string }> };
         const orgs = data.orgs ?? [];
         if (orgs.length === 0) {
-            await page.goto('/organizations');
-            await page.waitForURL(/\/realms/, { timeout: 10_000 });
-            await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible();
+            await expect_org_surface(page);
             return;
         }
         const is_admin_role = (role?: string) => {
@@ -122,15 +132,8 @@ test.describe('Orgs UI — negative', () => {
             return;
         }
         await page.goto(`/orgs/${non_admin.id}`);
-        await page.waitForURL(/\/orgs\/[0-9a-f-]{36}|\d+/i);
-        await page.getByRole('button', { name: 'Members' }).click();
-        // Detail page is source of truth if list role lagged.
-        const role_badge = page.locator('main').getByText(/^(admin|site_admin|owner|member)$/i).first();
-        const badge_text = ((await role_badge.textContent().catch(() => '')) ?? '').trim().toLowerCase();
-        if (is_admin_role(badge_text)) {
-            await expect(page.getByLabel('Filter members').or(page.getByText(/members/i)).first()).toBeVisible();
-            return;
-        }
+        await expect(page.getByRole('tablist', { name: 'Organization' })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText(/its owners and admins manage it/i)).toBeVisible();
         await expect(page.getByRole('button', { name: /^invite$/i })).toHaveCount(0);
     });
 });

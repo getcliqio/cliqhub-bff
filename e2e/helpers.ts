@@ -47,7 +47,7 @@ export async function ui_login(page: Page, username: string, password: string): 
     await page.goto('/login');
     await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
     await page.getByLabel('Username').fill(username);
-    await page.getByLabel('Password').fill(password);
+    await page.getByLabel('Password', { exact: true }).fill(password);
     await page.getByRole('button', { name: 'Sign in' }).click();
     await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15_000 });
 }
@@ -187,7 +187,7 @@ export async function api_create_realm(
 /** First realm from list API (for default-realm navigation). */
 export async function api_first_realm(page: Page): Promise<Realm_ref> {
     const body = await expect_api_ok(await api_post(page, '/v1/realms/get', {}));
-    const realms = (body.realms ?? []) as Array<Partial<Realm_ref>>;
+    const realms = ((body.data as { items?: unknown[] } | undefined)?.items ?? []) as Array<Partial<Realm_ref>>;
     expect(realms.length).toBeGreaterThan(0);
     const realm = realms[0];
     expect(realm.slug).toBeTruthy();
@@ -218,42 +218,4 @@ export async function wait_for_active_org(page: Page): Promise<void> {
         },
         { timeout: 15_000 },
     );
-}
-
-/** Open the create-realm wizard from /realms. */
-export async function open_create_realm(page: Page): Promise<void> {
-    await page.goto('/realms');
-    await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible({ timeout: 10_000 });
-    await wait_for_active_org(page);
-    await page.getByRole('button', { name: /^create realm$/i }).click();
-    await expect(page.getByRole('heading', { name: 'Create realm' })).toBeVisible({ timeout: 5_000 });
-    await expect(page).toHaveURL(/create=1/);
-    // Create is disabled until current_id is set.
-    await expect(page.getByRole('button', { name: /^create & continue$/i })).toBeEnabled({ timeout: 10_000 });
-}
-
-/**
- * Fill identity step and create the realm, then skip optional wizard steps
- * so the app lands on the new realm detail page.
- */
-export async function submit_create_realm(
-    page: Page,
-    slug: string,
-    name: string,
-): Promise<void> {
-    await page.getByPlaceholder('prod-west').fill(slug);
-    await page.getByPlaceholder('Prod West').fill(name);
-    await expect(page.getByRole('button', { name: /^create & continue$/i })).toBeEnabled({ timeout: 10_000 });
-    await page.getByRole('button', { name: /^create & continue$/i }).click();
-
-    await expect(page.getByRole('button', { name: /^skip$/i })).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: /^skip$/i }).click();
-
-    await expect(page.getByRole('button', { name: /^skip$/i })).toBeVisible({ timeout: 10_000 });
-    await page.getByRole('button', { name: /^skip$/i }).click();
-
-    const finish = page.getByRole('button', { name: /skip & finish/i });
-    await expect(finish).toBeVisible({ timeout: 10_000 });
-    await finish.click();
-    await page.waitForURL(/\/o\/[^/]+\/realms\/[^/?]+/, { timeout: 15_000 });
 }
