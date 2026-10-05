@@ -95,15 +95,18 @@ export interface ControlRealmMemberVO {
     created_at?: number | string;
 }
 
-/** `artifacts/get` row — a file a run stored (Core ArtifactData). */
+/** `artifacts/get` row — a stored file or a run record (Core ArtifactData). */
 export interface ControlArtifactVO {
     artifact_id: string;
+    source?: 'file' | 'record';
+    kind?: string;
+    content_preview?: string | null;
     run_id: string;
     phase: string;
     name: string;
     description: string | null;
     mime_type: string;
     size_bytes: number;
-    download_url?: string;
+    download_url?: string | null;
     created_at: number;
 }

@@ -189,9 +189,12 @@ export class ControlRepository {
         return res.data ?? null;
     }
 
-    /** `POST /v1/artifacts/get { run_id }` — the files the run stored (no download links kept: they expire). */
+    /**
+     * `POST /v1/artifacts/get { run_id, include_records: true }` — everything the run's phases
+     * produced: stored files and run records (no download links kept: they expire).
+     */
     async run_artifacts(run_id: string, token: string): Promise<ControlArtifactVO[]> {
-        const res = await this._core.post_body<{ data: ControlArtifactVO[] }>('/v1/artifacts/get', { run_id }, token);
+        const res = await this._core.post_body<{ data: ControlArtifactVO[] }>('/v1/artifacts/get', { run_id, include_records: true }, token);
         return Array.isArray(res.data) ? res.data : [];
     }
 

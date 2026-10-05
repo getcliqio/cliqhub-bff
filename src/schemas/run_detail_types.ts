@@ -46,6 +46,12 @@ export interface RunDetailReviewData {
 /** A file the run stored; downloads go through `artifacts/get_by_id` (fresh link). */
 export interface RunDetailArtifactData {
     artifact_id: string;
+    /** A stored file (download) or a run record (text, read inline). */
+    source: 'file' | 'record';
+    /** 'file', or the record kind (output, chat_transcript, review, …). */
+    kind: string;
+    /** First ~2 KB of a record; null for a file. */
+    content_preview: string | null;
     phase: string;
     name: string;
     description: string | null;

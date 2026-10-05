@@ -138,7 +138,16 @@ describe('RunDetailService', () => {
         control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'completed' });
         control.run_artifacts.mockResolvedValue([{ artifact_id: 'a1', run_id: 'r1', phase: 'report', name: 'report.pdf', description: null, mime_type: 'application/pdf', size_bytes: 2048, download_url: 'https://r2/x?sig', created_at: 5 }]);
         const dto = await service.get({ run_id: 'r1' }, 'tok');
-        expect(dto.artifacts).toEqual([{ artifact_id: 'a1', phase: 'report', name: 'report.pdf', description: null, mime_type: 'application/pdf', size_bytes: 2048, created_at: 5 }]);
+        expect(dto.artifacts).toEqual([{ artifact_id: 'a1', source: 'file', kind: 'file', content_preview: null, phase: 'report', name: 'report.pdf', description: null, mime_type: 'application/pdf', size_bytes: 2048, created_at: 5 }]);
+    });
+
+    it('lists run records with files — one list, each with its source, kind and preview', async () => {
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'completed' });
+        control.run_artifacts.mockResolvedValue([
+            { artifact_id: 'rec:u1', source: 'record', kind: 'output', content_preview: 'done', run_id: 'r1', phase: 'build', name: 'phase_output', description: null, mime_type: 'text/plain', size_bytes: 4, download_url: null, created_at: 3 },
+        ]);
+        const dto = await service.get({ run_id: 'r1' }, 'tok');
+        expect(dto.artifacts).toEqual([{ artifact_id: 'rec:u1', source: 'record', kind: 'output', content_preview: 'done', phase: 'build', name: 'phase_output', description: null, mime_type: 'text/plain', size_bytes: 4, created_at: 3 }]);
     });
 
     it('artifacts failing keeps the page and flags partial, also for a run without a realm', async () => {

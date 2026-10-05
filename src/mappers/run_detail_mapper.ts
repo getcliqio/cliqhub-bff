@@ -30,8 +30,12 @@ export function to_run_detail_review_data(r: ControlReviewVO): RunDetailReviewDa
 
 /** `artifacts/get` row → run page artifact (the expiring download link is dropped). */
 export function to_run_detail_artifact_data(a: ControlArtifactVO): RunDetailArtifactData {
+    const source = a.source === 'record' ? 'record' : 'file';
     return {
         artifact_id: String(a.artifact_id),
+        source,
+        kind: a.kind ?? (source === 'file' ? 'file' : 'output'),
+        content_preview: a.content_preview ?? null,
         phase: a.phase ?? '',
         name: a.name ?? '',
         description: a.description ?? null,
