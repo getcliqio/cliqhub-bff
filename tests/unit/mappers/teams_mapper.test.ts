@@ -134,6 +134,13 @@ describe('to_team_detail_data', () => {
         expect(data.raw_manifest).toBeNull();
         expect(data.team_json).toBeNull();
     });
+
+    it('passes the working copy through, or null when there is none', () => {
+        expect(to_team_detail_data(SAMPLE_DETAIL).draft).toBeNull();
+        expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft: null }).draft).toBeNull();
+        const draft = { manifest: '{"name":"tdd-git"}', description: 'wip', saved_at: '2026-10-05T10:00:00.000Z' };
+        expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft }).draft).toEqual(draft);
+    });
 });
 
 describe('to_team_mutation_data', () => {

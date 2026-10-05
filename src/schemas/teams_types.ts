@@ -125,7 +125,11 @@ export const TeamsCreateInput = z.object({
 });
 export type TeamsCreateInput = z.infer<typeof TeamsCreateInput>;
 
-/** POST /v1/teams/update — patch-bumps the draft unless `bump` says otherwise. */
+/**
+ * POST /v1/teams/update. `save_as: 'draft'` keeps the manifest as the team's one
+ * working copy (no version); `'discard'` drops that copy; omitted / `'version'`
+ * mints the next version (patch unless `bump` says otherwise).
+ */
 export const TeamsUpdateInput = z.object({
     name: z.string().optional()
         .describe('Team name (lookup)'),
@@ -139,6 +143,8 @@ export const TeamsUpdateInput = z.object({
         .describe('New builder canvas JSON'),
     bump: z.enum(['minor', 'major']).optional()
         .describe('Version bump (default patch)'),
+    save_as: z.enum(['draft', 'version', 'discard']).optional()
+        .describe("'draft': save as the working copy (no version); 'discard': drop the working copy; 'version' (default): mint a version"),
 }).refine(has_name_or_id, { message: NameOrIdMessage });
 export type TeamsUpdateInput = z.infer<typeof TeamsUpdateInput>;
 
@@ -285,6 +291,8 @@ export interface TeamDetailData {
     raw_manifest: string | null;
     /** Builder canvas payload (same as raw_manifest). */
     team_json: string | null;
+    /** The team's unversioned working copy — only for people who can edit it; null when there is none. */
+    draft: TeamWorkingCopyData | null;
     /** What the caller may do with this team. */
     can_edit: boolean;
     can_delete: boolean;
@@ -299,6 +307,15 @@ export interface TeamMutationData {
     status: 'draft' | 'published';
     version: string | null;
     listed?: boolean;
+    /** teams/update: when the working copy was saved (`save_as: 'draft'`); null otherwise. */
+    draft_saved_at?: string | null;
+}
+
+/** A team's unversioned working copy (`teams.draft_*` in Core). */
+export interface TeamWorkingCopyData {
+    manifest: string;
+    description: string | null;
+    saved_at: string | null;
 }
 
 /** `teams/download` */

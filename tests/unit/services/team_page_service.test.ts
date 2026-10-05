@@ -164,6 +164,13 @@ describe('TeamPageService.page', () => {
         expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, limit: 1 }, 'tok');
     });
 
+    it('header says when an editor has unpublished changes (working copy saved_at), else null', async () => {
+        const m = mocks();
+        expect((await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'versions' }, 'tok')).team.draft_saved_at).toBeNull();
+        m.teams.get_by_id.mockResolvedValueOnce(team({ draft: { manifest: '{"name":"feature-dev"}', description: null, saved_at: '2026-10-05T09:00:00.000Z' } }));
+        expect((await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'versions' }, 'tok')).team.draft_saved_at).toBe('2026-10-05T09:00:00.000Z');
+    });
+
     it('workflow: latest run overlay, gated by run_by_id, with the run’s own version graph', async () => {
         const m = mocks();
         const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'workflow', run_id: 'latest' }, 'tok');

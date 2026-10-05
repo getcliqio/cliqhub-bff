@@ -213,6 +213,7 @@ export class TeamPageService {
             author: str(raw.author), listed: raw.listed !== false,
             tags: (raw.tags ?? []).map(String),
             can_edit: Boolean(raw.can_edit), can_delete: Boolean(raw.can_delete), can_toggle_listing: Boolean(raw.can_toggle_listing),
+            draft_saved_at: raw.draft?.manifest ? (raw.draft.saved_at ?? null) : null,
         };
         const run_scope = { team_id, ...(input.org_id ? { org_id: input.org_id } : {}) };
         // Started now, awaited last (only when the tab didn't already count runs).

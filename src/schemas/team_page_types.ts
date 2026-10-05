@@ -173,6 +173,8 @@ export interface TeamHeaderData {
     can_edit: boolean;
     can_delete: boolean;
     can_toggle_listing: boolean;
+    /** When the team's unversioned working copy was saved (editors only); null when there is none. */
+    draft_saved_at: string | null;
 }
 
 /** A run of the team, with its realm link. */

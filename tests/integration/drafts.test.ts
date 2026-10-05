@@ -173,6 +173,33 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
 
             expect(res.status).toBe(200);
         });
+
+        it.each(['draft', 'discard'] as const)("forwards save_as '%s' to Core and returns draft_saved_at", async (save_as) => {
+            const sid = make_session();
+            const saved_at = save_as === 'draft' ? '2026-10-05T10:00:00.000Z' : null;
+            const spy = vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
+                id: hub_legacy_uuid(1), name: 'draft-team', scope: 'alice', status: 'published', version: null, draft_saved_at: saved_at,
+            });
+            const res = await request(app)
+                .post('/v1/teams/update')
+                .set(CSRF)
+                .set('Cookie', `test_sid=${sid}`)
+                .send({ team_id: hub_legacy_uuid(1), team_json: '{}', save_as });
+            expect(res.status).toBe(200);
+            expect(spy.mock.calls[0][0]).toBe('/v1/teams/update');
+            expect(spy.mock.calls[0][1]).toMatchObject({ save_as });
+            expect(res.body.data).toMatchObject({ version: null, draft_saved_at: saved_at });
+        });
+
+        it('rejects an unknown save_as', async () => {
+            const sid = make_session();
+            const res = await request(app)
+                .post('/v1/teams/update')
+                .set(CSRF)
+                .set('Cookie', `test_sid=${sid}`)
+                .send({ team_id: hub_legacy_uuid(1), save_as: 'publish' });
+            expect(res.status).toBe(422);
+        });
     });
 
     describe('POST /v1/teams/delete', () => {

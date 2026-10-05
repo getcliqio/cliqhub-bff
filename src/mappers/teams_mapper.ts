@@ -86,6 +86,9 @@ export function to_team_detail_data(vo: TeamDetailVO): TeamDetailData {
         not_for: vo.not_for,
         raw_manifest: vo.raw_manifest ?? null,
         team_json: vo.team_json ?? null,
+        draft: vo.draft?.manifest
+            ? { manifest: vo.draft.manifest, description: vo.draft.description ?? null, saved_at: vo.draft.saved_at ?? null }
+            : null,
         can_edit: vo.can_edit === true,
         can_delete: vo.can_delete === true,
         can_toggle_listing: vo.can_toggle_listing === true,
@@ -101,6 +104,7 @@ export function to_team_mutation_data(vo: TeamMutationVO): TeamMutationData {
         status: vo.status,
         version: vo.version,
         listed: vo.listed,
+        ...(vo.draft_saved_at !== undefined ? { draft_saved_at: vo.draft_saved_at } : {}),
     };
 }
 
