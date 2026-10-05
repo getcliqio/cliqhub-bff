@@ -135,18 +135,23 @@ async function stop_stub(stub: Stub_state): Promise<void> {
     });
 }
 
-async function seed_daemon_team(daemon_id: string): Promise<string> {
+async function seed_daemon_team(daemon_id: string, realm_id: string): Promise<string> {
     const pool = new pg.Pool({ connectionString: DATABASE_URL, ssl: false });
     const team_id = randomUUID();
     const now = Date.now();
     try {
         const scope = await pool.query(
-            `SELECT id FROM cliq.scopes WHERE slug = 'cliq' LIMIT 1`,
+            `SELECT s.id FROM cliq.scopes s
+               JOIN cliq.realms r ON r.org_id = s.org_id
+              WHERE r.id = $1
+              ORDER BY s.is_default DESC
+              LIMIT 1`,
+            [realm_id],
         );
-        expect(scope.rows[0]?.id, 'cliq scope missing in e2e DB').toBeTruthy();
+        expect(scope.rows[0]?.id, `org scope missing for realm ${realm_id} in e2e DB`).toBeTruthy();
         const scope_id = String(scope.rows[0].id);
         await pool.query(
-            `INSERT INTO cliq.teams
+            `INSERT INTO cliq.daemon_teams
                 (id, daemon_id, scope_id, slug, version, description, manifest, created_at, updated_at)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $8)`,
             [
@@ -202,7 +207,7 @@ test.describe('Runs lifecycle — enqueue claim execute complete', () => {
             const hb = await hub_post('/v1/daemons/heartbeat', daemon_token, { daemon_id });
             expect(hb.status, `heartbeat failed: ${JSON.stringify(hb.json)}`).toBe(200);
 
-            const team_id = await seed_daemon_team(daemon_id);
+            const team_id = await seed_daemon_team(daemon_id, realm.id);
             const workspace_path = `/tmp/e2e-run-${randomUUID().slice(0, 8)}`;
             const run_name = `e2e-lifecycle-${Date.now()}`;
 
@@ -249,7 +254,7 @@ test.describe('Runs lifecycle — enqueue claim execute complete', () => {
             expect(run_data.state).toBe('completed');
 
             const detail_wait = page.waitForResponse((res) =>
-                res.url().includes('/v1/runs/get_by_id')
+                res.url().includes('/v1/run_detail/get')
                 && res.request().method() === 'POST'
                 && res.status() === 200,
             );
@@ -259,22 +264,18 @@ test.describe('Runs lifecycle — enqueue claim execute complete', () => {
             ]);
             const detail_json = await detail_http.json();
             expect(detail_json.ok).toBe(true);
-            expect(detail_json.data?.run_id ?? detail_json.data).toBeTruthy();
+            expect(detail_json.data?.run?.run_id).toBe(run_id);
+            expect(detail_json.data?.run?.state).toBe('completed');
             expect(detail_json.run).toBeUndefined();
 
-            await expect(page.getByRole('heading', { name: run_name })).toBeVisible({
-                timeout: 15_000,
-            });
-            // Badge text is lowercase in DOM; CSS uppercases for display.
-            await expect(page.locator('span.uppercase', { hasText: /^completed$/i })).toBeVisible({
+            const heading = page.getByRole('heading', { name: run_name, level: 1 });
+            await expect(heading).toBeVisible({ timeout: 15_000 });
+            await expect(heading.locator('..').getByTestId('state-pill')).toHaveText(/^completed$/i, {
                 timeout: 10_000,
             });
 
             const list_wait = page.waitForResponse((res) =>
-                res.url().includes('/v1/runs/get')
-                && !res.url().includes('get_by_id')
-                && !res.url().includes('get_status')
-                && !res.url().includes('get_telemetry')
+                res.url().includes('/v1/realm_runs/get')
                 && res.request().method() === 'POST'
                 && res.status() === 200,
             );

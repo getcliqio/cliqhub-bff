@@ -1,6 +1,5 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
-    ui_login,
     api_login,
     api_logout,
     api_session_get,
@@ -12,22 +11,33 @@ import {
     TEST_SUSPENDED,
 } from './helpers';
 
+async function submit_login_form(page: Page, username: string, password: string): Promise<void> {
+    await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible({ timeout: 10_000 });
+    await page.getByLabel('Username').fill(username);
+    await page.getByLabel('Password', { exact: true }).fill(password);
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+}
+
+async function form_login(page: Page, username: string, password: string): Promise<void> {
+    await page.goto('/login');
+    await submit_login_form(page, username, password);
+    await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 15_000 });
+}
+
 test.describe('Auth — positive', () => {
     test('login with valid credentials leaves /login', async ({ page }) => {
-        await ui_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
+        await form_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
         expect(page.url()).not.toContain('/login');
     });
 
     test('admin lands on /home after UI login', async ({ page }) => {
-        await ui_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
+        await form_login(page, TEST_ADMIN.username, TEST_ADMIN.password);
         await expect(page).toHaveURL(/\/home/);
     });
 
     test('member lands on redirect target after UI login', async ({ page }) => {
         await page.goto('/login?redirect=/settings');
-        await page.getByLabel('Username').fill(TEST_USER.username);
-        await page.getByLabel('Password').fill(TEST_USER.password);
-        await page.getByRole('button', { name: 'Sign in' }).click();
+        await submit_login_form(page, TEST_USER.username, TEST_USER.password);
         await page.waitForURL((url) => url.pathname === '/settings', { timeout: 15_000 });
         await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible();
     });
@@ -37,7 +47,8 @@ test.describe('Auth — positive', () => {
         await page.goto('/settings');
         await expect(page.getByRole('heading', { name: 'Settings', level: 1 })).toBeVisible({ timeout: 10_000 });
 
-        await page.getByRole('button', { name: /^sign out$/i }).click();
+        await page.getByTestId('account-button').click();
+        await page.getByRole('menu', { name: 'Account' }).getByRole('menuitem', { name: /^sign out$/i }).click();
         await page.waitForURL('**/login', { timeout: 10_000 });
         expect(page.url()).toContain('/login');
     });
@@ -55,27 +66,21 @@ test.describe('Auth — positive', () => {
 test.describe('Auth — negative', () => {
     test('wrong password shows error and stays on login', async ({ page }) => {
         await page.goto('/login');
-        await page.getByLabel('Username').fill(TEST_ADMIN.username);
-        await page.getByLabel('Password').fill('totally-wrong-password');
-        await page.getByRole('button', { name: 'Sign in' }).click();
+        await submit_login_form(page, TEST_ADMIN.username, 'totally-wrong-password');
         await expect_alert(page, /invalid|credentials|password/i);
         expect(page.url()).toContain('/login');
     });
 
     test('suspended user cannot log in', async ({ page }) => {
         await page.goto('/login');
-        await page.getByLabel('Username').fill(TEST_SUSPENDED.username);
-        await page.getByLabel('Password').fill(TEST_SUSPENDED.password);
-        await page.getByRole('button', { name: 'Sign in' }).click();
+        await submit_login_form(page, TEST_SUSPENDED.username, TEST_SUSPENDED.password);
         await expect_alert(page, /suspended|disabled|blocked/i);
         expect(page.url()).toContain('/login');
     });
 
     test('unknown user shows credentials error', async ({ page }) => {
         await page.goto('/login');
-        await page.getByLabel('Username').fill('no-such-user-xyz');
-        await page.getByLabel('Password').fill('whatever123');
-        await page.getByRole('button', { name: 'Sign in' }).click();
+        await submit_login_form(page, 'no-such-user-xyz', 'whatever123');
         await expect_alert(page, /invalid|credentials|not found|password/i);
         expect(page.url()).toContain('/login');
     });
@@ -91,8 +96,11 @@ test.describe('Auth — negative', () => {
     test('signup is invite-only (no public registration form)', async ({ page }) => {
         await page.goto('/signup');
         await expect(page.getByRole('heading', { name: /invite only/i })).toBeVisible();
-        await expect(page.getByRole('main').getByRole('link', { name: /^log in$/i })).toBeVisible();
+        const sign_in_link = page.getByRole('main').getByRole('link', { name: /sign in/i });
+        await expect(sign_in_link).toBeVisible();
+        await expect(sign_in_link).toHaveAttribute('href', '/login');
         await expect(page.getByLabel(/username/i)).toHaveCount(0);
+        await expect(page.getByLabel(/password/i)).toHaveCount(0);
     });
 
     test('logout clears session — protected page redirects again', async ({ page }) => {

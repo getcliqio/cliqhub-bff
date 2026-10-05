@@ -1,12 +1,25 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
     api_login,
-    api_first_realm,
     api_post,
+    expect_api_ok,
     expect_login_redirect,
     realm_url,
     TEST_USER,
 } from './helpers';
+
+type Realm_row = { id: string; slug: string; org_slug: string };
+
+/** First realm from `realms/get` (`data.items` PagedData). */
+async function first_realm(page: Page): Promise<Realm_row> {
+    const body = await expect_api_ok(await api_post(page, '/v1/realms/get', {}));
+    const items = ((body.data as { items?: Array<Partial<Realm_row>> } | undefined)?.items) ?? [];
+    expect(items.length, `expected a realm: ${JSON.stringify(body)}`).toBeGreaterThan(0);
+    const realm = items[0]!;
+    expect(realm.slug).toBeTruthy();
+    expect(realm.org_slug).toBeTruthy();
+    return { id: String(realm.id ?? ''), slug: String(realm.slug), org_slug: String(realm.org_slug) };
+}
 
 test.describe('Runs / logs — positive', () => {
     test.beforeEach(async ({ page }) => {
@@ -14,7 +27,7 @@ test.describe('Runs / logs — positive', () => {
     });
 
     test('runs page loads under realm with filter', async ({ page }) => {
-        const realm = await api_first_realm(page);
+        const realm = await first_realm(page);
         await page.goto(realm_url(realm.org_slug, realm.slug, 'runs'));
         await expect(page.getByLabel('Search runs')).toBeVisible({ timeout: 10_000 });
         await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toBeVisible();
@@ -22,20 +35,19 @@ test.describe('Runs / logs — positive', () => {
     });
 
     test('runs filter query is sent in list POST body', async ({ page }) => {
-        const realm = await api_first_realm(page);
+        const realm = await first_realm(page);
         await page.goto(realm_url(realm.org_slug, realm.slug, 'runs'));
         await expect(page.getByLabel('Search runs')).toBeVisible({ timeout: 10_000 });
 
         const filter_req = page.waitForRequest((req) =>
-            req.url().includes('/v1/runs/get')
+            req.url().includes('/v1/realm_runs/get')
             && req.method() === 'POST'
-            && (req.postDataJSON() as { query?: string })?.query === 'no-such-run-xyz',
+            && (req.postDataJSON() as { q?: string })?.q === 'no-such-run-xyz',
         );
-        const search = page.getByLabel('Search runs');
-        await search.click();
-        await search.fill('no-such-run-xyz');
-        await search.press('Enter');
+        await page.getByLabel('Search runs').fill('no-such-run-xyz');
         await filter_req;
+        await expect(page).toHaveURL(/[?&]q=no-such-run-xyz/);
+        await expect(page.getByText('No runs match these filters.')).toBeVisible({ timeout: 10_000 });
     });
 
     test('legacy /runs redirects into a realm', async ({ page }) => {
@@ -45,33 +57,38 @@ test.describe('Runs / logs — positive', () => {
     });
 
     test('logs page loads with explorer shell', async ({ page }) => {
-        const realm = await api_first_realm(page);
-        // /logs redirects into runs under the org-scoped realm URL.
+        const realm = await first_realm(page);
         await page.goto(realm_url(realm.org_slug, realm.slug, 'logs'));
         await page.waitForURL(/\/runs/, { timeout: 10_000 });
         await expect(page.getByLabel('Search runs')).toBeVisible({ timeout: 10_000 });
     });
 
     test('logs load via POST on page load', async ({ page }) => {
-        const realm = await api_first_realm(page);
+        const realm = await first_realm(page);
         const runs_req = page.waitForRequest((req) =>
-            req.url().includes('/v1/runs/get')
+            req.url().includes('/v1/realm_runs/get')
             && req.method() === 'POST',
         );
         await page.goto(realm_url(realm.org_slug, realm.slug, 'logs'));
         await page.waitForURL(/\/runs/, { timeout: 10_000 });
-        await runs_req;
+        const req = await runs_req;
+        expect(req.postDataJSON()).toEqual(expect.objectContaining({ org_slug: realm.org_slug, slug: realm.slug }));
     });
 
-    test('notifications and reviews shells load', async ({ page }) => {
-        await page.goto('/notifications?tab=inbox');
-        await page.waitForURL(/\/events/, { timeout: 10_000 });
-        await expect(page.getByRole('heading', { name: 'HUGs and Events' })).toBeVisible({ timeout: 10_000 });
-        await expect(page.getByRole('button', { name: 'HUGs', exact: true })).toBeVisible();
-        await page.getByRole('button', { name: 'HUGs', exact: true }).click();
-        await expect(page).toHaveURL(/tab=hug|\/events/);
+    test('notifications and inbox shells load', async ({ page }) => {
+        await page.goto('/notifications');
+        await expect(page.getByRole('heading', { name: 'Notifications', level: 1 })).toBeVisible({ timeout: 10_000 });
+
+        await page.goto('/events');
+        await page.waitForURL(/\/inbox/, { timeout: 10_000 });
+        await expect(page.getByRole('heading', { name: 'Inbox', level: 1 })).toBeVisible({ timeout: 10_000 });
+        await page.getByRole('tab', { name: /all notifications/i }).click();
+        await expect(page).toHaveURL(/tab=all/);
+
         await page.goto('/hug');
-        await page.waitForURL(/\/events/, { timeout: 10_000 });
+        await page.waitForURL(/\/inbox/, { timeout: 10_000 });
+        await page.goto('/reviews');
+        await page.waitForURL(/\/inbox/, { timeout: 10_000 });
     });
 
     test('home shows getting started or dashboard', async ({ page }) => {

@@ -1,16 +1,46 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import {
     api_login,
     api_create_realm,
     api_current_org_id,
+    api_post,
     expect_alert,
+    expect_api_ok,
     expect_login_redirect,
-    open_create_realm,
     realm_url,
-    submit_create_realm,
     unique_slug,
     TEST_USER,
 } from './helpers';
+
+async function open_new_realm(page: Page): Promise<void> {
+    await page.goto('/realms');
+    await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible({ timeout: 10_000 });
+    await page.getByRole('button', { name: /^new realm$/i }).click();
+    await expect(page.getByRole('region', { name: 'New realm' })).toBeVisible({ timeout: 5_000 });
+    await expect(page).toHaveURL(/new=1/);
+}
+
+async function fill_new_realm(page: Page, slug: string, name: string): Promise<void> {
+    await page.getByLabel('Realm name').fill(name);
+    await page.getByLabel('Realm slug').fill(slug);
+    await expect(page.getByLabel('Realm slug')).toHaveValue(slug);
+    await expect(page.getByRole('button', { name: /^create realm$/i })).toBeEnabled({ timeout: 10_000 });
+    await page.getByRole('button', { name: /^create realm$/i }).click();
+}
+
+function settings_section(page: Page, label: string) {
+    return page.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: new RegExp(`^${label}`) });
+}
+
+/** The caller's default realm from the session (what root /daemons is meant to open). */
+async function api_default_realm(page: Page): Promise<{ org_slug: string; slug: string }> {
+    const session = await expect_api_ok(await api_post(page, '/v1/session/get', {}));
+    const data = session.data as { default_realm_qualified?: string | null };
+    const qualified = String(data.default_realm_qualified ?? '');
+    expect(qualified, `default realm missing: ${JSON.stringify(session)}`).toContain('.');
+    const dot = qualified.indexOf('.');
+    return { org_slug: qualified.slice(0, dot), slug: qualified.slice(dot + 1) };
+}
 
 test.describe('Realms — positive', () => {
     test.beforeEach(async ({ page }) => {
@@ -20,62 +50,56 @@ test.describe('Realms — positive', () => {
     test('realms page loads', async ({ page }) => {
         await page.goto('/realms');
         await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible({ timeout: 10_000 });
-        await expect(page.getByRole('button', { name: /^create realm$/i })).toBeVisible();
-        await expect(page.getByLabel('Filter realms by slug or name')).toBeVisible();
+        await expect(page.getByRole('button', { name: /^new realm$/i })).toBeVisible();
+        await expect(page.getByLabel('Search realms')).toBeVisible();
     });
 
-    test('create realm full-width flow appears in list', async ({ page }) => {
-        await open_create_realm(page);
+    test('new realm wizard creates a realm that appears in the list', async ({ page }) => {
+        await open_new_realm(page);
 
         const slug = unique_slug('e2e-realm');
         const name = `E2E Realm ${slug}`;
-        await submit_create_realm(page, slug, name);
+        await fill_new_realm(page, slug, name);
 
-        await expect(page.getByRole('heading', { name })).toBeVisible({ timeout: 10_000 });
-        await expect(page).toHaveURL(new RegExp(`/realms/${slug}`));
+        await expect(page.getByRole('group', { name: 'Teams' })).toBeVisible({ timeout: 10_000 });
+        await page.getByRole('button', { name: /^skip$/i }).click();
+        await page.getByRole('button', { name: `Open ${name} →` }).click();
+        await page.waitForURL(new RegExp(`/o/[^/]+/realms/${slug}/inbox`), { timeout: 15_000 });
+        await expect(page.getByRole('heading', { name: 'Inbox', level: 1 })).toBeVisible({ timeout: 10_000 });
 
-        // Filter by slug so the new realm is visible even when the list is paginated.
         await page.goto(`/realms?q=${encodeURIComponent(slug)}`);
-        await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
-        await expect(page.getByText(new RegExp(`\\.${slug}$|${slug}`)).first()).toBeVisible();
+        const card = page.getByTestId(`realm-${slug}`);
+        await expect(card).toBeVisible({ timeout: 10_000 });
+        await expect(card).toContainText(name);
     });
 
     test('cancel create returns to list', async ({ page }) => {
-        await open_create_realm(page);
+        await open_new_realm(page);
         await page.getByRole('button', { name: /^cancel$/i }).click();
+        await expect(page.getByRole('region', { name: 'New realm' })).toHaveCount(0);
         await expect(page.getByRole('heading', { name: 'Realms', level: 1 })).toBeVisible();
-        await expect(page).not.toHaveURL(/create=1/);
+        await expect(page).not.toHaveURL(/new=1/);
     });
 
-    test('filter query is sent in list POST body', async ({ page }) => {
+    test('search filters the realm list and is kept in the URL', async ({ page }) => {
         const realm = await api_create_realm(page, 'e2e-filt', 'Filter Target');
         await page.goto('/realms');
-        await expect(page.getByLabel('Filter realms by slug or name')).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByLabel('Search realms')).toBeVisible({ timeout: 10_000 });
 
-        const filter_req = page.waitForRequest((req) =>
-            req.url().includes('/v1/realms/get')
-            && req.method() === 'POST'
-            && (req.postDataJSON() as { query?: string })?.query === realm.slug,
-        );
-        await page.getByLabel('Filter realms by slug or name').fill(realm.slug);
-        await filter_req;
-        await expect(page.getByText(realm.name)).toBeVisible({ timeout: 10_000 });
+        await page.getByLabel('Search realms').fill(realm.slug);
+        await expect(page).toHaveURL(new RegExp(`[?&]q=${realm.slug}`));
+        await expect(page.getByTestId(`realm-${realm.slug}`)).toContainText(realm.name, { timeout: 10_000 });
 
-        const empty_req = page.waitForRequest((req) =>
-            req.url().includes('/v1/realms/get')
-            && req.method() === 'POST'
-            && (req.postDataJSON() as { query?: string })?.query === 'zzz-no-such-realm-xyz',
-        );
-        await page.getByLabel('Filter realms by slug or name').fill('zzz-no-such-realm-xyz');
-        await empty_req;
-        await expect(page.getByText(/no realms match these filters/i)).toBeVisible({ timeout: 10_000 });
+        await page.getByLabel('Search realms').fill('zzz-no-such-realm-xyz');
+        await expect(page).toHaveURL(/[?&]q=zzz-no-such-realm-xyz/);
+        await expect(page.getByText(/no realms match/i)).toBeVisible({ timeout: 10_000 });
     });
 
     test('open realm detail from list', async ({ page }) => {
         const realm = await api_create_realm(page, 'e2e-det', 'Detail');
-        await page.goto('/realms');
-        await page.getByLabel('Filter realms by slug or name').fill(realm.slug);
-        await expect(page.getByText(realm.name)).toBeVisible({ timeout: 10_000 });
+        await page.goto(`/realms?q=${encodeURIComponent(realm.slug)}`);
+        const card = page.getByTestId(`realm-${realm.slug}`);
+        await expect(card).toBeVisible({ timeout: 10_000 });
 
         const failed_api: Array<{ url: string; status: number; body: string }> = [];
         page.on('response', async (res) => {
@@ -90,9 +114,9 @@ test.describe('Realms — positive', () => {
             failed_api.push({ url: res.url(), status: res.status(), body });
         });
 
-        await page.getByText(realm.name).click();
-        await page.waitForURL(new RegExp(`/o/[^/]+/realms/${realm.slug}`), { timeout: 10_000 });
-        await expect(page.getByRole('heading', { name: realm.name })).toBeVisible({ timeout: 10_000 });
+        await card.click();
+        await page.waitForURL(new RegExp(`/o/[^/]+/realms/${realm.slug}/inbox`), { timeout: 10_000 });
+        await expect(page.getByRole('heading', { name: 'Inbox', level: 1 })).toBeVisible({ timeout: 10_000 });
         await expect(page.getByRole('navigation', { name: 'Realm sections' }).getByRole('link', { name: 'Teams' })).toBeVisible();
         await expect(page.getByText(/Unknown API route/i)).toHaveCount(0);
 
@@ -112,55 +136,83 @@ test.describe('Realm detail — positive', () => {
     test('section nav updates the URL', async ({ page }) => {
         const realm = await api_create_realm(page, 'e2e-tabs', 'Detail');
         await page.goto(realm_url(realm.org_slug, realm.slug, 'teams'));
-        await expect(page.getByRole('heading', { name: realm.name })).toBeVisible({ timeout: 10_000 });
         const tab_nav = page.getByRole('navigation', { name: 'Realm sections' });
+        await expect(tab_nav).toBeVisible({ timeout: 10_000 });
 
-        await tab_nav.getByRole('link', { name: 'Notifications', exact: true }).click();
-        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/notifications`));
-        await expect(page.getByRole('heading', { name: 'Notifications' })).toBeVisible();
+        await tab_nav.getByRole('link', { name: 'Runs', exact: true }).click();
+        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/runs`));
+
+        await tab_nav.getByRole('link', { name: 'Daemons', exact: true }).click();
+        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/daemons`));
 
         await tab_nav.getByRole('link', { name: 'Settings', exact: true }).click();
         await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/settings`));
-        await page.getByRole('navigation', { name: 'Realm settings' }).getByRole('link', { name: 'Members', exact: true }).click();
-        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/settings/security/members`));
-        await page.getByRole('navigation', { name: 'Realm settings' }).getByRole('link', { name: 'Tokens', exact: true }).click();
-        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/settings/security/tokens`));
+        await expect(page.getByRole('heading', { name: 'Members', level: 2 })).toBeVisible({ timeout: 10_000 });
+        await settings_section(page, 'Access tokens').click();
+        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/settings\\?section=tokens`));
+        await settings_section(page, 'Members').click();
+        await expect(page).not.toHaveURL(/section=/);
 
-        await tab_nav.getByRole('link', { name: 'Channels', exact: true }).click();
-        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/channels`));
-        await expect(page.getByRole('heading', { name: 'Channels' })).toBeVisible();
+        await page.getByRole('navigation', { name: 'Settings sections' }).getByRole('link', { name: /notifications/i }).click();
+        await expect(page).toHaveURL(new RegExp(`/notifications\\?org=${realm.org_slug}`));
+        await expect(page.getByRole('heading', { name: 'Notifications', level: 1 })).toBeVisible({ timeout: 10_000 });
     });
 
-    test('mint realm token full-width form', async ({ page }) => {
+    test('legacy security URLs redirect to realm settings sections', async ({ page }) => {
+        const realm = await api_create_realm(page, 'e2e-legacy', 'Detail');
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings/security/tokens'));
+        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/settings\\?section=tokens`), { timeout: 10_000 });
+        await expect(page.getByRole('heading', { name: 'Access tokens', level: 2 })).toBeVisible({ timeout: 10_000 });
+
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings/security/members'));
+        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/settings$`), { timeout: 10_000 });
+        await expect(page.getByRole('heading', { name: 'Members', level: 2 })).toBeVisible({ timeout: 10_000 });
+    });
+
+    test('create realm access token', async ({ page }) => {
         const realm = await api_create_realm(page, 'e2e-tok', 'Detail');
-        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings/security/tokens?form=1'));
-        await expect(page.getByRole('heading', { name: 'Mint realm token' })).toBeVisible({ timeout: 10_000 });
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings?section=tokens'));
+        await expect(page.getByRole('heading', { name: 'Access tokens', level: 2 })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByText('CLIQ_DAEMON_TOKEN')).toBeVisible();
 
         const token_name = `enroll-${realm.slug.slice(-6)}`;
-        await page.getByPlaceholder('laptop-enroll').fill(token_name);
-        await page.getByRole('button', { name: /^mint$/i }).click();
-        await expect(page.getByText(/CLIQ_DAEMON_TOKEN|cliq_dt_/i).first()).toBeVisible({ timeout: 10_000 });
-
-        await page.getByRole('button', { name: /^done$/i }).click();
-        await expect(page).not.toHaveURL(/form=1/);
-        await expect(page.getByText(token_name)).toBeVisible({ timeout: 10_000 });
+        await page.getByLabel('Token name').fill(token_name);
+        await page.getByRole('button', { name: /^create token$/i }).click();
+        await expect(page.getByTestId('new-token')).not.toBeEmpty({ timeout: 10_000 });
+        await expect(page.getByRole('row').filter({ hasText: token_name })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByLabel('Token name')).toHaveValue('');
     });
 
-    test('users tab filter uses member_type in members POST body', async ({ page }) => {
+    test('members section lists you and finds no stranger', async ({ page }) => {
         const realm = await api_create_realm(page, 'e2e-usr', 'Detail');
-        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings/security/members'));
-        await expect(page.getByRole('heading', { name: 'Realm members' })).toBeVisible({ timeout: 10_000 });
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings'));
+        await expect(page.getByRole('heading', { name: 'Members', level: 2 })).toBeVisible({ timeout: 10_000 });
+        const you_row = page.locator('[data-testid^="member-"]').filter({ hasText: /you/ });
+        await expect(you_row).toHaveCount(1, { timeout: 10_000 });
+        await expect(you_row).toContainText('admin');
 
-        await page.getByLabel('Search members').fill('zzz-no-member');
-        await expect(page.getByText(/no members match this filter/i)).toBeVisible({ timeout: 10_000 });
+        const users_req = page.waitForRequest((req) =>
+            req.url().includes('/v1/users/get')
+            && req.method() === 'POST'
+            && (req.postDataJSON() as { realm_id?: string; query?: string })?.query === 'zzz-no-member',
+        );
+        await page.getByLabel('Find a person').fill('zzz-no-member');
+        await users_req;
+        await expect(page.getByRole('listbox', { name: 'People' })).toHaveCount(0);
+        await expect(page.getByRole('button', { name: 'Add member' })).toBeDisabled();
     });
 
-    test('invite form validates empty email', async ({ page }) => {
+    test('add member validates the person', async ({ page }) => {
         const realm = await api_create_realm(page, 'e2e-add', 'Detail');
-        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings/security/members'));
-        await expect(page.getByRole('heading', { name: 'Realm members' })).toBeVisible({ timeout: 10_000 });
-        await page.getByRole('button', { name: 'Add member' }).click();
-        await expect(page.getByRole('button', { name: /^add$/i })).toBeDisabled();
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings'));
+        await expect(page.getByRole('heading', { name: 'Members', level: 2 })).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByRole('button', { name: 'Add member' })).toBeDisabled();
+
+        await page.getByLabel('Find a person').fill('not-an-email');
+        await expect(page.getByRole('button', { name: /invite by email/i })).toHaveCount(0);
+        await page.getByLabel('Find a person').fill('someone@example.com');
+        await expect(page.getByRole('button', { name: /invite by email/i })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Add member' })).toBeDisabled();
     });
 });
 
@@ -169,115 +221,104 @@ test.describe('Realms — negative', () => {
         await expect_login_redirect(page, '/realms');
     });
 
-    test('create without slug/name shows validation error', async ({ page }) => {
+    test('create without a name is blocked', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
-        await open_create_realm(page);
-        await page.getByRole('button', { name: /^create & continue$/i }).click();
-        await expect(page.getByText(/slug is required|display name is required|required/i)).toBeVisible({ timeout: 5_000 });
+        await open_new_realm(page);
+        await expect(page.getByLabel('Realm name')).toHaveValue('');
+        await expect(page.getByRole('button', { name: /^create realm$/i })).toBeDisabled();
+        await page.getByLabel('Realm name').fill('   ');
+        await expect(page.getByRole('button', { name: /^create realm$/i })).toBeDisabled();
     });
 
     test('duplicate realm slug is rejected', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
+        const existing = await api_create_realm(page, 'e2e-dup', 'First');
 
-        const slug = unique_slug('e2e-dup');
-        await open_create_realm(page);
-        await page.getByPlaceholder('prod-west').fill(slug);
-        await page.getByPlaceholder('Prod West').fill(`First ${slug}`);
-        await expect(page.getByRole('button', { name: /^create & continue$/i })).toBeEnabled({ timeout: 10_000 });
-        await page.getByRole('button', { name: /^create & continue$/i }).click();
-        await expect(page.getByRole('button', { name: /^skip$/i })).toBeVisible({ timeout: 10_000 });
-        await page.getByRole('button', { name: 'Close wizard' }).click();
-
-        await open_create_realm(page);
-        await page.getByPlaceholder('prod-west').fill(slug);
-        await page.getByPlaceholder('Prod West').fill(`Second ${slug}`);
-        await expect(page.getByRole('button', { name: /^create & continue$/i })).toBeEnabled({ timeout: 10_000 });
-        await page.getByRole('button', { name: /^create & continue$/i }).click();
+        await open_new_realm(page);
+        await fill_new_realm(page, existing.slug, `Second ${existing.slug}`);
         await expect_alert(page, /already exists/i);
+        await expect(page.getByRole('button', { name: /^create realm$/i })).toBeVisible();
     });
 });
 
 test.describe('Daemons — positive / negative', () => {
-    test('daemons page loads for member', async ({ page }) => {
+    test('root /daemons opens the default realm daemons', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
+        const realm = await api_default_realm(page);
         await page.goto('/daemons');
-        await page.waitForURL(/\/o\/[^/]+\/realms\/[^/]+\/daemons/, { timeout: 10_000 });
-        await expect(page.getByRole('heading', { name: 'Daemons' })).toBeVisible({ timeout: 10_000 });
-        await expect(
-            page.getByText(/no active daemons in this realm/i)
-                .or(page.locator('ul.grid li').first()),
-        ).toBeVisible({ timeout: 10_000 });
-        await expect(page.getByRole('button', { name: /^refresh$/i })).toBeVisible();
+        await page.waitForURL(new RegExp(`/o/${realm.org_slug}/realms/${realm.slug}/daemons`), { timeout: 10_000 });
     });
 
-    test('list POST includes realm_id when page loads', async ({ page }) => {
+    test('daemons page loads for member', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
+        const realm = await api_default_realm(page);
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'daemons'));
+        await expect(
+            page.getByRole('navigation', { name: 'Realm sections' }).getByRole('link', { name: 'Daemons', exact: true }),
+        ).toHaveAttribute('aria-current', 'page', { timeout: 10_000 });
+        await expect(
+            page.getByText(/no daemons in this realm yet/i)
+                .or(page.locator('[data-testid^="daemon-"]').first()),
+        ).toBeVisible({ timeout: 10_000 });
+        await expect(page.getByRole('group', { name: 'Status' })).toBeVisible();
+        await expect(page.getByRole('button', { name: 'Refresh' })).toBeVisible();
+    });
 
-        const list_req = page.waitForRequest((req) =>
-            req.url().includes('/v1/daemons/get')
-            && req.method() === 'POST'
-            && Boolean((req.postDataJSON() as { realm_id?: string })?.realm_id),
-        );
-        await page.goto('/daemons');
-        await page.waitForURL(/\/o\/[^/]+\/realms\/[^/]+\/daemons/, { timeout: 10_000 });
+    test('list POST includes the realm when page loads', async ({ page }) => {
+        await api_login(page, TEST_USER.username, TEST_USER.password);
+        const realm = await api_default_realm(page);
+
+        const list_req = page.waitForRequest((req) => {
+            if (!req.url().includes('/v1/realm_daemons/get') || req.method() !== 'POST') return false;
+            const body = req.postDataJSON() as { org_slug?: string; slug?: string };
+            return body?.org_slug === realm.org_slug && body?.slug === realm.slug;
+        });
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'daemons'));
         await list_req;
     });
 
-    test('mint token form cancel returns to list', async ({ page }) => {
+    test('add a machine link opens realm access tokens', async ({ page }) => {
         test.setTimeout(60_000);
         await api_login(page, TEST_USER.username, TEST_USER.password);
-        const realm = await api_create_realm(page, 'e2e-dcancel', 'Cancel');
+        const realm = await api_create_realm(page, 'e2e-dlink', 'Daemons');
 
-        await page.goto(realm_url(realm.org_slug, realm.slug));
-        await expect(page.getByRole('heading', { name: realm.name })).toBeVisible({ timeout: 15_000 });
-        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings/security/tokens?form=1'));
-        await expect(page.getByRole('heading', { name: 'Mint realm token' })).toBeVisible({ timeout: 15_000 });
-        await page.getByRole('button', { name: /^cancel$/i }).click();
-        await expect(page.getByRole('heading', { name: 'Realm tokens' })).toBeVisible({ timeout: 10_000 });
-        await expect(page).not.toHaveURL(/form=1/);
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'daemons'));
+        await expect(page.getByText(/no daemons in this realm yet/i)).toBeVisible({ timeout: 15_000 });
+        await page.getByRole('link', { name: 'Settings › Access tokens' }).click();
+        await expect(page).toHaveURL(new RegExp(`/realms/${realm.slug}/settings\\?section=tokens`));
+        await expect(page.getByRole('heading', { name: 'Access tokens', level: 2 })).toBeVisible({ timeout: 10_000 });
     });
 
-    test('mint without token name shows validation error', async ({ page }) => {
+    test('token without a name cannot be created', async ({ page }) => {
         test.setTimeout(60_000);
         await api_login(page, TEST_USER.username, TEST_USER.password);
         const realm = await api_create_realm(page, 'e2e-mintval', 'Mint');
 
-        await page.goto(realm_url(realm.org_slug, realm.slug));
-        await expect(page.getByRole('heading', { name: realm.name })).toBeVisible({ timeout: 15_000 });
-        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings/security/tokens?form=1'));
-        await expect(page.getByRole('heading', { name: 'Mint realm token' })).toBeVisible({ timeout: 15_000 });
-        await page.getByRole('button', { name: /^mint$/i }).click();
-        await expect(page.getByText(/token name is required/i)).toBeVisible({ timeout: 5_000 });
+        await page.goto(realm_url(realm.org_slug, realm.slug, 'settings?section=tokens'));
+        await expect(page.getByRole('heading', { name: 'Access tokens', level: 2 })).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByLabel('Token name')).toHaveValue('');
+        await expect(page.getByRole('button', { name: /^create token$/i })).toBeDisabled();
+        await page.getByLabel('Token name').fill('   ');
+        await expect(page.getByRole('button', { name: /^create token$/i })).toBeDisabled();
     });
 
     test('unauthenticated daemons redirects to login', async ({ page }) => {
         await expect_login_redirect(page, '/daemons');
     });
 
-    test('dashboard daemon counts match daemons list for the same user', async ({ page }) => {
+    test('overview daemon counts match daemons list for the same user', async ({ page }) => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
-        // DASH-ORG / DAE-ORG invent: body org_id required (never invent from header).
         const org_id = await api_current_org_id(page);
 
-        const summary_res = await page.request.post('/v1/dashboard/summary', {
-            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            data: { org_id },
-        });
-        expect(summary_res.ok()).toBe(true);
-        const summary = await summary_res.json();
-        expect(summary.ok).toBe(true);
+        const overview = await expect_api_ok(await api_post(page, '/v1/overview/get', { org_ids: [org_id] }));
+        const overview_data = overview.data as { orgs: Array<{ id: string; counts: { daemons_total: number; daemons_online: number } }> };
+        const org = overview_data.orgs.find((o) => o.id === org_id);
+        expect(org, `org ${org_id} missing from overview: ${JSON.stringify(overview)}`).toBeTruthy();
 
-        const list_res = await page.request.post('/v1/daemons/get', {
-            headers: { 'Content-Type': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
-            data: { org_id },
-        });
-        expect(list_res.ok()).toBe(true);
-        const list = await list_res.json();
-        expect(list.ok).toBe(true);
-
-        const listed = (list.daemons ?? []) as Array<{ status?: string }>;
-        const online = listed.filter((d) => d.status === 'online').length;
-        expect(summary.counts.daemons_total).toBe(listed.length);
-        expect(summary.counts.daemons_online).toBe(online);
+        const listed = await expect_api_ok(await api_post(page, '/v1/daemons/get', { org_id, limit: 200 }));
+        const list_data = listed.data as { items: Array<{ status?: string }>; total: number };
+        const online = list_data.items.filter((d) => d.status === 'online').length;
+        expect(org!.counts.daemons_total).toBe(list_data.total);
+        expect(org!.counts.daemons_online).toBe(online);
     });
 });

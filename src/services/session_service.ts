@@ -151,9 +151,25 @@ export class SessionService {
         }
     }
 
-    /** The (acted-as) user of a session. */
+    /**
+     * The (acted-as) user of a session. Profile fields (display name, email,
+     * preferences) are read live from Core so edits show without a new sign-in;
+     * when Core is unreachable the session row's snapshot is returned.
+     */
     async get(session: SessionRecord): Promise<SessionData> {
-        return to_session_data(session);
+        const data = to_session_data(session);
+        const live = await best_effort(log, 'session_profile_read_failed',
+            this._identity_repo.get_user_by_id(session.act_as_user_id, session.target_token, true), null);
+        if (!live) return data;
+        return {
+            ...data,
+            user: {
+                ...data.user,
+                display_name: live.display_name || live.username || data.user.display_name,
+                email: live.email ?? data.user.email,
+                preferences: live.preferences ?? data.user.preferences,
+            },
+        };
     }
 
     /**

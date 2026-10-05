@@ -263,6 +263,19 @@ describe('SessionService', () => {
             expect(data.acting_as).toEqual({ actor_id: ALICE_ID, actor_username: 'alice' });
             expect(data.default_realm_slug).toBe('bob-default');
         });
+
+        it('reads the profile live from Core with the acted-as token, so edits show without a new sign-in', async () => {
+            mock_identity_repo.get_user_by_id.mockResolvedValue({ ...ALICE_USER, display_name: 'Alice Renamed', email: 'new@test.com' });
+            const data = await service.get(base_session());
+            expect(mock_identity_repo.get_user_by_id).toHaveBeenCalledWith(ALICE_ID, 'cliq_tok_user', true);
+            expect(data.user).toMatchObject({ username: 'alice', display_name: 'Alice Renamed', email: 'new@test.com', preferences: { theme: 'dark' } });
+        });
+
+        it('falls back to the session row when Core cannot be read', async () => {
+            mock_identity_repo.get_user_by_id.mockRejectedValue(new Error('down'));
+            const data = await service.get(base_session());
+            expect(data.user).toMatchObject({ display_name: 'alice', email: 'alice@test.com', preferences: {} });
+        });
     });
 
     describe('update — act as', () => {
