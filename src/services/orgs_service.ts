@@ -82,7 +82,7 @@ export class OrgsService {
         return to_org_detail_data(await this._repo.get_by_id(input, token));
     }
 
-    /** Renames an org (display name only). */
+    /** Renames an org and/or makes a member an owner. */
     async update(input: OrgsUpdateInput, token: string): Promise<OrgsUpdateData> {
         return to_orgs_update_data(await this._repo.update(input, token));
     }

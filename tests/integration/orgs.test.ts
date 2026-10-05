@@ -260,6 +260,32 @@ describe('Orgs integration', () => {
             expect(res.body.data.updated).toBe(true);
         });
 
+        it('forwards owner_id to Core to make a member an owner', async () => {
+            const sid = make_session();
+            const core = vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({ updated: true });
+            const owner_id = hub_legacy_uuid(7);
+
+            const res = await request(app)
+                .post('/v1/orgs/update')
+                .set(CSRF)
+                .set('Cookie', `test_sid=${sid}`)
+                .send({ org_id: hub_legacy_uuid(1), owner_id });
+
+            expect(res.status).toBe(200);
+            expect(core.mock.calls[0].slice(0, 2)).toEqual(['/internal/orgs/update', { org_id: hub_legacy_uuid(1), owner_id }]);
+        });
+
+        it('returns 422 when neither display_name nor owner_id is given', async () => {
+            const sid = make_session();
+            const res = await request(app)
+                .post('/v1/orgs/update')
+                .set(CSRF)
+                .set('Cookie', `test_sid=${sid}`)
+                .send({ org_id: hub_legacy_uuid(1) });
+
+            expect(res.status).toBe(422);
+        });
+
         it('returns 422 on empty display_name', async () => {
             const sid = make_session();
             const res = await request(app)

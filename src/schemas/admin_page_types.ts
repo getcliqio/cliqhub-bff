@@ -24,6 +24,8 @@ const QueryField = z.string().trim().max(200).optional()
     .describe('Free-text match');
 const OrgIdField = z.string().uuid().optional()
     .describe('Only this org (org picker)');
+const RealmIdField = z.string().trim().min(1).max(200).optional()
+    .describe('Only this realm (realm picker)');
 const limit_field = (dflt: number, max = 100) => z.number().int().min(1).max(max).default(dflt)
     .describe(`Page size (default ${dflt}, max ${max})`);
 const OffsetField = z.number().int().min(0).default(0)
@@ -54,6 +56,7 @@ export const AdminListGetInput = z.discriminatedUnion('kind', [
         filter: z.enum(['all', 'online', 'stale', 'offline']).default('all')
             .describe('Daemon status chip'),
         org_id: OrgIdField,
+        realm_id: RealmIdField,
         query: QueryField,
         limit: limit_field(25),
         offset: OffsetField,
@@ -63,6 +66,10 @@ export const AdminListGetInput = z.discriminatedUnion('kind', [
         kind: z.literal('teams').describe('Team inventory (marketplace listing)'),
         filter: z.enum(['listed', 'unlisted']).default('listed')
             .describe('Listed in the marketplace or not'),
+        org_id: z.string().uuid().optional()
+            .describe('Only teams published under a scope of this org (org picker)'),
+        realm_id: z.string().trim().min(1).max(200).optional()
+            .describe('Only teams installed on a daemon of this realm (realm picker)'),
         query: QueryField,
         limit: limit_field(25),
         offset: OffsetField,
@@ -98,6 +105,10 @@ export const AdminListGetInput = z.discriminatedUnion('kind', [
         kind: z.literal('workspaces').describe('Workspaces across the hub'),
         filter: z.enum(['all']).default('all')
             .describe('Only "all"'),
+        org_id: z.string().uuid().optional()
+            .describe('Only workspaces that run in this org: on a daemon of one of its realms, or with a run there (org picker)'),
+        realm_id: z.string().trim().min(1).max(200).optional()
+            .describe('Only workspaces that run in this realm: on one of its daemons, or with a run there (realm picker)'),
         limit: limit_field(25),
         offset: OffsetField,
         ...sort_fields(['name', 'created_at']),
@@ -109,6 +120,7 @@ export const AdminListGetInput = z.discriminatedUnion('kind', [
         range: z.enum(['24h', '7d', '30d', 'all']).default('24h')
             .describe('Started within this window'),
         org_id: OrgIdField,
+        realm_id: RealmIdField,
         query: QueryField,
         limit: limit_field(25),
         offset: OffsetField,
@@ -162,6 +174,8 @@ export interface AdminTeamRowData {
     /** Number of versions; null when Core doesn't send it (TeamData has none). */
     version_count: number | null;
     author_username: string | null; updated_at: string | null;
+    /** Org that owns the team's scope; null for a personal scope (or an older Core). */
+    org_id: string | null; org_slug: string | null;
     /** Listed in the Marketplace but nothing installable. */
     listed_without_version: boolean;
 }
@@ -175,9 +189,12 @@ export interface AdminRealmRowData {
     id: string; slug: string; name: string; org_slug: string | null;
     created_by_username: string | null; created_at: number | null;
 }
-/** `workspaces` row with its daemon and latest run. */
+/** `workspaces` row: where it runs (daemons, realms, orgs — from its daemon and its runs) and its latest run. */
 export interface AdminWorkspaceRowData {
     id: string; name: string | null; path: string; daemon_id: string | null; daemon_name: string | null;
+    daemons: Array<{ id: string; name: string | null }>;
+    realms: AdminRealmRef[];
+    orgs: AdminOrgOptionData[];
     teams: string[]; active_runs: number; latest_run: { run_id: string; state: string; started_at: number | null } | null;
     updated_at: number | null;
 }
@@ -201,7 +218,7 @@ export interface AdminScopeRowData {
 export type AdminListRowData = AdminAccountRowData | AdminDaemonRowData | AdminTeamRowData | AdminAuditRowData
     | AdminRealmRowData | AdminWorkspaceRowData | AdminRunRowData | AdminLogRowData | AdminScopeRowData;
 
-/** Org picker option. */
+/** An org a row belongs to. */
 export interface AdminOrgOptionData { id: string; slug: string; display_name: string }
 
 /** `admin_list/get` */
@@ -220,8 +237,6 @@ export interface AdminListData {
     needs_org: boolean;
     /** Filters this Core can't apply yet (dropped rather than silently ignored). */
     unsupported: string[];
-    /** Daemons / realms / runs / scopes (hub-wide): orgs for the org picker. */
-    org_options?: AdminOrgOptionData[];
     /** `sort_by` keys Core applies to this list today (lib/core_list.ts); the SPA shows sort headers only for these. */
     sortable: string[];
 }

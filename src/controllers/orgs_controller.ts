@@ -6,7 +6,7 @@
  *   POST /v1/orgs/new                    — create an org, invite its owner (site_admin)
  *   POST /v1/orgs/delete                 — soft-delete an org             (site_admin)
  *   POST /v1/orgs/get_by_id              — org detail
- *   POST /v1/orgs/update                 — rename
+ *   POST /v1/orgs/update                 — rename and/or make a member an owner
  *   POST /v1/orgs/leave                  — caller leaves the org
  *   POST /v1/orgs/remove_member          — remove a member
  *   POST /v1/orgs/list_roles             — org roles

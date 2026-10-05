@@ -82,6 +82,8 @@ export function to_team_row(t: Row): AdminTeamRowData {
         version_count,
         author_username: (t.author_username as string | null) ?? (t.author as string | null) ?? null,
         updated_at: iso(t.updated_at),
+        org_id: t.org_id ? String(t.org_id) : null,
+        org_slug: (t.org_slug as string | null) ?? null,
         listed_without_version: listed && no_version,
     };
 }
@@ -101,13 +103,20 @@ export function to_realm_ref(r: Row): AdminRealmRef {
     return { id: String(r.id), slug: String(r.slug ?? ''), org_slug: (r.org_slug as string | null) ?? null };
 }
 
-/** @param daemon_names - daemon id → display name */
-export function to_workspace_row(w: Row, daemon_names: Map<string, string | null>): AdminWorkspaceRowData {
+/** Core workspaces/get row (carries its daemons, realms and orgs) → admin workspace row. */
+export function to_workspace_row(w: Row): AdminWorkspaceRowData {
     const latest = w.latest_run as Row | null | undefined;
     const daemon_id = (w.daemon_id as string | null) ?? null;
+    const list = (v: unknown) => (Array.isArray(v) ? v as Row[] : []);
+    const daemons = list(w.daemons).map((d) => ({ id: String(d.id), name: (d.name as string | null) ?? null }));
+    const orgs = list(w.orgs).map((o) => ({ id: String(o.id), slug: String(o.slug ?? ''), display_name: String(o.display_name ?? o.slug ?? '') }));
+    const org_slug = (id: unknown) => (id ? orgs.find((o) => o.id === String(id))?.slug ?? null : null);
     return {
         id: String(w.id ?? w.workspace_id), name: (w.name as string | undefined) ?? null, path: String(w.path ?? w.workspace_dir ?? ''),
-        daemon_id, daemon_name: daemon_id ? daemon_names.get(daemon_id) ?? null : null,
+        daemon_id, daemon_name: (daemon_id ? daemons.find((d) => d.id === daemon_id)?.name : daemons[0]?.name) ?? null,
+        daemons,
+        realms: list(w.realms).map((r) => ({ id: String(r.id), slug: String(r.slug ?? ''), org_slug: (r.org_slug as string | null) ?? org_slug(r.org_id) })),
+        orgs,
         teams: (Array.isArray(w.teams) ? w.teams as Row[] : []).map((t) => `@${t.scope}/${t.slug}`),
         active_runs: Array.isArray(w.active_runs) ? w.active_runs.length : 0,
         latest_run: latest ? { run_id: String(latest.run_id), state: String(latest.state), started_at: num(latest.started_at) } : null,
@@ -115,30 +124,32 @@ export function to_workspace_row(w: Row, daemon_names: Map<string, string | null
     };
 }
 
-/** @param realms - realm id → link target */
-export function to_run_row(r: Row, realms: Map<string, AdminRealmRef>): AdminRunRowData {
+/** Realm link target from a Core row's `realm_id` / `realm_slug` / `org_slug`. */
+function realm_of(r: Row): AdminRealmRef | null {
+    return r.realm_id && r.realm_slug ? { id: String(r.realm_id), slug: String(r.realm_slug), org_slug: (r.org_slug as string | null) ?? null } : null;
+}
+
+export function to_run_row(r: Row): AdminRunRowData {
     return {
         run_id: String(r.run_id), run_name: (r.run_name as string | null) ?? null, state: String(r.state ?? ''),
         team_label: (r.team_label as string | null) ?? null, daemon_id: (r.daemon_id as string | null) ?? null,
         workspace_name: (r.workspace_name as string | null) ?? null, started_at: num(r.started_at), last_updated_at: num(r.last_updated_at),
-        realm: r.realm_id ? realms.get(String(r.realm_id)) ?? null : null,
+        realm: realm_of(r),
     };
 }
 
-/** @param realms - realm id → link target */
-export function to_log_row(l: Row, realms: Map<string, AdminRealmRef>): AdminLogRowData {
+export function to_log_row(l: Row): AdminLogRowData {
     return {
         id: String(l.id), run_id: String(l.run_id), run_name: (l.run_name as string | null) ?? null, created_at: num(l.created_at) ?? 0,
         level: String(l.level ?? 'info'), message: String(l.message ?? ''), daemon_name: (l.daemon_name as string | null) ?? null,
-        team: (l.team as string | null) ?? null, realm: l.realm_id ? realms.get(String(l.realm_id)) ?? null : null,
+        team: (l.team as string | null) ?? null, realm: realm_of(l),
     };
 }
 
-/** @param org_slugs - org id → slug */
-export function to_scope_row(s: Row, org_slugs: Map<string, string>): AdminScopeRowData {
+export function to_scope_row(s: Row): AdminScopeRowData {
     return {
         id: String(s.id), slug: String(s.slug ?? ''), display_name: String(s.display_name ?? ''), org_id: (s.org_id as string | null) ?? null,
-        org_slug: s.org_id ? org_slugs.get(String(s.org_id)) ?? null : null, owner_username: (s.owner_username as string | null) ?? null,
+        org_slug: (s.org_slug as string | null) ?? null, owner_username: (s.owner_username as string | null) ?? null,
         visibility: String(s.visibility ?? 'private'), scope_type: String(s.scope_type ?? ''), team_count: num(s.team_count) ?? 0, created_at: iso(s.created_at),
     };
 }

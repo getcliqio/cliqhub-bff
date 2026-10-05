@@ -112,9 +112,11 @@ export type OrgIdInput = z.infer<typeof OrgIdInput>;
 /** POST /v1/orgs/update */
 export const OrgsUpdateInput = z.object({
     org_id: OrgIdField,
-    display_name: z.string().min(1, 'display_name is required')
+    display_name: z.string().min(1, 'display_name is required').optional()
         .describe('New display name'),
-});
+    owner_id: z.string().uuid().optional()
+        .describe('Active member to make an owner of the org (site admin or an existing owner only). Orgs may have several owners; the first one becomes the org\'s primary owner.'),
+}).refine((b) => b.display_name !== undefined || b.owner_id !== undefined, { message: 'At least one of display_name or owner_id is required' });
 export type OrgsUpdateInput = z.infer<typeof OrgsUpdateInput>;
 
 /** POST /v1/orgs/remove_member */

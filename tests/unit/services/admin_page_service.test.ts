@@ -113,7 +113,8 @@ describe('AdminPageService.list', () => {
         expect(dto.counts).toEqual({ all: 64, online: 1, stale: 1, offline: 4 });
         expect(dto.items[0]).toMatchObject({ id: 'd1', realms: [{ slug: 'eu', org_slug: 'm1' }] });
         expect(dto.hub_wide).toBe(true);
-        expect(dto.org_options).toEqual([{ id: 'o1', slug: 'm1', display_name: 'MeasureOne' }]);
+        // Pickers search orgs/get and realms/get themselves; the list never loads every org.
+        expect(c.calls.some((x) => x.path === '/v1/orgs/get' || x.path === '/v1/realms/get')).toBe(false);
     });
 
     it('teams: listed / unlisted with counts', async () => {
@@ -121,7 +122,33 @@ describe('AdminPageService.list', () => {
         const dto = await new AdminPageService(new CoreReadRepository(c.client), compat(2)).list({ kind: 'teams', filter: 'unlisted', limit: 25, offset: 0 }, 'tok');
         expect(c.calls[0].body).toMatchObject({ listed: false });
         expect(dto.counts).toEqual({ listed: 96, unlisted: 116 });
-        expect(dto.items[0]).toEqual({ id: 't1', name: 'recon', scope: 'acme', description: null, visibility: 'private', listed: false, install_count: 3, version_count: null, author_username: 'ana', updated_at: '1970-01-01T00:00:00.005Z', listed_without_version: false });
+        expect(dto.items[0]).toEqual({ id: 't1', name: 'recon', scope: 'acme', description: null, visibility: 'private', listed: false, install_count: 3, version_count: null, author_username: 'ana', updated_at: '1970-01-01T00:00:00.005Z', org_id: null, org_slug: null, listed_without_version: false });
+    });
+
+    it('teams / workspaces / daemons / runs: org and realm filters narrow Core reads; rows say which org and realm', async () => {
+        const ORG = '00000000-0000-4000-8000-0000000000a1';
+        const c = core((p, b) => {
+            if (p === '/v1/teams/get') return { ok: true, data: { items: b.limit === 1 ? [] : [{ id: 't1', name: 'recon', scope: 'acme', listed: true, org_id: ORG, org_slug: 'acme', latest_version: '1.0.0' }], total: 1 } };
+            if (p === '/v1/workspaces/get') return { ok: true, workspaces: [{ id: 'w1', path: '/w', daemons: [{ id: 'd1', name: 'mac' }, { id: 'd2', name: null }], realms: [{ id: 'r1', slug: 'prod', name: 'Prod', org_id: ORG }], orgs: [{ id: ORG, slug: 'acme', display_name: 'Acme' }] }], total: 1 };
+            return { ok: true, data: { items: [], total: 0 } };
+        });
+        const s = new AdminPageService(new CoreReadRepository(c.client), compat(6), () => NOW);
+        const body = (path: string) => c.calls.find((x) => x.path === path && x.body.limit === 25)!.body;
+
+        const teams = await s.list({ kind: 'teams', filter: 'listed', org_id: ORG, realm_id: 'r1', limit: 25, offset: 0 }, 'tok');
+        expect(body('/v1/teams/get')).toMatchObject({ listed: true, org_id: ORG, installed_realm_id: 'r1' });
+        expect(c.calls.filter((x) => x.path === '/v1/teams/get' && x.body.limit === 1).every((x) => x.body.org_id === ORG && x.body.installed_realm_id === 'r1')).toBe(true);
+        expect(teams.items[0]).toMatchObject({ org_id: ORG, org_slug: 'acme' });
+
+        const ws = await s.list({ kind: 'workspaces', filter: 'all', org_id: ORG, realm_id: 'r1', limit: 25, offset: 0 }, 'tok');
+        expect(body('/v1/workspaces/get')).toMatchObject({ org_id: ORG, realm_id: 'r1' });
+        expect(ws.items[0]).toMatchObject({ daemon_name: 'mac', daemons: [{ id: 'd1', name: 'mac' }, { id: 'd2', name: null }], realms: [{ id: 'r1', slug: 'prod', org_slug: 'acme' }], orgs: [{ id: ORG, slug: 'acme', display_name: 'Acme' }] });
+
+        await s.list({ kind: 'daemons', filter: 'all', realm_id: 'r1', limit: 25, offset: 0 }, 'tok');
+        expect(body('/v1/daemons/get')).toMatchObject({ all: true, realm_id: 'r1' });
+        await s.list({ kind: 'runs', filter: 'all', range: 'all', realm_id: 'r1', limit: 25, offset: 0 }, 'tok');
+        expect(body('/v1/runs/get')).toMatchObject({ all: true, realm_id: 'r1' });
+        expect(c.calls.some((x) => x.path === '/v1/orgs/get' || x.path === '/v1/realms/get' || (x.path === '/v1/daemons/get' && x.body.limit !== 25 && x.body.limit !== 1))).toBe(false);
     });
 
     it('audit: older Core drops time/target filters and says so', async () => {
@@ -139,24 +166,22 @@ describe('AdminPageService.list', () => {
         expect(dto.unsupported).toEqual([]);
     });
 
-    it('realms: hub-wide on API 3 with org picker; membership view before', async () => {
-        const c = core((p) => p === '/v1/orgs/get' ? { ok: true, data: { orgs: [{ id: 'o1', slug: 'm1', display_name: 'M1' }], total: 1 } } : { ok: true, data: { items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'm1', created_by_username: 'sapan', created_at: 5 }], total: 1 } });
-        const dto = await new AdminPageService(new CoreReadRepository(c.client), compat(3)).list({ kind: 'realms', filter: 'all', query: 'pr', limit: 25, offset: 0 }, 'tok');
-        expect(c.calls.find((x) => x.path === '/v1/realms/get')!.body).toMatchObject({ all: true, query: 'pr', sort_by: 'created_at' });
+    it('realms: hub-wide on API 3; membership view before', async () => {
+        const c = core(() => ({ ok: true, data: { items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'm1', created_by_username: 'sapan', created_at: 5 }], total: 1 } }));
+        const dto = await new AdminPageService(new CoreReadRepository(c.client), compat(3)).list({ kind: 'realms', filter: 'all', query: 'pr', org_id: '00000000-0000-4000-8000-0000000000a1', limit: 25, offset: 0 }, 'tok');
+        expect(c.calls.find((x) => x.path === '/v1/realms/get')!.body).toMatchObject({ all: true, query: 'pr', org_id: '00000000-0000-4000-8000-0000000000a1', sort_by: 'created_at' });
         expect(dto.items[0]).toEqual({ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'm1', created_by_username: 'sapan', created_at: 5 });
-        expect(dto.org_options).toHaveLength(1);
+        expect(c.calls).toHaveLength(1);
         const old = core(() => ({ ok: true, data: { items: [], total: 0 } }));
         const d2 = await new AdminPageService(new CoreReadRepository(old.client), compat(2)).list({ kind: 'realms', filter: 'all', limit: 25, offset: 0 }, 'tok');
         expect(old.calls[0].body).not.toHaveProperty('all');
         expect(d2.hub_wide).toBe(false);
     });
 
-    it('runs: state chips + range, realm links resolved in the BFF', async () => {
-        const c = core((p, b) => {
-            if (p === '/v1/realms/get') return { ok: true, data: { items: [{ id: 'r1', slug: 'prod', org_slug: 'm1' }], total: 1 } };
-            if (p === '/v1/orgs/get') return { ok: true, data: { orgs: [], total: 0 } };
+    it('runs: state chips + range, realm links from the slugs on Core rows', async () => {
+        const c = core((_p, b) => {
             const n = !b.state ? 100 : b.state.includes('failed') ? 7 : 3;
-            return { ok: true, data: { items: b.limit === 1 ? [] : [{ run_id: 'x1', state: 'failed', realm_id: 'r1', started_at: 1 }], total: n } };
+            return { ok: true, data: { items: b.limit === 1 ? [] : [{ run_id: 'x1', state: 'failed', realm_id: 'r1', realm_slug: 'prod', org_slug: 'm1', started_at: 1 }], total: n } };
         });
         const dto = await new AdminPageService(new CoreReadRepository(c.client), compat(3), () => NOW).list({ kind: 'runs', filter: 'failed', range: '24h', limit: 25, offset: 0 }, 'tok');
         const main = c.calls.find((x) => x.path === '/v1/runs/get' && x.body.limit === 25)!.body;
@@ -178,12 +203,14 @@ describe('AdminPageService.list', () => {
     });
 
     it('workspaces and scopes map Core rows', async () => {
-        const w = core((p) => p === '/v1/daemons/get' ? { ok: true, data: { items: [{ id: 'd1', name: 'mac' }], total: 1 } } : { ok: true, workspaces: [{ id: 'w1', path: '/src/app', daemon_id: 'd1', teams: [{ scope: 'acme', slug: 'recon' }], active_runs: [{}], latest_run: { run_id: 'x', state: 'running', started_at: 2 }, updated_at: 3 }], total: 1 });
+        const w = core(() => ({ ok: true, workspaces: [{ id: 'w1', path: '/src/app', daemon_id: 'd1', daemons: [{ id: 'd1', name: 'mac' }], teams: [{ scope: 'acme', slug: 'recon' }], active_runs: [{}], latest_run: { run_id: 'x', state: 'running', started_at: 2 }, updated_at: 3 }], total: 1 }));
         const wd = await new AdminPageService(new CoreReadRepository(w.client), compat(3)).list({ kind: 'workspaces', filter: 'all', limit: 25, offset: 0 }, 'tok');
         expect(wd.items[0]).toMatchObject({ id: 'w1', daemon_name: 'mac', teams: ['@acme/recon'], active_runs: 1 });
-        const s = core((p) => p === '/v1/orgs/get' ? { ok: true, data: { orgs: [{ id: 'o1', slug: 'acme', display_name: 'Acme' }], total: 1 } } : { ok: true, data: { scopes: [{ id: 's1', slug: 'acme', display_name: 'Acme', org_id: 'o1', owner_username: 'ana', visibility: 'private', scope_type: 'org', team_count: '4', created_at: '2026-01-01' }], total: 1 } });
+        expect(w.calls).toHaveLength(1);
+        const s = core(() => ({ ok: true, data: { scopes: [{ id: 's1', slug: 'acme', display_name: 'Acme', org_id: 'o1', org_slug: 'acme', owner_username: 'ana', visibility: 'private', scope_type: 'org', team_count: '4', created_at: '2026-01-01' }], total: 1 } }));
         const sd = await new AdminPageService(new CoreReadRepository(s.client), compat(2)).list({ kind: 'scopes', filter: 'all', limit: 25, offset: 0 }, 'tok');
         expect(sd.items[0]).toMatchObject({ slug: 'acme', org_slug: 'acme', team_count: 4 });
+        expect(s.calls).toHaveLength(1);
     });
 });
 

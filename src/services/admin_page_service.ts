@@ -14,6 +14,9 @@
  * teams/get answers `{ ok, data: PagedData<TeamData> }`; rows map through
  * `to_team_row` (mappers/admin_page_mapper.ts).
  *
+ * Org / realm pickers search orgs/get and realms/get directly (SPA type-ahead); list rows carry
+ * their own org / realm slugs, so no list of every org or realm is loaded here.
+ *
  * Search goes to Core as `query` (`q` for runs/get_logs); `sort_by` only where
  * Core supports it (lib/core_list.ts), and each list says which keys work in `sortable`.
  */
@@ -25,10 +28,10 @@ import type { CoreReadRepository, CoreRead } from '../repositories/core_read_rep
 import type { CoreCompatService } from './core_compat_service.js';
 import type { CoreCompatData } from '../schemas/health_types.js';
 import type {
-    AdminHomeGetInput, AdminListGetInput, AdminHomeData, AdminListData, AdminAttentionData, AdminAuditRowData, AdminRealmRef,
+    AdminHomeGetInput, AdminListGetInput, AdminHomeData, AdminListData, AdminAttentionData, AdminAuditRowData,
 } from '../schemas/admin_page_types.js';
 import {
-    to_account_row, to_audit_row, to_daemon_row, to_log_row, to_realm_ref, to_realm_row, to_run_row, to_scope_row,
+    to_account_row, to_audit_row, to_daemon_row, to_log_row, to_realm_row, to_run_row, to_scope_row,
     to_team_row, to_workspace_row,
 } from '../mappers/admin_page_mapper.js';
 
@@ -137,7 +140,7 @@ export class AdminPageService {
         if (ownerless.length) {
             attention.push({ id: 'ownerless', severity: 'warn', title: `${ownerless.length} org${ownerless.length === 1 ? ' has' : 's have'} no owner`, detail: `${ownerless.slice(0, 3).map((o) => o.slug).join(', ')}${ownerless.length > 3 ? '…' : ''} — nobody can manage roles or delete them.`, href: ownerless.length === 1 ? `/admin/orgs/${ownerless[0].id}` : '/admin/orgs', action: 'Fix' });
         }
-        const no_version = (listed_teams?.items ?? []).map(to_team_row).filter((r) => r.listed_without_version);
+        const no_version = (listed_teams?.items ?? []).map((t) => to_team_row(t)).filter((r) => r.listed_without_version);
         if (no_version.length) {
             attention.push({ id: 'listed_no_version', severity: 'info', title: `${no_version.length} listed team${no_version.length === 1 ? ' has' : 's have'} no published version`, detail: 'They show in the Marketplace but can’t be installed.', href: '/admin/teams?filter=listed', action: 'Review' });
         }
@@ -158,19 +161,6 @@ export class AdminPageService {
             recent_audit: audit_rows.map(to_audit_row),
             partial: flag.partial,
         };
-    }
-
-    /** Org picker options (every live org); undefined when the read fails, so the picker is hidden. */
-    private async _org_options(token: string): Promise<AdminListData['org_options']> {
-        const res = await best_effort(log, 'admin_org_options_failed', this._reads.read('orgs.get', { limit: 100 }, token), null);
-        return res ? paged<Record<string, unknown>>(res, 'orgs').items.map((o) => ({ id: String(o.id), slug: String(o.slug ?? ''), display_name: String(o.display_name ?? o.slug ?? '') })) : undefined;
-    }
-
-    /** realm_id → {slug, org_slug} for links (runs/logs rows carry only realm_id). */
-    private async _realm_map(token: string, v3: boolean): Promise<Map<string, AdminRealmRef>> {
-        const res = await best_effort(log, 'admin_realm_map_failed', this._reads.read('realms.get', { ...(v3 ? { all: true } : {}), limit: 100 }, token), null);
-        const items = res ? paged<Record<string, unknown>>(res).items : [];
-        return new Map(items.map((r) => [String(r.id), to_realm_ref(r)]));
     }
 
     /**
@@ -212,19 +202,18 @@ export class AdminPageService {
             if (!v3 && !p.org_id) {
                 return { kind: 'daemons', filter: p.filter, items: [], total: 0, ...page, counts: { all: null, online: null, stale: null, offline: null }, hub_wide: false, needs_org: true, unsupported: [], sortable: [] };
             }
-            const scope: Record<string, unknown> = { ...(v3 ? { all: true } : {}), ...(p.org_id ? { org_id: p.org_id } : {}), ...q };
+            const scope: Record<string, unknown> = { ...(v3 ? { all: true } : {}), ...(p.org_id ? { org_id: p.org_id } : {}), ...(p.realm_id ? { realm_id: p.realm_id } : {}), ...q };
             const status = (f: string) => (f === 'all' ? {} : { status: f });
             const keys = ['all', 'online', 'stale', 'offline'] as const;
-            const [rows, org_options, ...counts] = await Promise.all([
+            const [rows, ...counts] = await Promise.all([
                 this._reads.read('daemons.get', { ...scope, ...status(p.filter), ...core_sort('daemons.get', p, {}, api), ...page }, token),
-                v3 ? this._org_options(token) : Promise.resolve(undefined),
                 ...keys.map((k) => count('daemons.get', { ...scope, ...status(k) }, k)),
             ]);
             const pg = paged<Record<string, unknown>>(rows);
             return {
                 kind: 'daemons', filter: p.filter, items: pg.items.map(to_daemon_row), total: pg.total, ...page,
                 counts: Object.fromEntries(keys.map((k, i) => [k, counts[i] as number | null])),
-                hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('daemons.get', api), ...(org_options ? { org_options } : {}),
+                hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('daemons.get', api),
             };
         }
 
@@ -245,25 +234,19 @@ export class AdminPageService {
 
         if (p.kind === 'realms') {
             const scope = { ...(v3 ? { all: true } : {}), ...(p.org_id ? { org_id: p.org_id } : {}), ...q };
-            const [rows, org_options] = await Promise.all([
-                this._reads.read('realms.get', { ...scope, ...core_sort('realms.get', p, { sort_by: 'created_at', sort_dir: 'desc' }, api), ...page }, token),
-                v3 ? this._org_options(token) : Promise.resolve(undefined),
-            ]);
+            const rows = await this._reads.read('realms.get', { ...scope, ...core_sort('realms.get', p, { sort_by: 'created_at', sort_dir: 'desc' }, api), ...page }, token);
             const pg = paged<Record<string, unknown>>(rows);
             const items = pg.items.map(to_realm_row);
-            return { kind: 'realms', filter: 'all', items, total: pg.total, ...page, counts: { all: pg.total }, hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('realms.get', api), ...(org_options ? { org_options } : {}) };
+            return { kind: 'realms', filter: 'all', items, total: pg.total, ...page, counts: { all: pg.total }, hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('realms.get', api) };
         }
 
         if (p.kind === 'workspaces') {
-            const [rows, daemons] = await Promise.all([
-                this._reads.read('workspaces.get', { ...core_sort('workspaces.get', p, {}, api), ...page }, token),
-                // Daemon names only label rows; without them `daemon_name` stays null.
-                v3 ? best_effort(log, 'admin_workspace_daemons_failed', this._reads.read('daemons.get', { all: true, limit: 200 }, token), null) : Promise.resolve(null),
-            ]);
+            const tenant = { ...(p.org_id ? { org_id: p.org_id } : {}), ...(p.realm_id ? { realm_id: p.realm_id } : {}) };
+            // Core's rows carry their daemons (with names), realms and orgs.
+            const rows = await this._reads.read('workspaces.get', { ...tenant, ...core_sort('workspaces.get', p, {}, api), ...page }, token);
             const d = data_of<Record<string, unknown>>(rows) ?? {};
             const list = (Array.isArray(d.workspaces) ? d.workspaces : []) as Array<Record<string, unknown>>;
-            const names = new Map((daemons ? paged<Record<string, unknown>>(daemons).items : []).map((x) => [String(x.id), (x.name as string | null) ?? (x.hostname as string | null) ?? null]));
-            const items = list.map((w) => to_workspace_row(w, names));
+            const items = list.map(to_workspace_row);
             return { kind: 'workspaces', filter: 'all', items, total: num(d.total) ?? items.length, ...page, counts: { all: num(d.total) ?? items.length }, hub_wide: true, needs_org: false, unsupported: [], sortable: sortable_keys('workspaces.get', api) };
         }
 
@@ -273,20 +256,18 @@ export class AdminPageService {
             }
             const range_ms = RANGE_MS[p.range];
             const scope: Record<string, unknown> = {
-                ...(v3 ? { all: true } : {}), ...(p.org_id ? { org_id: p.org_id } : {}), ...q,
+                ...(v3 ? { all: true } : {}), ...(p.org_id ? { org_id: p.org_id } : {}), ...(p.realm_id ? { realm_id: p.realm_id } : {}), ...q,
                 ...(range_ms != null ? { since_ms: Math.floor((this._now() - range_ms) / 60_000) * 60_000 } : {}),
             };
             const state = (f: string) => (RUN_STATES[f] ? { state: RUN_STATES[f] } : {});
             const keys = ['all', 'running', 'awaiting_input', 'failed', 'completed'] as const;
-            const [rows, realms, org_options, ...counts] = await Promise.all([
+            const [rows, ...counts] = await Promise.all([
                 this._reads.read('runs.get', { ...scope, ...state(p.filter), ...core_sort('runs.get', p, { sort_by: 'started_at', sort_dir: 'desc' }, api), ...page }, token),
-                this._realm_map(token, v3),
-                v3 ? this._org_options(token) : Promise.resolve(undefined),
                 ...keys.map((k) => count('runs.get', { ...scope, ...state(k) }, k)),
             ]);
             const pg = paged<Record<string, unknown>>(rows);
-            const items = pg.items.map((r) => to_run_row(r, realms));
-            return { kind: 'runs', filter: p.filter, items, total: pg.total, ...page, counts: Object.fromEntries(keys.map((k, i) => [k, counts[i] as number | null])), hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('runs.get', api), ...(org_options ? { org_options } : {}) };
+            const items = pg.items.map(to_run_row);
+            return { kind: 'runs', filter: p.filter, items, total: pg.total, ...page, counts: Object.fromEntries(keys.map((k, i) => [k, counts[i] as number | null])), hub_wide: v3, needs_org: false, unsupported: [], sortable: sortable_keys('runs.get', api) };
         }
 
         if (p.kind === 'logs') {
@@ -299,12 +280,12 @@ export class AdminPageService {
                 ...(range_ms != null ? { since_ms: Math.floor((this._now() - range_ms) / 60_000) * 60_000 } : {}),
                 ...page,
             };
-            const [res, realms] = await Promise.all([this._reads.read('runs.get_logs', body, token), this._realm_map(token, v3)]);
+            const res = await this._reads.read('runs.get_logs', body, token);
             const d = data_of<Record<string, unknown>>(res) ?? {};
             const lines = (Array.isArray(d.lines) ? d.lines : []) as Array<Record<string, unknown>>;
             const facets = (d.facets as { level?: Array<{ value: string; count: number }> } | undefined)?.level ?? [];
             const by_level = new Map(facets.map((f) => [f.value, f.count]));
-            const items = lines.map((l) => to_log_row(l, realms));
+            const items = lines.map(to_log_row);
             return {
                 kind: 'logs', filter: p.filter, items, total: num(d.total) ?? items.length, ...page,
                 // Level chip counts come from Core's level facet (only meaningful before a level is picked).
@@ -314,22 +295,20 @@ export class AdminPageService {
         }
 
         if (p.kind === 'scopes') {
-            const [rows, org_options] = await Promise.all([
-                this._reads.read('orgs.get_scopes', { ...(p.org_id ? { org_id: p.org_id } : {}), ...q, ...core_sort('orgs.get_scopes', p, {}, api), ...page }, token),
-                this._org_options(token),
-            ]);
+            const rows = await this._reads.read('orgs.get_scopes', { ...(p.org_id ? { org_id: p.org_id } : {}), ...q, ...core_sort('orgs.get_scopes', p, {}, api), ...page }, token);
             const pg = paged<Record<string, unknown>>(rows, 'scopes');
-            const slug_by_org = new Map((org_options ?? []).map((o) => [o.id, o.slug]));
-            const items = pg.items.map((s) => to_scope_row(s, slug_by_org));
-            return { kind: 'scopes', filter: 'all', items, total: pg.total, ...page, counts: { all: pg.total }, hub_wide: true, needs_org: false, unsupported: [], sortable: sortable_keys('orgs.get_scopes', api), ...(org_options ? { org_options } : {}) };
+            const items = pg.items.map(to_scope_row);
+            return { kind: 'scopes', filter: 'all', items, total: pg.total, ...page, counts: { all: pg.total }, hub_wide: true, needs_org: false, unsupported: [], sortable: sortable_keys('orgs.get_scopes', api) };
         }
 
         // teams — Core's admin inventory needs `listed` set; answers PagedData<TeamData> (`items`).
         const listed = p.filter === 'listed';
+        // Core's site-admin inventory: org = owning scope's org, installed_realm_id = installed on one of the realm's daemons.
+        const tenant = { ...(p.org_id ? { org_id: p.org_id } : {}), ...(p.realm_id ? { installed_realm_id: p.realm_id } : {}) };
         const [rows, c_listed, c_unlisted] = await Promise.all([
-            this._reads.read('teams.get', { listed, ...q, ...core_sort('teams.get:catalog', p, {}, api), ...page }, token),
-            count('teams.get', { listed: true, ...q }, 'listed'),
-            count('teams.get', { listed: false, ...q }, 'unlisted'),
+            this._reads.read('teams.get', { listed, ...tenant, ...q, ...core_sort('teams.get:catalog', p, {}, api), ...page }, token),
+            count('teams.get', { listed: true, ...tenant, ...q }, 'listed'),
+            count('teams.get', { listed: false, ...tenant, ...q }, 'unlisted'),
         ]);
         const pg = paged<Record<string, unknown>>(rows);
         return {
