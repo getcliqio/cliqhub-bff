@@ -7,7 +7,7 @@
  *   teams/get_by_id           — the team (also the visibility gate), any version
  *   teams/get_phases          — phase shape per team / per run version
  *   realms/get                — realms to check for installs
- *   runs/get { team_id }, runs/get_by_id, runs/get_status — runs and the workflow overlay
+ *   runs/get { team: { scope, slug } }, runs/get_by_id, runs/get_status — runs and the workflow overlay
  */
 
 import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
@@ -215,7 +215,8 @@ export class TeamPageService {
             can_edit: Boolean(raw.can_edit), can_delete: Boolean(raw.can_delete), can_toggle_listing: Boolean(raw.can_toggle_listing),
             draft_saved_at: raw.draft?.manifest ? (raw.draft.saved_at ?? null) : null,
         };
-        const run_scope = { team_id, ...(input.org_id ? { org_id: input.org_id } : {}) };
+        // Runs carry their team's install id (one per daemon), not this published id: list by name.
+        const run_scope = { team: { scope: scope ?? input.scope ?? '', slug: name }, ...(input.org_id ? { org_id: input.org_id } : {}) };
         // Started now, awaited last (only when the tab didn't already count runs).
         const runs_total = best_effort(log, 'team_page_runs_total_failed', this._control.runs_for_team({ ...run_scope, limit: 1 }, token).then((r) => r.total), null, { team_id });
 
@@ -237,7 +238,7 @@ export class TeamPageService {
             if (run_id) {
                 // run_by_id is the access check for the run; statuses only after it.
                 const run = await best_effort(log, 'team_page_overlay_run_failed', this._control.run_by_id(run_id, token), null, { team_id, run_id });
-                if (run && run.team_id === team_id) {
+                if (run && run.team_label === label_of(scope, name)) {
                     const rows = await best_effort(log, 'team_page_overlay_phases_failed', this._control.run_phases(run_id, token), [], { team_id, run_id });
                     const statuses: Record<string, string> = {};
                     for (const r of rows) statuses[r.phase] = r.status;

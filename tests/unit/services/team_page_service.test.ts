@@ -34,7 +34,8 @@ function mocks() {
             runs_for_team: vi.fn().mockImplementation(async (f: { limit: number; state?: unknown }) => (f.limit === 1
                 ? { items: [], total: f.state === 'running' ? 1 : f.state === 'awaiting_input' ? 2 : f.state ? 3 : 9 }
                 : { items: [{ run_id: 'run1', realm_id: 'r1', team_id: TEAM_ID, state: 'running', run_name: 'PROJ-1' }], total: 9 })),
-            run_by_id: vi.fn().mockResolvedValue({ run_id: 'run1', realm_id: 'r1', team_id: TEAM_ID, state: 'running', team_version_id: 'v-old' }),
+            // Runs carry their team's install id; the team is matched by label.
+            run_by_id: vi.fn().mockResolvedValue({ run_id: 'run1', realm_id: 'r1', team_id: 'install-1', team_label: '@acme/feature-dev', state: 'running', team_version_id: 'v-old' }),
             run_phases: vi.fn().mockResolvedValue([{ phase: 'fetch', status: 'completed' }, { phase: 'architect', status: 'running' }]),
         },
         teams: {
@@ -161,7 +162,7 @@ describe('TeamPageService.page', () => {
         expect(data.overview?.inputs).toEqual([{ name: 'ticket', description: 'Jira key', required: true, default: null }]);
         expect(data.overview?.installs.map((i) => i.realm_slug)).toEqual(['prod', 'stg']);
         expect(m.teams.get).toHaveBeenCalledWith({ realm_id: 'r1', limit: 20, offset: 0, query: 'feature-dev' }, 'tok');
-        expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, limit: 1 }, 'tok');
+        expect(m.control.runs_for_team).toHaveBeenCalledWith({ team: { scope: 'acme', slug: 'feature-dev' }, limit: 1 }, 'tok');
     });
 
     it('header says when an editor has unpublished changes (working copy saved_at), else null', async () => {
@@ -183,7 +184,7 @@ describe('TeamPageService.page', () => {
 
     it('workflow: a run of another team is never overlaid', async () => {
         const m = mocks();
-        m.control.run_by_id.mockResolvedValue({ run_id: 'x', team_id: 'other', state: 'running' });
+        m.control.run_by_id.mockResolvedValue({ run_id: 'x', team_id: 'other', team_label: '@acme/other', state: 'running' });
         const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'workflow', run_id: 'x' }, 'tok');
         expect(data.workflow?.overlay).toBeNull();
         expect(m.control.run_phases).not.toHaveBeenCalled();
@@ -194,10 +195,10 @@ describe('TeamPageService.page', () => {
         expect(data.files?.files.map((f) => f.path)).toEqual(['team.yml', 'README.md', 'roles/architect.md']);
     });
 
-    it('runs: team_id filter, state chips, failed = failed+crashed in 7d, realm slugs', async () => {
+    it('runs: team filter by name, state chips, failed = failed+crashed in 7d, realm slugs', async () => {
         const m = mocks();
         const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'runs', state: 'failed', realm_id: 'r1', limit: 10 }, 'tok');
-        expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, realm_id: 'r1', state: ['failed', 'crashed'], since_ms: NOW - 7 * 86400000, limit: 10, offset: 0 }, 'tok');
+        expect(m.control.runs_for_team).toHaveBeenCalledWith({ team: { scope: 'acme', slug: 'feature-dev' }, realm_id: 'r1', state: ['failed', 'crashed'], since_ms: NOW - 7 * 86400000, limit: 10, offset: 0 }, 'tok');
         expect(data.runs?.counts).toEqual({ all: 9, running: 1, awaiting_input: 2, failed_7d: 3 });
         expect(data.runs?.items[0]).toMatchObject({ run_id: 'run1', realm_slug: 'prod', org_slug: 'acme' });
         expect(data.runs?.realms).toHaveLength(2);
@@ -206,7 +207,7 @@ describe('TeamPageService.page', () => {
     it('runs: sort_by / sort_dir and the search reach runs/get in Core\'s names (page only)', async () => {
         const m = mocks();
         const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'runs', q: 'PROJ', sort_by: 'state', sort_dir: 'desc', limit: 10 }, 'tok');
-        expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, query: 'PROJ', sort_by: 'state', sort_dir: 'desc', limit: 10, offset: 0 }, 'tok');
+        expect(m.control.runs_for_team).toHaveBeenCalledWith({ team: { scope: 'acme', slug: 'feature-dev' }, query: 'PROJ', sort_by: 'state', sort_dir: 'desc', limit: 10, offset: 0 }, 'tok');
         expect(m.control.runs_for_team.mock.calls.filter(([f]: [Record<string, unknown>]) => f.limit === 1).every(([f]: [Record<string, unknown>]) => !('sort_by' in f))).toBe(true);
         expect(data.runs?.sortable).toContain('started_at');
     });

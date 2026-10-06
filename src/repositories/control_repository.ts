@@ -35,7 +35,8 @@ export interface ControlRunsFilter {
 
 /** `runs/get` filter for one team (optionally narrowed to an org or realm). */
 export interface ControlTeamRunsFilter {
-    team_id: string;
+    /** The team by name: runs of any install of it (runs carry install ids, not the published id). */
+    team: { scope: string; slug: string };
     org_id?: string;
     realm_id?: string;
     state?: ControlRunState | ControlRunState[];
