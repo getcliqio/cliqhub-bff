@@ -60,6 +60,22 @@ function command_label(name: string): string {
     return label || name.trim();
 }
 
+/** `PASS <command> (exit N)` lines of an `## Exec Results` text (a command may span lines). */
+const EXEC_LINE = /^(PASS|FAIL) ([\s\S]*?) \(exit (-?\d+)\)[ \t]*$/gm;
+
+/** Commands read from the text when `data` has no results (older daemons). */
+function commands_from_text(text: string): PhaseOutputView['commands'] {
+    const items: PhaseOutputCommandData[] = [...text.matchAll(EXEC_LINE)].map((m) => ({
+        label: command_label(m[2]!),
+        command: m[2]!,
+        pass: m[1] === 'PASS',
+        exit_code: Number(m[3]),
+        duration_ms: null,
+    }));
+    if (!items.length) return null;
+    return { total: items.length, failed: items.filter((i) => !i.pass).length, items };
+}
+
 function read_commands(d: Obj): PhaseOutputView['commands'] {
     const results = Array.isArray(d.results) ? d.results.filter(is_obj) : [];
     const items: PhaseOutputCommandData[] = results.map((r) => {
@@ -117,24 +133,23 @@ function read_gate_verdict(text: string): PhaseOutputView['verdict'] {
     return null;
 }
 
-/** Lines where an agent says what it is about to do (shown folded as "Steps"). */
-const NARRATION = /^(I['’]ll|I will|I['’]m going to|Let me|Next,? I|Now I|First,? I|I have|I['’]ve|I can see|Looking at)\b/i;
+/** A line where an agent says what it is doing or about to do. */
+const NARRATION = /\b(I['’]ll|I will|I['’]m|I am going to|Let me|Next,? I|Now I|First,? I|I['’]ve|I have)\b/i;
 
-/** Split agent prose into its leading narration and the answer. */
+/**
+ * Split agent prose into its narration and its answer. Agent CLIs log each
+ * message as a line, then the final message (which may span paragraphs): the
+ * answer starts at the line before the first blank line (or is the last line
+ * when there is none). Earlier lines are steps when they read as narration.
+ */
 function split_narration(text: string): { steps: string[]; body: string } {
     const lines = text.split('\n');
-    const steps: string[] = [];
-    let i = 0;
-    for (; i < lines.length; i++) {
-        const l = lines[i]!.trim();
-        if (l === '') continue;
-        if (!NARRATION.test(l)) break;
-        steps.push(l);
-    }
-    const body = lines.slice(i).join('\n').trim();
-    // All narration and no answer: the last step is the answer.
-    if (!body && steps.length) return { steps: steps.slice(0, -1), body: steps[steps.length - 1]! };
-    return { steps, body };
+    const first_blank = lines.findIndex((l, i) => i > 0 && l.trim() === '');
+    let start = first_blank > 0 ? first_blank - 1 : lines.length - 1;
+    while (start > 0 && lines[start]!.trim() === '') start -= 1;
+    const before = lines.slice(0, start).map((l) => l.trim()).filter(Boolean);
+    if (before.length === 0 || !before.some((l) => NARRATION.test(l))) return { steps: [], body: text.trim() };
+    return { steps: before, body: lines.slice(start).join('\n').trim() };
 }
 
 /** First sentence / line of markdown, without heading marks, for the summary. */
@@ -233,6 +248,13 @@ export function to_phase_output_view(content: string | null): PhaseOutputView {
         const view = empty_view('commands', '');
         view.commands = read_commands(data);
         view.summary = commands_summary(view.commands!);
+        return view;
+    }
+
+    const from_text = text.startsWith('## Exec Results') ? commands_from_text(text) : null;
+    if (from_text) {
+        const view = empty_view('commands', commands_summary(from_text));
+        view.commands = from_text;
         return view;
     }
 

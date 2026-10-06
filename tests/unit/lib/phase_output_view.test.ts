@@ -91,6 +91,40 @@ describe('to_phase_output_view', () => {
         expect(v.summary).toBe('Ran acme/jira-ingest — 1 phase failed');
     });
 
+    it('exec results with empty data: commands read from the text, multi-line commands included', () => {
+        const text = '## Exec Results\n\nPASS set -e\nmkdir -p .cliq\nmissing=""\n[ -f pl (exit 0)\nFAIL make test (exit 2)';
+        const v = to_phase_output_view(out(text, [{ outputs: {} }]));
+        expect(v.kind).toBe('commands');
+        expect(v.summary).toBe('1 of 2 commands failed');
+        expect(v.commands!.items.map((i) => [i.label, i.pass, i.exit_code])).toEqual([['missing="" · [ -f pl', true, 0], ['make test', false, 2]]);
+    });
+
+    it('agent messages logged line by line: narration as steps, the final message as the answer', () => {
+        const text = [
+            "I'll read that prompt file first so I know exactly what you want done.",
+            'Assemble errors are absent, so I’ll pull ticket AC and the LLD drafts next.',
+            'Ticket AC is empty, so I’m drafting from LLD observables only.',
+            'QA list is drafted from LLD only (ticket AC is empty). Written to `.cliq/qa-draft.json`.',
+            '',
+            '**24 cases** across the two stories.',
+            '',
+            '| Job | alone |',
+            '|---|---|',
+            '| tech-1 | p1–p14 |',
+        ].join('\n');
+        const v = to_phase_output_view(out(text, [{ outputs: {} }]));
+        expect(v.kind).toBe('agent');
+        expect(v.steps).toHaveLength(3);
+        expect(v.summary).toBe('QA list is drafted from LLD only (ticket AC is empty).');
+        expect(v.body_markdown).toContain('| tech-1 | p1–p14 |');
+    });
+
+    it('a markdown document is not split into steps', () => {
+        const v = to_phase_output_view(out('# LLD\nGroup A covers parsing.\n\n## Risks\nNone known.'));
+        expect(v.steps).toEqual([]);
+        expect(v.body_markdown).toBe('# LLD\nGroup A covers parsing.\n\n## Risks\nNone known.');
+    });
+
     it('anything else: text as is, JSON that is not the envelope pretty-printed', () => {
         expect(to_phase_output_view('plain words').body_markdown).toBe('plain words');
         const v = to_phase_output_view('{"foo": 1}');
