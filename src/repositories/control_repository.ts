@@ -198,6 +198,12 @@ export class ControlRepository {
         return Array.isArray(res.data) ? res.data : [];
     }
 
+    /** `POST /v1/artifacts/get_by_id { artifact_id }` — one artifact; a record (`rec:<id>`) with its whole text. */
+    async artifact_by_id(artifact_id: string, token: string): Promise<ControlArtifactVO | null> {
+        const res = await this._core.post_body<{ data: ControlArtifactVO | null }>('/v1/artifacts/get_by_id', { artifact_id }, token);
+        return res.data ?? null;
+    }
+
     /** `POST /v1/runs/get_status { run_id }` — a run's phases. */
     async run_phases(run_id: string, token: string): Promise<ControlRunPhaseVO[]> {
         const res = await this._core.post_body<{ data: ControlRunPhaseVO[] }>('/v1/runs/get_status', { run_id }, token);

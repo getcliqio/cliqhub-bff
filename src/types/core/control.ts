@@ -101,6 +101,8 @@ export interface ControlArtifactVO {
     source?: 'file' | 'record';
     kind?: string;
     content_preview?: string | null;
+    /** The whole text of a record (`artifacts/get_by_id` only). */
+    content?: string | null;
     run_id: string;
     phase: string;
     name: string;

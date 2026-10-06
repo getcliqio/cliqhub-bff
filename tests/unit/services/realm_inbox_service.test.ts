@@ -16,6 +16,7 @@ function repo() {
         run_by_id: vi.fn(),
         run_phases: vi.fn().mockResolvedValue([]),
         run_artifacts: vi.fn().mockResolvedValue([]),
+        artifact_by_id: vi.fn(),
     };
 }
 
@@ -102,6 +103,37 @@ describe('RunDetailService', () => {
     beforeEach(() => {
         control = repo();
         service = new RunDetailService(control as any);
+    });
+
+    it('reads phase outputs for display, oldest first, fetching in full only the ones cut off', async () => {
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', state: 'completed' });
+        const short = JSON.stringify({ text: 'PASS: Approved by human reviewer' });
+        const long = JSON.stringify({ text: `## Jira Results\n\n✓ ${'x'.repeat(2100)}`, data: { action: 'get', sources: {} } });
+        control.run_artifacts.mockResolvedValue([
+            { artifact_id: 'rec:2', source: 'record', kind: 'output', phase: 'fetch', name: 'phase_output', content_preview: `${long.slice(0, 2000)}\n…`, size_bytes: Buffer.byteLength(long), created_at: 20 },
+            { artifact_id: 'rec:1', source: 'record', kind: 'output', phase: 'gate', name: 'phase_output', content_preview: short, size_bytes: Buffer.byteLength(short), created_at: 10 },
+            { artifact_id: 'rec:3', source: 'record', kind: 'handoff', phase: 'gate', name: 'handoff', content_preview: 'notes', size_bytes: 5, created_at: 15 },
+            { artifact_id: 'f1', source: 'file', kind: 'file', phase: 'fetch', name: 'ticket.json', size_bytes: 10, created_at: 21 },
+        ]);
+        control.artifact_by_id.mockResolvedValue({ artifact_id: 'rec:2', content: long });
+
+        const dto = await service.get({ run_id: 'r1' }, 'tok');
+        expect(control.artifact_by_id).toHaveBeenCalledTimes(1);
+        expect(control.artifact_by_id).toHaveBeenCalledWith('rec:2', 'tok');
+        expect(dto.phase_outputs.map((o) => [o.phase, o.view.kind, o.complete])).toEqual([['gate', 'verdict', true], ['fetch', 'tool', true]]);
+        expect(dto.phase_outputs[1]!.raw).toBe(long);
+        expect(dto.artifacts).toHaveLength(4);
+    });
+
+    it('keeps a cut-off output as its preview when the full read fails', async () => {
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', state: 'completed' });
+        control.run_artifacts.mockResolvedValue([
+            { artifact_id: 'rec:2', source: 'record', kind: 'output', phase: 'draft', name: 'phase_output', content_preview: '{"text": "abc\n…', size_bytes: 5000, created_at: 20 },
+        ]);
+        control.artifact_by_id.mockRejectedValue(new Error('boom'));
+        const dto = await service.get({ run_id: 'r1' }, 'tok');
+        expect(dto.phase_outputs[0]).toMatchObject({ complete: false, raw: '{"text": "abc\n…' });
+        expect(dto.phase_outputs[0]!.view.summary).toContain('see Raw');
     });
 
     it('404s when Core has no such run and makes no further calls', async () => {

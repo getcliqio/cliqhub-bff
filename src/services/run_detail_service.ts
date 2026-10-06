@@ -4,20 +4,29 @@
  * Composes Core: `/v1/runs/get_by_id` (required) → `/v1/runs/get_status` (phases)
  * + `/v1/runs/get { realm_id, query: run_id }` (team / workspace labels)
  * + `/v1/realms/get_by_id { realm_id }` + `/v1/reviews/get` (pending, filtered to the run)
- * + `/v1/artifacts/get { run_id }` (stored files).
+ * + `/v1/artifacts/get { run_id }` (stored files and run records)
+ * + `/v1/artifacts/get_by_id` for each phase output too long for the list preview.
  */
 
 import type { ControlRepository } from '../repositories/control_repository.js';
-import type { ControlRunVO } from '../types/core/control.js';
+import type { ControlArtifactVO, ControlRunVO } from '../types/core/control.js';
 import type { InboxSectionStatusData } from '../schemas/realm_inbox_types.js';
-import type { RunDetailData, RunDetailGetInput, RunDetailSectionKey } from '../schemas/run_detail_types.js';
+import type { RunDetailData, RunDetailGetInput, RunDetailPhaseOutputData, RunDetailSectionKey } from '../schemas/run_detail_types.js';
 import { ApiError } from '../errors/api_error.js';
 import { to_control_realm_data, to_section_data } from '../mappers/realm_inbox_mapper.js';
-import { to_run_detail_artifact_data, to_run_detail_phase_data, to_run_detail_review_data } from '../mappers/run_detail_mapper.js';
+import {
+    to_run_detail_artifact_data,
+    to_run_detail_phase_data,
+    to_run_detail_phase_output_data,
+    to_run_detail_review_data,
+} from '../mappers/run_detail_mapper.js';
 import { get_logger } from '../lib/log.js';
 import { warn_rejected } from '../lib/best_effort.js';
 
 const log = get_logger('svc.run_detail');
+
+/** At most this many cut-off phase outputs are read in full per request. */
+const MAX_FULL_OUTPUT_READS = 25;
 
 /**
  * Run detail: the run row plus its phases, labels (team / workspace names
@@ -62,6 +71,10 @@ export class RunDetailService {
             ? labels.value.items.find((r) => r.run_id === run_id)
             : undefined;
 
+        const phase_outputs = artifacts.status === 'fulfilled'
+            ? await this._phase_outputs(artifacts.value, token, run_id)
+            : [];
+
         const sections: Record<RunDetailSectionKey, InboxSectionStatusData> = {
             phases: to_section_data(phases),
             labels: to_section_data(labels),
@@ -82,11 +95,39 @@ export class RunDetailService {
                 ? reviews.value.items.filter((r) => r.run_id === run_id).map(to_run_detail_review_data)
                 : [],
             artifacts: artifacts.status === 'fulfilled' ? artifacts.value.map(to_run_detail_artifact_data) : [],
+            phase_outputs,
             sections,
             // A run without a realm has nothing more to load — that is not "partial".
             partial: realm_id
                 ? Object.values(sections).some((s) => s.status === 'error')
                 : sections.phases.status === 'error' || sections.artifacts.status === 'error',
         };
+    }
+
+    /**
+     * The run's phase outputs read for display, oldest first. The artifact list
+     * carries only a preview; an output longer than that is read in full
+     * (`artifacts/get_by_id`), and kept as its preview when that read fails.
+     */
+    private async _phase_outputs(artifacts: ControlArtifactVO[], token: string, run_id: string): Promise<RunDetailPhaseOutputData[]> {
+        const outputs = artifacts
+            .filter((a) => a.source === 'record' && a.kind === 'output')
+            .sort((a, b) => (Number(a.created_at) || 0) - (Number(b.created_at) || 0));
+        let reads = 0;
+        return Promise.all(outputs.map(async (a) => {
+            const preview = a.content_preview ?? '';
+            // Core cuts a long record to its start plus "\n…"; anything else is the whole text.
+            const whole = !preview.endsWith('\n…') || Buffer.byteLength(preview, 'utf8') === Number(a.size_bytes);
+            if (whole) return to_run_detail_phase_output_data(a, preview, true);
+            if (reads >= MAX_FULL_OUTPUT_READS) return to_run_detail_phase_output_data(a, preview, false);
+            reads += 1;
+            try {
+                const full = await this._control.artifact_by_id(String(a.artifact_id), token);
+                if (typeof full?.content === 'string') return to_run_detail_phase_output_data(a, full.content, true);
+            } catch (err) {
+                log.warn('phase_output_read_failed', { run_id, artifact_id: a.artifact_id, error: err instanceof Error ? err.message : String(err) });
+            }
+            return to_run_detail_phase_output_data(a, preview, false);
+        }));
     }
 }

@@ -60,6 +60,60 @@ export interface RunDetailArtifactData {
     created_at: number | null;
 }
 
+/** One command an exec phase ran. */
+export interface PhaseOutputCommandData {
+    /** Readable label (shell noise like `set -e` dropped). */
+    label: string;
+    /** The command as recorded (Core keeps its first ~40 characters). */
+    command: string;
+    pass: boolean;
+    exit_code: number | null;
+    duration_ms: number | null;
+}
+
+/** A source a tool phase read or wrote (Jira issue tree, scope file, …). */
+export interface PhaseOutputSourceData {
+    name: string;
+    detail: string | null;
+    /** Link to it (http/https only). */
+    url: string | null;
+}
+
+/** One phase of a sub-team a phase ran. */
+export interface PhaseOutputSubPhaseData {
+    phase: string;
+    /** Passed / failed when known, else null. */
+    ok: boolean | null;
+    summary: string;
+}
+
+/** How a phase's output is shown: a summary line plus the parts that apply. */
+export interface PhaseOutputView {
+    kind: 'commands' | 'tool' | 'agent' | 'verdict' | 'sub_team' | 'text';
+    /** One line for the collapsed phase row. */
+    summary: string;
+    /** The answer / tool lines, as markdown. */
+    body_markdown: string | null;
+    /** The agent's "I'll …" narration before its answer. */
+    steps: string[];
+    verdict: { outcome: string; reason: string | null } | null;
+    commands: { total: number; failed: number; items: PhaseOutputCommandData[] } | null;
+    sources: PhaseOutputSourceData[];
+    sub_run: { run_id: string; team_ref: string | null; phases: PhaseOutputSubPhaseData[] } | null;
+}
+
+/** A phase's recorded output: the view, plus the stored text exactly as kept. */
+export interface RunDetailPhaseOutputData {
+    artifact_id: string;
+    phase: string;
+    created_at: number | null;
+    view: PhaseOutputView;
+    /** The stored output, complete and unmodified (for checking the view). */
+    raw: string;
+    /** False when only the first part could be read (raw is then that part). */
+    complete: boolean;
+}
+
 /** Sections of the run page that load (and can fail) independently. */
 export type RunDetailSectionKey = 'phases' | 'labels' | 'realm' | 'reviews' | 'artifacts';
 
@@ -71,8 +125,10 @@ export interface RunDetailData {
     realm: ControlRealmData | null;
     /** Pending human reviews attached to this run. */
     reviews: RunDetailReviewData[];
-    /** Files the run stored (empty when none). */
+    /** Files the run stored and its run records (empty when none). */
     artifacts: RunDetailArtifactData[];
+    /** Each phase output (`kind: output` records), oldest first, read for display. */
+    phase_outputs: RunDetailPhaseOutputData[];
     sections: Record<RunDetailSectionKey, InboxSectionStatusData>;
     partial: boolean;
 }
