@@ -198,6 +198,7 @@ export class AgentPageService {
                 required_total: scope_one.required_total,
                 required_configured: scope_one.required_configured,
                 ready: scope_one.all_required_configured,
+                mcp: scope_one.mcp ?? null,
             } : null,
             overrides: need_realms ? per.flatMap(({ r, s }) => { const keys = overrides_of(s ?? undefined); return keys.length ? [{ realm_id: r.id, realm_slug: r.slug, keys }] : []; }) : null,
             realms: realms_rows,

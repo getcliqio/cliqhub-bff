@@ -13,6 +13,7 @@ const SECRET_SEGMENTS = new Set(['key', 'apikey', 'token', 'secret', 'password',
 
 /** Explicit `secret` flag wins; otherwise the last key segment names a secret (`api_token`, `github.token`). */
 export function is_secret(key: string, def?: { secret?: boolean }): boolean {
+    if (key.startsWith('mcp.secrets.')) return true; // MCP placeholder secrets, whatever their name
     if (def?.secret === true) return true;
     if (def?.secret === false) return false;
     return SECRET_SEGMENTS.has(key.toLowerCase().split(/[._-]/).filter(Boolean).pop() ?? '');
@@ -68,6 +69,7 @@ export function to_agent_fields_data(scope: AgentSettingsVO, org: AgentSettingsV
             set: Boolean(raw),
             source: raw ? (scope.source?.[d.key] ?? 'org') : null,
             org_value: realm_scope ? (org_raw ? (secret ? mask(org_raw) : org_raw) : null) : null,
+            type: d.type === 'mcp_servers' ? 'mcp_servers' : secret ? 'secret' : 'text',
         };
     });
 }

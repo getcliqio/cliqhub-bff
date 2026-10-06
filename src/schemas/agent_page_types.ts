@@ -13,6 +13,7 @@
 
 import { z } from 'zod';
 import { RealmRefInput } from './realm_ref.js';
+import type { AgentMcpData } from '../types/core/agents.js';
 
 // ─── Inputs ─────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,8 @@ export interface AgentFieldData {
     source: 'org' | 'realm' | null;
     /** Realm scope only: the org default underneath (masked when secret). */
     org_value: string | null;
+    /** How the form edits it: text, secret, or mcp_servers (the MCP editor). */
+    type: 'text' | 'secret' | 'mcp_servers';
 }
 
 /** The settings form for one scope (org defaults or a realm's effective values). */
@@ -122,6 +125,8 @@ export interface AgentSettingsViewData {
     required_total: number;
     required_configured: number;
     ready: boolean;
+    /** The agent's MCP options (transports, presets, custom servers), null when it has none. */
+    mcp: AgentMcpData | null;
 }
 
 /** One realm's view of the agent's required keys (Realms tab). */

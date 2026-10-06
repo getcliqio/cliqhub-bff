@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AgentPageService } from '../../../src/services/agent_page_service.js';
-import { group_versions, is_secret, mask } from '../../../src/mappers/agent_page_mapper.js';
+import { group_versions, is_secret, mask, to_agent_fields_data } from '../../../src/mappers/agent_page_mapper.js';
 import { CoreReadRepository } from '../../../src/repositories/core_read_repository.js';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
@@ -62,6 +62,21 @@ describe('helpers', () => {
 		expect(mask('short')).toBe('••••');
 		expect(mask('••••x7Qa')).toBe('••••x7Qa');
 	});
+	it('MCP fields: the server list is an mcp_servers field, its secrets are masked secrets', () => {
+		const vo = settings('claude-api', {
+			settings: {
+				required: [{ key: 'api_key' }, { key: 'mcp.secrets.SENTRY_DSN', type: 'secret' }],
+				optional: [{ key: 'mcp.servers', type: 'mcp_servers' }],
+			},
+			values: { 'mcp.servers': '{"sentry":{"url":"https://mcp.sentry.dev/mcp"}}', 'mcp.secrets.SENTRY_DSN': 'https://abcdef0123456789@sentry.io/1' },
+			source: { 'mcp.servers': 'org', 'mcp.secrets.SENTRY_DSN': 'org' },
+		});
+		const f = Object.fromEntries(to_agent_fields_data(vo as never, null, false).map((x) => [x.key, x]));
+		expect([f['api_key']!.type, f['mcp.servers']!.type, f['mcp.secrets.SENTRY_DSN']!.type]).toEqual(['secret', 'mcp_servers', 'secret']);
+		expect(f['mcp.servers']!.value).toContain('mcp.sentry.dev');
+		expect(f['mcp.secrets.SENTRY_DSN']!.value).toBe('••••io/1');
+	});
+
 	it('group_versions keeps the newest row first', () => {
 		const g = group_versions([agent('a', { version: '1.0.0' }), agent('a', { version: '1.10.0', id: 'new' }), agent('b')] as never);
 		expect(g.find((x) => x.head.name === 'a')!.head.id).toBe('new');

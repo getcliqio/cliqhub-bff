@@ -12,6 +12,8 @@ export interface AgentSettingDefVO {
     when?: Record<string, string>;
     /** Explicit secret flag; inferred from the key name when absent. */
     secret?: boolean;
+    /** How the UI edits it: text (default), secret, or mcp_servers. */
+    type?: 'text' | 'secret' | 'mcp_servers';
 }
 
 /** `agents/get_settings` — one agent's settings for the org, or one realm. */
@@ -29,6 +31,8 @@ export interface AgentSettingsVO {
     required_total: number;
     required_configured: number;
     all_required_configured: boolean;
+    /** The manifest's MCP block, when the agent can use MCP servers. */
+    mcp?: AgentMcpData;
 }
 
 /** A team version that uses the agent (`include_usage`). */
@@ -54,4 +58,16 @@ export interface AgentVO {
     manifest?: Record<string, unknown>;
     /** Present when `include_usage` was sent (Core API ≥ 2). */
     used_by?: AgentUsedByVO[];
+}
+
+/** An agent manifest's `mcp` block: what MCP servers it can use. */
+export interface AgentMcpData {
+    transports: Array<'http' | 'stdio'>;
+    allow_custom?: boolean;
+    presets?: Array<{
+        name: string; label: string; transport: 'http' | 'stdio'; description?: string;
+        url?: string; headers?: Record<string, string>;
+        command?: string; args?: string[]; env?: Record<string, string>;
+        secrets?: Array<{ key: string; description?: string; help_url?: string }>;
+    }>;
 }
