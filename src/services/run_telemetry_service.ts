@@ -63,6 +63,25 @@ export class RunTelemetryService {
     constructor(private readonly _reads: CoreReadRepository, private readonly _control: ControlRepository) {}
 
     /**
+     * The run's team workflow. `run.team_id` is the team's install on a daemon,
+     * not the published team `teams/get_phases` reads — so the published team is
+     * found by the run's `@scope/name` label (`teams/get_by_id { scope, name }`).
+     * `team_id` is tried first for runs that do carry a published id.
+     */
+    private async _workflow(run: ControlRunVO, team_id: string, version_id: string | null, token: string): Promise<unknown> {
+        const label = /^@?([^/\s]+)\/([^/\s]+)$/.exec(str(run.team_label) ?? '');
+        try {
+            return await this._reads.read('teams.get_phases', { team_id, ...(version_id ? { version_id } : {}) }, token);
+        } catch (err) {
+            if (!label || !(err instanceof ApiError) || err.status !== 404) throw err;
+        }
+        const team = data_of(await this._reads.read('teams.get_by_id', { scope: label[1], name: label[2] }, token)) as { id?: string };
+        if (!team?.id) return null;
+        // version_id names a published version of that team, so it still applies.
+        return this._reads.read('teams.get_phases', { team_id: team.id, ...(version_id ? { version_id } : {}) }, token);
+    }
+
+    /**
      * Timeline / usage / DAG of one run. The run and the realm gate are required;
      * usage, spans, phase rows and the workflow are best-effort (`sections`, `partial`).
      *
@@ -82,7 +101,7 @@ export class RunTelemetryService {
             this._reads.read('runs.get_telemetry', { kind: 'usage', run_id: p.run_id }, token),
             this._reads.read('runs.get_telemetry', { kind: 'spans', run_id: p.run_id }, token),
             this._control.run_phases(p.run_id, token),
-            team_id ? this._reads.read('teams.get_phases', { team_id, ...(version_id ? { version_id } : {}) }, token) : Promise.resolve(null),
+            team_id ? this._workflow(run, team_id, version_id, token) : Promise.resolve(null),
         ]);
 
         warn_rejected(log, 'run_telemetry_section_failed', { usage, spans, phases, workflow }, { run_id: p.run_id });

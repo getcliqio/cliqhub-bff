@@ -8,6 +8,7 @@
  */
 
 import { z } from 'zod';
+import type { RunDetailPhaseOutputData } from './run_detail_types.js';
 
 // ─── Inputs ─────────────────────────────────────────────────────────────────
 
@@ -28,4 +29,6 @@ export interface ReviewPageData {
     review: Record<string, unknown>;
     /** The org the review was read through; null when the caller is a reviewer. */
     org_id: string | null;
+    /** Earlier phases' outputs in the packet, read for display (as on the run page). */
+    phase_outputs: RunDetailPhaseOutputData[];
 }

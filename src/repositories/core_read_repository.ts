@@ -30,6 +30,7 @@ export const CORE_READS = {
     'runs.get_logs': '/v1/runs/get_logs',
     'runs.get_telemetry': '/v1/runs/get_telemetry',
     'teams.get': '/v1/teams/get',
+    'teams.get_by_id': '/v1/teams/get_by_id',
     'teams.get_phases': '/v1/teams/get_phases',
     'users.get': '/v1/users/get',
     'workspaces.get': '/v1/workspaces/get',

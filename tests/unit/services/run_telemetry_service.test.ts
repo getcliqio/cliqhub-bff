@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { RunTelemetryService, union_ms } from '../../../src/services/run_telemetry_service.js';
 import { CoreReadRepository } from '../../../src/repositories/core_read_repository.js';
+import { ApiError } from '../../../src/errors/api_error.js';
 
 const M = 60_000;
 const t0 = 1_700_000_000_000;
@@ -58,6 +59,21 @@ describe('RunTelemetryService', () => {
         expect(d.by_agent[0]).toMatchObject({ agent: 'architect', cost_usd: 2 });
         expect(d.by_agent.find((a) => a.agent === 'lint')).toMatchObject({ runs: 2, failures: 1 });
         expect(d.sections).toEqual({ usage: 'ok', spans: 'ok', phases: 'ok', workflow: 'ok' });
+    });
+
+    it('a run whose team_id is an install id gets its workflow from the published team (@scope/name)', async () => {
+        const { svc, core, control } = make();
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', state: 'completed', realm_id: 'realm1', team_id: 'install-1', team_label: '@measureone/qa', started_at: t0, completed_at: t0 + 64 * M });
+        const base = core.post_body.getMockImplementation();
+        core.post_body.mockImplementation(async (p: string, b: any) => {
+            if (p === '/v1/teams/get_phases' && b.team_id === 'install-1') throw new ApiError('not_found', 'Team not found', 404);
+            if (p === '/v1/teams/get_by_id') return { ok: true, data: { id: 'catalog-qa' } };
+            return base!(p, b);
+        });
+        const dto = await svc.get({ run_id: 'r1' }, 'tok', t0 + 64 * M);
+        expect(core.post_body.mock.calls.find((c: any[]) => c[0] === '/v1/teams/get_by_id')[1]).toEqual({ scope: 'measureone', name: 'qa' });
+        expect(core.post_body.mock.calls.filter((c: any[]) => c[0] === '/v1/teams/get_phases').map((c: any[]) => c[1].team_id)).toEqual(['install-1', 'catalog-qa']);
+        expect(dto.sections.workflow?.status ?? 'ok').toBe('ok');
     });
 
     it('no telemetry yet: phases from status rows, empty sections, not partial', async () => {

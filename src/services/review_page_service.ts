@@ -14,6 +14,8 @@ import type { CoreReadRepository } from '../repositories/core_read_repository.js
 import type { OrgsRepository } from '../repositories/orgs_repository.js';
 import { ApiError } from '../errors/api_error.js';
 import type { ReviewPageGetInput, ReviewPageData } from '../schemas/review_page_types.js';
+import type { RunDetailPhaseOutputData } from '../schemas/run_detail_types.js';
+import { to_phase_output_view } from '../lib/phase_output_view.js';
 import { get_logger } from '../lib/log.js';
 import { best_effort } from '../lib/best_effort.js';
 
@@ -24,8 +26,37 @@ function data_of<T>(res: unknown): T {
     const r = res as { data?: T };
     return (r && typeof r === 'object' && 'data' in r ? r.data : res) as T;
 }
+/** The read plus its phase outputs read for display. */
+function with_outputs(d: Omit<ReviewPageData, 'phase_outputs'>): ReviewPageData {
+    return { ...d, phase_outputs: review_phase_outputs(d.review) };
+}
+
 /** Statuses that mean "not via this org" — try the next one. */
 const DENIED = new Set([403, 404]);
+
+/**
+ * The earlier phases' outputs in a review packet (`artifacts` records of kind
+ * `output`, whole text), read for display like the run page's.
+ */
+export function review_phase_outputs(review: Record<string, unknown>): RunDetailPhaseOutputData[] {
+    const artifacts = Array.isArray(review.artifacts) ? review.artifacts as Array<Record<string, unknown>> : [];
+    return artifacts
+        .filter((a) => a.source === 'record' && (a.kind === 'output' || a.kind === 'phase_output'))
+        .map((a) => {
+            const content = typeof a.content === 'string' ? a.content : null;
+            const raw = content ?? (typeof a.content_preview === 'string' ? a.content_preview : '');
+            return {
+                artifact_id: String(a.artifact_id ?? a.id ?? ''),
+                phase: typeof a.phase === 'string' ? a.phase : '',
+                created_at: typeof a.created_at === 'number' ? a.created_at : null,
+                view: content !== null
+                    ? to_phase_output_view(content)
+                    : { ...to_phase_output_view(null), summary: 'Only the start of this output could be read — see Raw' },
+                raw,
+                complete: content !== null,
+            };
+        });
+}
 
 /** Review page (HUG packet) read. */
 export class ReviewPageService {
@@ -44,7 +75,7 @@ export class ReviewPageService {
         );
         let first: unknown;
         try {
-            return { review: await get(input.org_id), org_id: input.org_id ?? null };
+            return with_outputs({ review: await get(input.org_id), org_id: input.org_id ?? null });
         } catch (err) {
             if (!(err instanceof ApiError) || !DENIED.has(err.status) || input.org_id) throw err;
             // Kept, not swallowed: rethrown if no org lets the caller in.
@@ -58,7 +89,7 @@ export class ReviewPageService {
         );
         for (const o of orgs ?? []) {
             try {
-                return { review: await get(o.id), org_id: o.id };
+                return with_outputs({ review: await get(o.id), org_id: o.id });
             } catch (err) {
                 // Denied through this org is expected while searching; try the next one.
                 if (!(err instanceof ApiError) || !DENIED.has(err.status)) throw err;

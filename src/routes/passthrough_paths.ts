@@ -21,6 +21,7 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     // ── Daemons ───────────────────────────────────────────────────────────
     '/v1/daemons/register': 'token',
     '/v1/daemons/heartbeat': 'token',
+    '/v1/daemons/register_teams': 'token',
     '/v1/daemons/deregister': 'token',
     '/v1/daemons/get': 'token',
     '/v1/daemons/get_by_id': 'token',
