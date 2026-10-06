@@ -129,6 +129,8 @@ export interface TeamListRowData {
     phase_types: string[] | null;
     /** Builder kinds (agent, gate, human, connector, fetch, script, team), same order. */
     phase_kinds: string[] | null;
+    /** Phase names, same order (for the list's per-phase tooltip). */
+    phase_names: string[] | null;
     installs: TeamInstallData[];
 }
 

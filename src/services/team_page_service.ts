@@ -161,7 +161,7 @@ export class TeamPageService {
                 if (!str(t.id)) return null;
                 return best_effort(log, 'team_list_phases_failed', this._teams.get_phases({ team_id: String(t.id) }, token).then((r) => {
                     const ps = to_team_phases_data({ phases: r.phases }, []).phases;
-                    return { types: ps.map((x) => x.type), kinds: ps.map((x) => kind_of_phase(x.type, x.agent)) };
+                    return { types: ps.map((x) => x.type), kinds: ps.map((x) => kind_of_phase(x.type, x.agent)), names: ps.map((x) => x.name) };
                 }), null, { team_id: t.id });
             }),
             this._installs_by_label(token, realms, (l) => latest.get(l) ?? null),
@@ -174,7 +174,7 @@ export class TeamPageService {
             return {
                 id: str(t.id), name, scope, description: String(t.description ?? ''),
                 status: status_of(t), latest_version: lv, author: str(t.author),
-                phase_types: phases[i]?.types ?? null, phase_kinds: phases[i]?.kinds ?? null, installs: installs.map.get(label_of(scope, name)) ?? [],
+                phase_types: phases[i]?.types ?? null, phase_kinds: phases[i]?.kinds ?? null, phase_names: phases[i]?.names ?? null, installs: installs.map.get(label_of(scope, name)) ?? [],
             };
         });
         return {
