@@ -70,7 +70,7 @@ describe('to_phase_output_view', () => {
         expect(v.kind).toBe('agent');
         expect(v.steps).toHaveLength(2);
         expect(v.body_markdown).toBe('QA list assembled: 24 cases written to `qa-list.json`. HUG may review.');
-        expect(v.summary).toBe('QA list assembled: 24 cases written to `qa-list.json`.');
+        expect(v.summary).toBe('QA list assembled: 24 cases written to qa-list.json.');
         expect(v.verdict).toEqual({ outcome: 'PASS', reason: '24 cases, all traced to AC' });
     });
 
@@ -117,6 +117,13 @@ describe('to_phase_output_view', () => {
         expect(v.steps).toHaveLength(3);
         expect(v.summary).toBe('QA list is drafted from LLD only (ticket AC is empty).');
         expect(v.body_markdown).toContain('| tech-1 | p1–p14 |');
+    });
+
+    it('the summary is plain text: no emphasis, code or link marks', () => {
+        expect(to_phase_output_view(out('QA list assembled. `qa.json` has **24 cases**, see [the list](https://x.test).')).summary)
+            .toBe('QA list assembled. qa.json has 24 cases, see the list.');
+        expect(to_phase_output_view(out('**24 cases** written to `qa-list.md` for [review](https://x.test)')).summary)
+            .toBe('24 cases written to qa-list.md for review');
     });
 
     it('a markdown document is not split into steps', () => {

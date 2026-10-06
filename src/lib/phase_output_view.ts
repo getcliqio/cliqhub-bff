@@ -152,9 +152,17 @@ function split_narration(text: string): { steps: string[]; body: string } {
     return { steps: before, body: lines.slice(start).join('\n').trim() };
 }
 
-/** First sentence / line of markdown, without heading marks, for the summary. */
+/** Markdown emphasis, code and link marks dropped (the summary is plain text). */
+function plain(line: string): string {
+    return line
+        .replace(/\[([^\]]+)\]\([^)]*\)/g, '$1')
+        .replace(/(\*\*|__)(.+?)\1/g, '$2')
+        .replace(/`([^`]+)`/g, '$1');
+}
+
+/** First sentence / line of markdown as plain text, for the summary. */
 function first_line(md: string): string {
-    const line = md.split('\n').map((l) => l.replace(/^#+\s*/, '').trim()).find((l) => l && !l.startsWith('```')) ?? '';
+    const line = plain(md.split('\n').map((l) => l.replace(/^#+\s*/, '').trim()).find((l) => l && !l.startsWith('```')) ?? '');
     const sentence = /^(.{20,200}?[.!?])(\s|$)/.exec(line)?.[1] ?? line;
     return sentence.length > 200 ? `${sentence.slice(0, 199)}…` : sentence;
 }
