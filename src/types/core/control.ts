@@ -27,6 +27,13 @@ export interface ControlRunVO {
     started_at?: number | null;
     completed_at?: number | null;
     last_updated_at?: number | null;
+    /** Set on a sub-team (child) run: the run and phase that spawned it. */
+    parent_run_id?: string | null;
+    parent_phase?: string | null;
+    root_run_id?: string | null;
+    /** `runs/get` list rows only. */
+    realm_slug?: string | null;
+    org_slug?: string | null;
     [key: string]: unknown;
 }
 
@@ -40,6 +47,21 @@ export interface ControlRunPhaseVO {
     completed_at?: number | null;
     error?: string | null;
     agent?: string | null;
+    /** Core's attempt counter for the phase row. */
+    attempt?: number | null;
+    /** Earlier attempts of this phase (route-backs and resumes), oldest first. */
+    previous_attempts?: ControlPhaseAttemptVO[] | null;
+}
+
+/** One earlier attempt of a phase (`team_run_phases.previous_attempts`). */
+export interface ControlPhaseAttemptVO {
+    attempt?: number | null;
+    status?: string | null;
+    dispatched_at?: number | null;
+    started_at?: number | null;
+    completed_at?: number | null;
+    exit_code?: number | null;
+    error?: string | null;
 }
 
 /** A pending review request. */

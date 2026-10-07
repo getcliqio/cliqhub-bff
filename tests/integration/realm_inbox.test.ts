@@ -36,10 +36,17 @@ describe('BFF realm composition routes', () => {
     }
 
     function mock_core() {
+        // `orgs/get { mine }` (run detail resolves the realm's org for the events read).
+        vi.spyOn(CoreClient.prototype, 'post').mockImplementation(async (path: string) => {
+            if (path === '/v1/orgs/get') return { orgs: [{ id: 'org-1', slug: 'acme' }] } as any;
+            throw new Error(`unexpected ${path}`);
+        });
         return vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string, body: any) => {
             if (path === '/v1/realms/get_by_id') return { ok: true, realm: { id: 'realm-1', slug: 'prod', name: 'Prod', org_slug: 'acme' } } as any;
             if (path === '/v1/reviews/get') return { ok: true, data: { items: [{ review_id: 'rev-1', run_id: 'r1', title: 'Approve', requested_at: 3, status: 'pending' }], total: 1 } } as any;
+            if (path === '/v1/notifications/get') return { ok: true, data: { items: [{ id: 'n1', event: 'run.started', run_id: 'r1', created_at: 1, payload: {} }], total: 1 } } as any;
             if (path === '/v1/runs/get') {
+                if (body.parent_run_id) return { ok: true, data: { items: [{ run_id: 'c1', state: 'failed', parent_run_id: 'r1', parent_phase: 'plan', team_label: '@cliq/sub' }], total: 1 } } as any;
                 if (body.query) return { ok: true, data: { items: [{ run_id: 'r1', state: 'awaiting_input', team_label: '@cliq/dev' }], total: 1 } } as any;
                 if (body.state === 'awaiting_input') return { ok: true, data: { items: [{ run_id: 'r1', state: 'awaiting_input', last_updated_at: 5 }], total: 1 } } as any;
                 return { ok: true, data: { items: [], total: 0 } } as any;
@@ -114,6 +121,11 @@ describe('BFF realm composition routes', () => {
         expect(res.body.data.reviews.map((r: any) => r.id)).toEqual(['rev-1']);
         expect(res.body.data.artifacts).toEqual([{ artifact_id: 'a1', source: 'file', kind: 'file', content_preview: null, phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, created_at: 4 }]);
         expect(res.body.data.sections.artifacts.status).toBe('ok');
+        expect(res.body.data.attempts).toEqual([{ n: 1, started_at: 1, from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null }]);
+        expect(res.body.data.attempts_source).toBe('events');
+        expect(res.body.data.children.map((c: any) => [c.run_id, c.parent_phase, c.state])).toEqual([['c1', 'plan', 'failed']]);
+        expect(res.body.data.parent).toBeNull();
+        expect(res.body.data.partial).toBe(false);
     });
 
     it('run detail 404s for an unknown run', async () => {

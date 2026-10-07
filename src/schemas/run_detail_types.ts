@@ -5,7 +5,9 @@
  *   POST /v1/run_detail/get
  *
  * BFF composition over Core: `/v1/runs/get_by_id` → `/v1/runs/get_status` + `/v1/runs/get { query }`
- * (labels) + `/v1/realms/get_by_id { realm_id }` + `/v1/reviews/get` (pending, for the run).
+ * (labels) + `/v1/realms/get_by_id { realm_id }` + `/v1/reviews/get` (pending, for the run)
+ * + `/v1/notifications/get { org_id, run_id, types }` (attempts) + `/v1/runs/get { parent_run_id }`
+ * (children) + `/v1/runs/get_by_id` (parent, for a sub-team run).
  */
 
 import { z } from 'zod';
@@ -32,6 +34,64 @@ export interface RunDetailPhaseData {
     completed_at: number | null;
     error: string | null;
     agent: string | null;
+    /** Times this phase ran in all: earlier attempts + the current one (0 when it never started). */
+    attempts: number;
+    /** Earlier attempts (gate route-backs and run resumes), oldest first. */
+    previous_attempts: RunDetailPhaseAttemptData[];
+}
+
+/** One earlier attempt of a phase, as Core snapshotted it. */
+export interface RunDetailPhaseAttemptData {
+    attempt: number | null;
+    status: string;
+    started_at: number | null;
+    completed_at: number | null;
+    error: string | null;
+}
+
+/** How one attempt of the run ended (`running` while it is still going). */
+export type RunAttemptState = 'completed' | 'failed' | 'crashed' | 'cancelled' | 'running' | 'unknown';
+
+/**
+ * One attempt of the run. A resume reuses the run id, so a run that failed and
+ * was resumed has two attempts: the first ended `failed`, the second started
+ * from `from_phase`.
+ */
+export interface RunDetailAttemptData {
+    /** 1-based. */
+    n: number;
+    started_at: number | null;
+    /** The phase a resume started from; null for the first attempt (or when not recorded). */
+    from_phase: string | null;
+    ended_at: number | null;
+    state: RunAttemptState;
+    /** The phase the attempt stopped at (failed / crashed / cancelled), when known. */
+    failed_phase: string | null;
+    error: string | null;
+}
+
+/** The run (and phase) that spawned this sub-team run. */
+export interface RunDetailParentData {
+    run_id: string;
+    run_name: string | null;
+    phase: string | null;
+    state: string | null;
+    realm_slug: string | null;
+    org_slug: string | null;
+}
+
+/** A sub-team (child) run one of this run's team phases spawned. */
+export interface RunDetailChildData {
+    run_id: string;
+    run_name: string | null;
+    team_label: string | null;
+    /** The phase of this run that spawned it. */
+    parent_phase: string | null;
+    state: string;
+    started_at: number | null;
+    completed_at: number | null;
+    realm_slug: string | null;
+    org_slug: string | null;
 }
 
 /** A pending review on the run. */
@@ -115,7 +175,7 @@ export interface RunDetailPhaseOutputData {
 }
 
 /** Sections of the run page that load (and can fail) independently. */
-export type RunDetailSectionKey = 'phases' | 'labels' | 'realm' | 'reviews' | 'artifacts';
+export type RunDetailSectionKey = 'phases' | 'labels' | 'realm' | 'reviews' | 'artifacts' | 'events' | 'parent' | 'children';
 
 /** `run_detail/get` — the run, its phases, realm and pending reviews, with per-section status. */
 export interface RunDetailData {
@@ -129,6 +189,21 @@ export interface RunDetailData {
     artifacts: RunDetailArtifactData[];
     /** Each phase output (`kind: output` records), oldest first, read for display. */
     phase_outputs: RunDetailPhaseOutputData[];
+    /**
+     * The run's attempts, oldest first (one entry when it was never resumed).
+     * Null when the run's events could not be read.
+     */
+    attempts: RunDetailAttemptData[] | null;
+    /**
+     * Where `attempts` came from: the run's lifecycle events (`notifications/get`),
+     * or — when no events are visible to the caller — reconstructed from the
+     * phases' attempt history (resume points known, intermediate ones may lack from_phase).
+     */
+    attempts_source: 'events' | 'phases' | null;
+    /** Set when this run is a sub-team run. */
+    parent: RunDetailParentData | null;
+    /** Sub-team runs this run's team phases spawned, oldest first. */
+    children: RunDetailChildData[];
     sections: Record<RunDetailSectionKey, InboxSectionStatusData>;
     partial: boolean;
 }

@@ -110,6 +110,18 @@ export class ControlRepository {
         return page(res.data);
     }
 
+    /**
+     * `POST /v1/runs/get { parent_run_id }` — the sub-team (child) runs a run's
+     * team phases spawned, oldest first. Core keys this scope on the parent and
+     * still applies the realm gate.
+     */
+    async child_runs(parent_run_id: string, token: string, limit = 100): Promise<ControlPageVO<ControlRunVO>> {
+        const res = await this._core.post_body<{ data: ControlPageVO<ControlRunVO> }>(
+            '/v1/runs/get', { parent_run_id, sort_by: 'started_at', sort_dir: 'asc', limit }, token,
+        );
+        return page(res.data);
+    }
+
     /** `POST /v1/runs/get { org_id, limit }` — newest runs across an org. */
     async runs_for_org(org_id: string, token: string, limit = 1): Promise<ControlPageVO<ControlRunVO>> {
         const res = await this._core.post_body<{ data: ControlPageVO<ControlRunVO> }>('/v1/runs/get', { org_id, limit }, token);
