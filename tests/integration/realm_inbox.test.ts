@@ -112,7 +112,7 @@ describe('BFF realm composition routes', () => {
         expect(res.body.data.phases).toHaveLength(1);
         expect(res.body.data.realm.slug).toBe('prod');
         expect(res.body.data.reviews.map((r: any) => r.id)).toEqual(['rev-1']);
-        expect(res.body.data.artifacts).toEqual([{ artifact_id: 'a1', phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, created_at: 4 }]);
+        expect(res.body.data.artifacts).toEqual([{ artifact_id: 'a1', source: 'file', kind: 'file', content_preview: null, phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, created_at: 4 }]);
         expect(res.body.data.sections.artifacts.status).toBe('ok');
     });
 

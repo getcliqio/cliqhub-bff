@@ -49,7 +49,7 @@ describe('POST /v1/team_list/get + /v1/team_page/get', () => {
         for (const c of [...api.mock.calls, ...core.mock.calls]) expect(c[2]).toBe('tok-p');
     });
 
-    it('page runs view sends team_id to Core runs/get', async () => {
+    it('page runs view asks Core runs/get for the team by name', async () => {
         const sid = sess();
         vi.spyOn(CoreClient.prototype, 'post').mockImplementation(async (path: string) => {
             if (path === '/v1/teams/get_by_id') return { id: TEAM, name: 'dev', scope: 'acme', versions: [{ version: '1.0.0' }], workflow: { phases: [] }, roles: [] } as any;
@@ -64,6 +64,8 @@ describe('POST /v1/team_list/get + /v1/team_page/get', () => {
         const res = await request(app).post('/v1/team_page/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ scope: 'acme', name: 'dev', view: 'runs' });
         expect(res.status).toBe(200);
         expect(res.body.data.counts.runs).toBe(4);
-        expect(bodies.every((b) => b.team_id === TEAM && !('org_id' in b))).toBe(true);
+        // Runs are found by the team's name (scope + slug), not a published version id.
+        expect(bodies.length).toBeGreaterThan(0);
+        expect(bodies.every((b) => b.team?.scope === 'acme' && b.team?.slug === 'dev' && !('team_id' in b) && !('org_id' in b))).toBe(true);
     });
 });
