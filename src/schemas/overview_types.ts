@@ -52,6 +52,8 @@ export interface OverviewRealmData {
     pending_reviews: number;
     /** pending_reviews + awaiting_input */
     needs_you: number;
+    /** What the caller may do here: view < operate (run, install) < admin. null when Core is too old to say. */
+    level: 'view' | 'operate' | 'admin' | null;
 }
 
 /** One org card (`status: 'error'` when its rollups failed). */
@@ -61,6 +63,8 @@ export interface OverviewOrgData {
     display_name: string;
     /** Caller's role in this org (owner / admin / operator / member / custom). */
     role: string;
+    /** Caller's effective org permissions (owners hold all). null when Core is too old to say. */
+    permissions: string[] | null;
     /** The org's lifecycle state (`waiting_for_owner` until its owner accepts). */
     org_status: OrgStatus;
     /** `error` when this org's rollups could not be loaded; the rest of the overview still renders. */

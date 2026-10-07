@@ -23,6 +23,8 @@ export interface OrgListItemVO {
     slug: string;
     display_name: string;
     role: string;
+    /** The caller's effective permissions in this org; owners hold all (Core API 6+, `orgs/get` with `mine`). */
+    permissions?: string[];
     member_count: number;
     scope_count: number;
     status: OrgStatusVO;

@@ -37,6 +37,7 @@ export function to_overview_realm_data(org: OrgListItemVO, vo: DashboardRealmVO)
         awaiting_input: awaiting,
         pending_reviews: pending,
         needs_you: pending + awaiting,
+        level: vo.level ?? null,
     };
 }
 
@@ -55,6 +56,7 @@ export function to_overview_org_data(org: OrgListItemVO, summary: DashboardSumma
         slug: org.slug,
         display_name: org.display_name || org.slug,
         role: org.role,
+        permissions: org.permissions ?? null,
         org_status: org.status,
         status: 'ok',
         error: null,
@@ -79,6 +81,7 @@ export function to_overview_error_org_data(org: OrgListItemVO, message: string):
         slug: org.slug,
         display_name: org.display_name || org.slug,
         role: org.role,
+        permissions: org.permissions ?? null,
         org_status: org.status,
         status: 'error',
         error: message,

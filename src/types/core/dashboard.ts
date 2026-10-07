@@ -64,6 +64,8 @@ export interface DashboardRealmVO {
     runs?: { active?: number; awaiting_input?: number };
     pending_reviews?: number;
     recent_notifications?: number;
+    /** The caller's level in this realm (Core API 6+). */
+    level?: 'view' | 'operate' | 'admin';
 }
 
 /** `dashboard/realms` — every realm of the org with its rollup. */
