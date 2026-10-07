@@ -103,6 +103,22 @@ describe('OverviewService', () => {
         expect(dto.totals).toMatchObject({ orgs: 2, realms: 4, active_runs: 4, failed_24h: 2 });
     });
 
+    it('recent runs: finished runs only, by when they ended, newest first', async () => {
+        orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme')] });
+        dash_repo.summary.mockResolvedValue(summary({
+            recent_runs: [
+                { run_id: 'f-1', run_name: 'Nightly', state: 'failed', realm_id: 'realm-1', realm_slug: 'prod', started_at: 100, completed_at: 900 },
+                { run_id: 'c-1', state: 'completed', team_label: '@cliq/dev', started_at: 200, completed_at: 500 },
+                { run_id: 'live', state: 'running', started_at: 950 },
+                { run_id: 'x-1', state: 'cancelled', started_at: 300 },
+            ],
+        }));
+        dash_repo.realms.mockResolvedValue(realms());
+        const dto = await service.get({}, 't');
+        expect(dto.recent_runs.map((i) => [i.id, i.state, i.at])).toEqual([['f-1', 'failed', 900], ['c-1', 'completed', 500], ['x-1', 'cancelled', 300]]);
+        expect(dto.recent_runs[0]).toMatchObject({ title: 'Nightly', org_slug: 'acme', realm_slug: 'prod', kind: 'run' });
+    });
+
     it('keeps other orgs when one org fails and flags partial', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme'), org(ORG_B, 'beta')] });
         dash_repo.summary.mockImplementation(async ({ org_id: id }: { org_id: string }) => {

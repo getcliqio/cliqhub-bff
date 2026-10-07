@@ -49,6 +49,8 @@ export interface DashboardSummaryVO {
     };
     live_runs?: DashboardRunVO[];
     pending_reviews?: DashboardReviewVO[];
+    /** The org's most recent runs, any state (Core caps the list at 10). */
+    recent_runs?: DashboardRunVO[];
 }
 
 /** Per-realm rollup in `dashboard/realms`. */

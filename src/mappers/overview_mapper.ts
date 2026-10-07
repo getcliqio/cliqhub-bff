@@ -108,6 +108,19 @@ export function to_overview_review_items(org: OrgListItemVO, reviews: DashboardR
 }
 
 /** Org runs → items; `awaiting_input` runs become `input` items, the rest `run`. */
+/** Run states that mean the run is over. */
+export const FINISHED_RUN_STATES = new Set(['completed', 'failed', 'crashed', 'cancelled']);
+
+/**
+ * Finished runs for the dashboard: `at` is when the run ended (start time when
+ * Core has no end time).
+ */
+export function to_overview_recent_items(org: OrgListItemVO, runs: DashboardRunVO[]): OverviewItemData[] {
+    const finished = runs.filter((r) => FINISHED_RUN_STATES.has(r.state));
+    return to_overview_run_items(org, finished)
+        .map((item, i) => ({ ...item, at: finished[i]!.completed_at ?? item.at }));
+}
+
 export function to_overview_run_items(org: OrgListItemVO, runs: DashboardRunVO[]): OverviewItemData[] {
     return runs.map((r) => ({
         kind: r.state === 'awaiting_input' ? ('input' as const) : ('run' as const),

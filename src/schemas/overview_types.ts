@@ -94,6 +94,8 @@ export interface OverviewData {
     needs_you: OverviewItemData[];
     /** Merged across orgs, newest first — running runs. */
     live_runs: OverviewItemData[];
+    /** Merged across orgs, most recently finished first — completed / failed / cancelled runs. */
+    recent_runs: OverviewItemData[];
     /** True when at least one org failed to load. */
     partial: boolean;
     /** Bell: newest in-app notifications across the same orgs. */
