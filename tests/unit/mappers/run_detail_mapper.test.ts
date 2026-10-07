@@ -42,7 +42,7 @@ describe('run attempts from lifecycle events', () => {
     it('a run never resumed is one attempt', () => {
         const run = { run_id: 'r1', state: 'completed', started_at: 1000, completed_at: 5000 } as any;
         expect(to_run_attempts_data([ev('run.completed', 5000), ev('run.started', 1000)], run)).toEqual([
-            { n: 1, started_at: 1000, from_phase: null, ended_at: 5000, state: 'completed', failed_phase: null, error: null },
+            { n: 1, started_at: 1000, from_phase: null, ended_at: 5000, state: 'completed', failed_phase: null, error: null, resumed_by: null },
         ]);
     });
 
@@ -59,8 +59,8 @@ describe('run attempts from lifecycle events', () => {
             ev('run.completed', 90_000),
         ], run);
         expect(attempts).toEqual([
-            { n: 1, started_at: 1000, from_phase: null, ended_at: 20_000, state: 'failed', failed_phase: 'design', error: "Phase 'design' failed: sub-team run failed" },
-            { n: 2, started_at: 60_000, from_phase: 'design', ended_at: 90_000, state: 'completed', failed_phase: null, error: null },
+            { n: 1, started_at: 1000, from_phase: null, ended_at: 20_000, state: 'failed', failed_phase: 'design', error: "Phase 'design' failed: sub-team run failed", resumed_by: null },
+            { n: 2, started_at: 60_000, from_phase: 'design', ended_at: 90_000, state: 'completed', failed_phase: null, error: null, resumed_by: null },
         ]);
     });
 
@@ -95,7 +95,7 @@ describe('run attempts from phases (no events visible)', () => {
 
     it('no leading skipped phases → one attempt settled from the run', () => {
         expect(derive_run_attempts([{ phase: 'a', status: 'done', sequence: 0 }, { phase: 'b', status: 'failed', sequence: 1 }] as any, { ...run, state: 'failed', error: 'x', current_phase: 'b' })).toEqual([
-            { n: 1, started_at: 1000, from_phase: null, ended_at: 90_000, state: 'failed', failed_phase: 'b', error: 'x' },
+            { n: 1, started_at: 1000, from_phase: null, ended_at: 90_000, state: 'failed', failed_phase: 'b', error: 'x', resumed_by: null },
         ]);
     });
 
@@ -106,8 +106,8 @@ describe('run attempts from phases (no events visible)', () => {
             { phase: 'build', status: 'done', sequence: 2, started_at: 70_000 },
         ] as any, run);
         expect(attempts).toEqual([
-            { n: 1, started_at: 1000, from_phase: null, ended_at: 20_000, state: 'failed', failed_phase: 'design', error: 'sub-team failed' },
-            { n: 2, started_at: 60_000, from_phase: 'design', ended_at: 90_000, state: 'completed', failed_phase: null, error: null },
+            { n: 1, started_at: 1000, from_phase: null, ended_at: 20_000, state: 'failed', failed_phase: 'design', error: 'sub-team failed', resumed_by: null },
+            { n: 2, started_at: 60_000, from_phase: 'design', ended_at: 90_000, state: 'completed', failed_phase: null, error: null, resumed_by: null },
         ]);
     });
 });

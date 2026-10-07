@@ -1,6 +1,6 @@
 /** Run detail — Core run phases, reviews, artifacts, phase outputs, lifecycle events and related runs → run detail rows. */
 
-import type { ControlArtifactVO, ControlPhaseAttemptVO, ControlRunPhaseVO, ControlRunVO, ControlReviewVO } from '../types/core/control.js';
+import type { ControlArtifactVO, ControlPhaseAttemptVO, ControlRunPhaseVO, ControlRunHistoryVO, ControlRunVO, ControlReviewVO } from '../types/core/control.js';
 import type { InAppNotificationVO } from '../types/core/notifications.js';
 import type {
     RunAttemptState, RunDetailArtifactData, RunDetailAttemptData, RunDetailChildData, RunDetailParentData,
@@ -107,7 +107,7 @@ export function to_run_attempts_data(events: InAppNotificationVO[], run: Control
     let cur: RunDetailAttemptData | null = null;
     let opened_by: 'started' | 'resumed' = 'started';
     const open = (at: number | null, from_phase: string | null, by: 'started' | 'resumed'): RunDetailAttemptData => {
-        const a: RunDetailAttemptData = { n: attempts.length + 1, started_at: at, from_phase, ended_at: null, state: 'running', failed_phase: null, error: null };
+        const a: RunDetailAttemptData = { n: attempts.length + 1, started_at: at, from_phase, ended_at: null, state: 'running', failed_phase: null, error: null, resumed_by: null };
         attempts.push(a);
         opened_by = by;
         return a;
@@ -148,9 +148,31 @@ export function to_run_attempts_data(events: InAppNotificationVO[], run: Control
     // Live again after the last recorded end: a resume whose events are not visible.
     const last = attempts[attempts.length - 1]!;
     if (last.ended_at != null && to_attempt_state(run.state) === 'running') {
-        attempts.push({ n: attempts.length + 1, started_at: null, from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null });
+        attempts.push({ n: attempts.length + 1, started_at: null, from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null, resumed_by: null });
     }
     return settle_last(attempts, run);
+}
+
+/**
+ * The run's attempts from its history (`runs/get_by_id { with_history }`): the same rules as
+ * {@link to_run_attempts_data}, plus who asked for each resume (`run.resume_requested`).
+ */
+export function to_run_attempts_from_history(history: ControlRunHistoryVO[], run: ControlRunVO): RunDetailAttemptData[] {
+    const as_events = history
+        .filter((h) => h.type !== 'run.resume_requested')
+        .map((h) => ({ event: h.type, run_id: run.run_id, phase: h.phase, created_at: h.at, payload: { from_phase: h.from_phase, error: h.error, phase: h.phase } }) as unknown as InAppNotificationVO);
+    const attempts = to_run_attempts_data(as_events, run);
+    const requests = history.filter((h) => h.type === 'run.resume_requested');
+    for (const a of attempts) {
+        if (a.n === 1) continue;
+        const prev_end = attempts[a.n - 2]?.ended_at ?? 0;
+        // The request between the previous attempt's end and this one's start (a little slack for clocks).
+        const req = [...requests].reverse().find((r) => r.at >= prev_end - 1_000 && (a.started_at == null || r.at <= a.started_at + 5_000));
+        if (!req) continue;
+        a.resumed_by = req.actor ? { username: req.actor.username, display_name: req.actor.display_name } : null;
+        a.from_phase ??= req.from_phase;
+    }
+    return attempts;
 }
 
 /** A phase snapshot status that means its attempt of the run ended there. */
@@ -178,7 +200,7 @@ export function derive_run_attempts(phases: ControlRunPhaseVO[], run: ControlRun
     const first_live = sorted.findIndex((p) => p.status !== 'skipped');
     const resumed = first_live > 0;
     if (!resumed) {
-        return settle_last([{ n: 1, started_at: ms(run.started_at), from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null }], run);
+        return settle_last([{ n: 1, started_at: ms(run.started_at), from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null, resumed_by: null }], run);
     }
     const from = sorted[first_live]!;
     const ends: Array<{ at: number; state: RunAttemptState; phase: string; error: string | null }> = [];
@@ -193,8 +215,8 @@ export function derive_run_attempts(phases: ControlRunPhaseVO[], run: ControlRun
     ends.sort((a, b) => a.at - b.at);
     const merged = ends.filter((e, i) => i === 0 || e.at - ends[i - 1]!.at > SAME_END_MS);
     const attempts: RunDetailAttemptData[] = merged.length
-        ? merged.map((e, i) => ({ n: i + 1, started_at: null, from_phase: null, ended_at: e.at, state: e.state, failed_phase: e.phase, error: e.error }))
-        : [{ n: 1, started_at: null, from_phase: null, ended_at: null, state: 'unknown', failed_phase: null, error: null }];
+        ? merged.map((e, i) => ({ n: i + 1, started_at: null, from_phase: null, ended_at: e.at, state: e.state, failed_phase: e.phase, error: e.error, resumed_by: null }))
+        : [{ n: 1, started_at: null, from_phase: null, ended_at: null, state: 'unknown', failed_phase: null, error: null, resumed_by: null }];
     attempts.push({
         n: attempts.length + 1,
         started_at: ms(from.started_at),
@@ -203,6 +225,7 @@ export function derive_run_attempts(phases: ControlRunPhaseVO[], run: ControlRun
         state: 'running',
         failed_phase: null,
         error: null,
+        resumed_by: null,
     });
     return settle_last(attempts, run);
 }

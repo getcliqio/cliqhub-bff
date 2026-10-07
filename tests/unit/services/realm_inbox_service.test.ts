@@ -153,7 +153,7 @@ describe('RunDetailService', () => {
             { review_id: 'rev-2', run_id: 'other', title: 'Not mine' },
         ], total: 2 });
         const dto = await service.get({ run_id: 'r1' }, 'tok');
-        expect(control.run_by_id).toHaveBeenCalledWith('r1', 'tok');
+        expect(control.run_by_id).toHaveBeenCalledWith('r1', 'tok', { with_history: true });
         expect(control.run_phases).toHaveBeenCalledWith('r1', 'tok');
         expect(control.runs).toHaveBeenCalledWith({ realm_id: 'realm-1', query: 'r1', limit: 5 }, 'tok');
         expect(control.realm_by_id).toHaveBeenCalledWith('realm-1', 'tok');
@@ -215,44 +215,36 @@ describe('RunDetailService', () => {
 
 describe('RunDetailService — attempts, parent, children', () => {
     let control: ReturnType<typeof repo>;
-    let orgs: { get: ReturnType<typeof vi.fn> };
     let service: RunDetailService;
     const ev = (event: string, created_at: number, over: Record<string, unknown> = {}) => ({ id: `${event}-${created_at}`, event, created_at, run_id: 'r1', phase: null, payload: {}, ...over });
 
     beforeEach(() => {
         control = repo();
-        orgs = { get: vi.fn().mockResolvedValue({ orgs: [{ id: 'org-other', slug: 'other' }, { id: 'org-acme', slug: 'acme' }] }) };
-        service = new RunDetailService(control as any, orgs as any);
+        service = new RunDetailService(control as any);
     });
 
-    it('reads the run\'s lifecycle events in its realm\'s org and builds the attempts', async () => {
-        control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'failed', started_at: 1000, completed_at: 80_000 });
-        control.notifications.mockResolvedValue({ items: [
-            ev('run.failed', 80_000, { phase: 'design' }), ev('run.resumed', 60_000, { payload: { from_phase: 'design' } }),
-            ev('run.started', 59_900), ev('run.failed', 20_000, { phase: 'design' }), ev('run.started', 1000),
-        ], total: 5 });
+    it('builds the attempts from the run\'s history (one read, with who resumed)', async () => {
+        const h = (type: string, at: number, over: Record<string, unknown> = {}) => ({ type, at, from_phase: null, phase: null, error: null, actor: null, ...over });
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'completed', started_at: 1000, completed_at: 90_000, history: [
+            h('run.started', 1000), h('run.failed', 20_000, { phase: 'design', error: 'sub-team failed' }),
+            h('run.resume_requested', 59_000, { from_phase: 'design', actor: { id: 'u1', username: 'sapan', display_name: 'Sapan Shah' } }),
+            h('run.started', 59_900), h('run.resumed', 60_000, { from_phase: 'design' }), h('run.completed', 90_000),
+        ] });
         const dto = await service.get({ run_id: 'r1' }, 'tok');
-        expect(orgs.get).toHaveBeenCalledWith({ mine: true }, 'tok');
-        expect(control.notifications).toHaveBeenCalledWith({
-            org_id: 'org-acme', run_id: 'r1', limit: 100,
-            types: ['run.started', 'run.resumed', 'run.completed', 'run.failed', 'run.crashed', 'run.cancelled'],
-        }, 'tok');
+        expect(control.run_by_id).toHaveBeenCalledWith('r1', 'tok', { with_history: true });
+        expect(control.notifications).not.toHaveBeenCalled();
         expect(dto.attempts_source).toBe('events');
-        expect(dto.attempts!.map((a) => [a.n, a.from_phase, a.state, a.failed_phase])).toEqual([[1, null, 'failed', 'design'], [2, 'design', 'failed', 'design']]);
-        expect(dto.sections.events.status).toBe('ok');
+        expect(dto.attempts!.map((a) => [a.n, a.from_phase, a.state, a.failed_phase, a.resumed_by?.username ?? null])).toEqual([[1, null, 'failed', 'design', null], [2, 'design', 'completed', null, 'sapan']]);
+        expect((dto.run as Record<string, unknown>).history).toBeUndefined();
         expect(dto.partial).toBe(false);
     });
 
-    it('events read failing → attempts null, page kept, flagged partial', async () => {
+    it('an older Core without history → attempts rebuilt from the phases, page not partial', async () => {
         control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'failed', started_at: 1000 });
         control.run_phases.mockResolvedValue([{ phase: 'plan', status: 'failed', sequence: 0 }]);
-        control.notifications.mockRejectedValue(new ApiError('upstream', 'events down', 502));
         const dto = await service.get({ run_id: 'r1' }, 'tok');
-        expect(dto.attempts).toBeNull();
-        expect(dto.attempts_source).toBeNull();
-        expect(dto.phases).toHaveLength(1);
-        expect(dto.sections.events).toEqual({ status: 'error', error: 'events down' });
-        expect(dto.partial).toBe(true);
+        expect(dto.attempts_source).toBe('phases');
+        expect(dto.partial).toBe(false);
     });
 
     it('no events visible (no in-app rule for run events) → attempts reconstructed from the phases', async () => {
@@ -265,15 +257,6 @@ describe('RunDetailService — attempts, parent, children', () => {
         expect(dto.attempts_source).toBe('phases');
         expect(dto.attempts!.map((a) => [a.n, a.from_phase, a.state])).toEqual([[1, null, 'failed'], [2, 'design', 'completed']]);
         expect(dto.phases[1]).toMatchObject({ attempts: 2, previous_attempts: [{ status: 'failed', completed_at: 20_000 }] });
-    });
-
-    it('a realm whose org is not among the caller\'s orgs skips the events read', async () => {
-        control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'completed', started_at: 1 });
-        orgs.get.mockResolvedValue({ orgs: [{ id: 'org-other', slug: 'other' }] });
-        const dto = await service.get({ run_id: 'r1' }, 'tok');
-        expect(control.notifications).not.toHaveBeenCalled();
-        expect(dto.attempts_source).toBe('phases');
-        expect(dto.partial).toBe(false);
     });
 
     it('a sub-team run links to its parent run and phase (one parent read)', async () => {

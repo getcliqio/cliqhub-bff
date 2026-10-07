@@ -197,8 +197,8 @@ export class ControlRepository {
     }
 
     /** `POST /v1/runs/get_by_id { run_id }` — one run, or null when Core has none. */
-    async run_by_id(run_id: string, token: string): Promise<ControlRunVO | null> {
-        const res = await this._core.post_body<{ data: ControlRunVO | null }>('/v1/runs/get_by_id', { run_id }, token);
+    async run_by_id(run_id: string, token: string, opts: { with_history?: boolean } = {}): Promise<ControlRunVO | null> {
+        const res = await this._core.post_body<{ data: ControlRunVO | null }>('/v1/runs/get_by_id', { run_id, ...(opts.with_history ? { with_history: true } : {}) }, token);
         return res.data ?? null;
     }
 

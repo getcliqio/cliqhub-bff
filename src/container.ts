@@ -222,7 +222,7 @@ export function build_container(deps: {
         ),
         org_page_controller: new OrgPageController(new OrgPageService(core_reads)),
         realm_inbox_controller: new RealmInboxController(new RealmInboxService(control_repo)),
-        run_detail_controller: new RunDetailController(new RunDetailService(control_repo, orgs_repo)),
+        run_detail_controller: new RunDetailController(new RunDetailService(control_repo)),
         realm_runs_controller: new RealmRunsController(new RealmRunsService(control_repo)),
         realm_teams_controller: new RealmTeamsController(new RealmTeamsService(control_repo, teams_repo)),
         realm_daemons_controller: new RealmDaemonsController(new RealmDaemonsService(control_repo, teams_repo)),

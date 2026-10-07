@@ -51,7 +51,7 @@ describe('BFF realm composition routes', () => {
                 if (body.state === 'awaiting_input') return { ok: true, data: { items: [{ run_id: 'r1', state: 'awaiting_input', last_updated_at: 5 }], total: 1 } } as any;
                 return { ok: true, data: { items: [], total: 0 } } as any;
             }
-            if (path === '/v1/runs/get_by_id') return { ok: true, data: body.run_id === 'r1' ? { run_id: 'r1', realm_id: 'realm-1', state: 'awaiting_input' } : null } as any;
+            if (path === '/v1/runs/get_by_id') return { ok: true, data: body.run_id === 'r1' ? { run_id: 'r1', realm_id: 'realm-1', state: 'awaiting_input', ...(body.with_history ? { history: [{ type: 'run.started', at: 1, from_phase: null, phase: null, error: null, actor: null }] } : {}) } : null } as any;
             if (path === '/v1/runs/get_status') return { ok: true, data: [{ phase: 'plan', status: 'completed' }] } as any;
             if (path === '/v1/artifacts/get') return { ok: true, data: [{ artifact_id: 'a1', run_id: 'r1', phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, download_url: 'https://r2/x', created_at: 4 }] } as any;
             throw new Error(`unexpected ${path}`);
@@ -121,7 +121,7 @@ describe('BFF realm composition routes', () => {
         expect(res.body.data.reviews.map((r: any) => r.id)).toEqual(['rev-1']);
         expect(res.body.data.artifacts).toEqual([{ artifact_id: 'a1', source: 'file', kind: 'file', content_preview: null, phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, created_at: 4 }]);
         expect(res.body.data.sections.artifacts.status).toBe('ok');
-        expect(res.body.data.attempts).toEqual([{ n: 1, started_at: 1, from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null }]);
+        expect(res.body.data.attempts).toEqual([{ n: 1, started_at: 1, from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null, resumed_by: null }]);
         expect(res.body.data.attempts_source).toBe('events');
         expect(res.body.data.children.map((c: any) => [c.run_id, c.parent_phase, c.state])).toEqual([['c1', 'plan', 'failed']]);
         expect(res.body.data.parent).toBeNull();

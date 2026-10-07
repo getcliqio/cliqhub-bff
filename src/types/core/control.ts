@@ -12,8 +12,20 @@ export interface ControlRealmVO {
 }
 
 /** A run row (`runs/get`, `runs/get_by_id`); Core sends more fields than typed. */
+/** One entry of a run's history (`runs/get_by_id { with_history: true }`, Core API 7+). */
+export interface ControlRunHistoryVO {
+    type: string;
+    at: number;
+    from_phase: string | null;
+    phase: string | null;
+    error: string | null;
+    actor: { id: string; username: string | null; display_name: string | null } | null;
+}
+
 export interface ControlRunVO {
     run_id: string;
+    /** Only with `with_history: true`; absent from older Cores. */
+    history?: ControlRunHistoryVO[] | null;
     realm_id?: string | null;
     team_id?: string | null;
     team_label?: string | null;

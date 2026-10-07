@@ -68,6 +68,8 @@ export interface RunDetailAttemptData {
     /** The phase the attempt stopped at (failed / crashed / cancelled), when known. */
     failed_phase: string | null;
     error: string | null;
+    /** Who asked for this resume (attempts after the first), when Core recorded it. */
+    resumed_by: { username: string | null; display_name: string | null } | null;
 }
 
 /** The run (and phase) that spawned this sub-team run. */
