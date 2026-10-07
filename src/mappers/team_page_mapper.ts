@@ -29,6 +29,27 @@ function strings(v: unknown, keys: string[]): string[] {
     }).filter((x): x is string => Boolean(x));
 }
 
+/**
+ * Who reviews a human-review phase, as one line ("a, b"), or null when the run decides.
+ * The manifest form is `reviewers: [{ policy, channels: [...] }]`; plain strings, a single
+ * string and the older `reviewer:` field are read too. Objects never print as "[object Object]".
+ */
+function reviewer_names(review: Rec): string | null {
+    const names: string[] = [];
+    const single = str(review.reviewers) ?? str(review.reviewer);
+    if (single) names.push(single);
+    for (const entry of arr(review.reviewers)) {
+        if (typeof entry === 'string') { if (entry.trim()) names.push(entry.trim()); continue; }
+        if (!entry || typeof entry !== 'object') continue;
+        const group = entry as Rec;
+        const channels = strings(group.channels, ['name', 'id']);
+        if (channels.length) names.push(...channels);
+        else { const one = str(group.name) ?? str(group.channel); if (one) names.push(one); }
+    }
+    const unique = [...new Set(names)];
+    return unique.length ? unique.join(', ') : null;
+}
+
 /** Normalize one phase of a version's workflow (tolerant of field spellings). */
 export function to_team_phase_data(raw: unknown, roles: Map<string, string>, support = false): TeamPhaseData | null {
     if (!raw || typeof raw !== 'object') return null;
@@ -37,7 +58,7 @@ export function to_team_phase_data(raw: unknown, roles: Map<string, string>, sup
     if (!name) return null;
     const review = p.review ?? p.hug ?? p.human_review;
     const review_obj = review && typeof review === 'object' ? review as Rec : null;
-    const reviewers = review_obj ? (str(review_obj.reviewers) ?? (Array.isArray(review_obj.reviewers) ? (review_obj.reviewers as unknown[]).join(', ') : null)) : null;
+    const reviewers = review_obj ? reviewer_names(review_obj) : null;
     const max = typeof p.max_iterations === 'number' ? p.max_iterations : null;
     return {
         name,
