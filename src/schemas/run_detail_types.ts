@@ -206,6 +206,60 @@ export interface RunDetailData {
     parent: RunDetailParentData | null;
     /** Sub-team runs this run's team phases spawned, oldest first. */
     children: RunDetailChildData[];
+    /** Why a failed / crashed / cancelled run stopped; null for any other state or when it can't be worked out. */
+    failure?: RunFailureData | null;
     sections: Record<RunDetailSectionKey, InboxSectionStatusData>;
     partial: boolean;
+}
+
+/** Why a run stopped, in words a person can act on. */
+export type RunFailureReason =
+    | 'review_timed_out' | 'review_rejected' | 'review_escalated' | 'gate_exhausted'
+    | 'permission' | 'agent_crashed' | 'agent_error' | 'timed_out' | 'missing_setup'
+    | 'cancelled' | 'daemon_crashed' | 'unknown';
+
+/** One hop from the run down to where it actually failed (a sub-team run, then its phase). */
+export interface RunFailureStepData {
+    run_id: string;
+    run_name: string | null;
+    /** `@scope/name` of that run's team. */
+    team: string | null;
+    /** The phase of this run that failed (for a hop into a sub-team: the phase that started it). */
+    phase: string | null;
+}
+
+/** One person (or channel) a failed review went to, and what they answered. */
+export interface RunFailureReviewerData {
+    name: string;
+    /** PASS / REJECT / ROUTE:… ; null when they didn't answer. */
+    action: string | null;
+    responded_at: string | null;
+    comment: string | null;
+}
+
+/** The review a run failed on. */
+export interface RunFailureReviewData {
+    review_id: string;
+    status: string | null;
+    /** `any` — one answer decides; `all` — everyone must approve. */
+    policy: 'any' | 'all' | null;
+    reviewers: RunFailureReviewerData[];
+    /** Phases a reject sends the work back to. */
+    route_targets: string[];
+}
+
+/** Why a run failed: the reason, where (through sub-teams), what to do next. */
+export interface RunFailureData {
+    reason: RunFailureReason;
+    /** One line, e.g. "Review timed out after 30m with no decision". */
+    summary: string;
+    /** The failing step's own error, as recorded. */
+    detail: string | null;
+    /** A next step for reasons with a known fix (reconnect, install the agent, …). */
+    hint: string | null;
+    /** The run first, then each sub-team down to the failing one; the last hop's `phase` failed. */
+    chain: RunFailureStepData[];
+    /** The phase to resume the failing run from (a review's route-back target, else the failed phase). */
+    resume_from: string | null;
+    review: RunFailureReviewData | null;
 }

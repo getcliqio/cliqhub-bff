@@ -19,6 +19,7 @@ import type {
     RunDetailAttemptData, RunDetailData, RunDetailGetInput, RunDetailPhaseOutputData, RunDetailSectionKey,
 } from '../schemas/run_detail_types.js';
 import { ApiError } from '../errors/api_error.js';
+import { read_failure, type ReviewReader } from './run_failure.js';
 import { to_control_realm_data, to_section_data } from '../mappers/realm_inbox_mapper.js';
 import {
     RUN_LIFECYCLE_EVENTS,
@@ -50,7 +51,11 @@ export class RunDetailService {
      * @param _orgs - Org list (resolves the realm's org id for the events read); without it
      *   attempts are reconstructed from the phases.
      */
-    constructor(private readonly _control: ControlRepository) {}
+    /**
+     * @param _control - Core control-plane reads.
+     * @param _read_review - Review read by id, for "why it failed" on a run that stopped at a review.
+     */
+    constructor(private readonly _control: ControlRepository, private readonly _read_review: ReviewReader | null = null) {}
 
     /**
      * The run plus best-effort phases, labels, realm and this run's pending reviews.
@@ -99,6 +104,14 @@ export class RunDetailService {
         const phase_outputs = artifacts.status === 'fulfilled'
             ? await this._phase_outputs(artifacts.value, token, run_id)
             : [];
+        // Why it stopped (best-effort: a failure here leaves the card out, not the page).
+        const failure = await read_failure(
+            this._control, this._read_review, run, phase_rows,
+            children.status === 'fulfilled' ? children.value.items : [], token,
+        ).catch((err: unknown) => {
+            log.warn('run_failure_failed', { run_id, error: err instanceof Error ? err.message : String(err) });
+            return null;
+        });
 
         const sections: Record<RunDetailSectionKey, InboxSectionStatusData> = {
             phases: to_section_data(phases),
@@ -132,6 +145,7 @@ export class RunDetailService {
                 org_slug: realm_vo?.org_slug ?? null,
             }),
             children: children.status === 'fulfilled' ? children.value.items.map(to_run_detail_child_data) : [],
+            failure,
             sections,
             // A run without a realm has nothing more to load — that is not "partial".
             partial: realm_id

@@ -173,6 +173,7 @@ export function build_container(deps: {
     const invitations_repo = new InvitationsRepository(core_client);
     const teams_repo = new TeamsRepository(core_client);
     const control_repo = new ControlRepository(core_client);
+    const review_page_service = new ReviewPageService(core_reads, orgs_repo);
     const dashboard_repo = new DashboardRepository(core_client);
 
     // Services shared by several controllers
@@ -222,7 +223,11 @@ export function build_container(deps: {
         ),
         org_page_controller: new OrgPageController(new OrgPageService(core_reads)),
         realm_inbox_controller: new RealmInboxController(new RealmInboxService(control_repo)),
-        run_detail_controller: new RunDetailController(new RunDetailService(control_repo)),
+        run_detail_controller: new RunDetailController(new RunDetailService(
+            control_repo,
+            // "Why it failed": the review a run stopped at, read like the review page reads it.
+            async (review_id, token) => (await review_page_service.get({ review_id }, token)).review,
+        )),
         realm_runs_controller: new RealmRunsController(new RealmRunsService(control_repo)),
         realm_teams_controller: new RealmTeamsController(new RealmTeamsService(control_repo, teams_repo)),
         realm_daemons_controller: new RealmDaemonsController(new RealmDaemonsService(control_repo, teams_repo)),
@@ -236,7 +241,7 @@ export function build_container(deps: {
         team_page_controller: new TeamPageController(team_page_service),
         agent_list_controller: new AgentListController(agent_page_service),
         agent_page_controller: new AgentPageController(agent_page_service),
-        review_page_controller: new ReviewPageController(new ReviewPageService(core_reads, orgs_repo)),
+        review_page_controller: new ReviewPageController(review_page_service),
         admin_home_controller: new AdminHomeController(admin_page_service),
         admin_list_controller: new AdminListController(admin_page_service),
     };
