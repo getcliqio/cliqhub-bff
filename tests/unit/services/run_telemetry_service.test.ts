@@ -69,9 +69,11 @@ describe('RunTelemetryService', () => {
         const { svc } = make({
             children: { r1: [child], c1: [] },
             child_phases: { c1: [{ phase: 'draft', status: 'done', sequence: 0, started_at: t0 + 6 * M, completed_at: t0 + 10 * M },
-                { phase: 'hug-lld', status: 'failed', sequence: 1, started_at: t0 + 10 * M, completed_at: t0 + 44 * M }] },
+                { phase: 'hug-lld', status: 'failed', sequence: 1, started_at: t0 + 10 * M, completed_at: t0 + 44 * M, error: 'Review timed out after 30m' }] },
             child_spans: { c1: [
-                span('agent.execute', 6, 10, { 'phase.name': 'draft', 'agent.name': 'cursor', 'usage.agent_kind': 'llm', 'usage.outcome': 'success' }),
+                span('agent.execute', 6, 7, { 'phase.name': 'draft', 'agent.name': 'cursor', 'usage.agent_kind': 'llm', 'usage.outcome': 'success' }),
+                // A route-back re-runs draft's agent with no new phase span.
+                span('agent.execute', 9, 10, { 'phase.name': 'draft', 'agent.name': 'cursor', 'usage.agent_kind': 'llm', 'usage.outcome': 'success' }),
                 span('phase.execute', 10, 44, { 'phase.name': 'hug-lld' }, 'ERROR'),
                 span('agent.execute', 10, 44, { 'phase.name': 'hug-lld', 'agent.name': 'hug' }),
             ] },
@@ -81,8 +83,8 @@ describe('RunTelemetryService', () => {
         expect(review.sub_runs).toHaveLength(1);
         const sub = review.sub_runs![0];
         expect(sub).toMatchObject({ run_id: 'c1', team: '@acme/design-lld', state: 'failed', error: expect.stringContaining('timed out') });
-        expect(sub.phases.map((p) => [p.name, p.status])).toEqual([['draft', 'done'], ['hug-lld', 'failed']]);
-        expect(sub.bars.map((b) => [b.phase, b.agent, b.kind])).toEqual([['draft', 'cursor', 'llm'], ['hug-lld', 'hug', 'human']]);
+        expect(sub.phases.map((p) => [p.name, p.status, p.runs, p.error])).toEqual([['draft', 'done', 2, null], ['hug-lld', 'failed', 1, 'Review timed out after 30m']]);
+        expect(sub.bars.map((b) => [b.phase, b.agent, b.kind])).toEqual([['draft', 'cursor', 'llm'], ['draft', 'cursor', 'llm'], ['hug-lld', 'hug', 'human']]);
         // The parent's own lanes, bars and totals are unchanged by the sub-team.
         expect(d.phases.filter((p) => p.sub_runs).map((p) => p.name)).toEqual(['review']);
         expect(d.bars.some((b) => b.phase === 'draft')).toBe(false);

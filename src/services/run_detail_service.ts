@@ -16,7 +16,7 @@ import type { ControlRepository } from '../repositories/control_repository.js';
 import type { ControlArtifactVO, ControlRealmVO, ControlRunPhaseVO, ControlRunVO } from '../types/core/control.js';
 import type { InboxSectionStatusData } from '../schemas/realm_inbox_types.js';
 import type {
-    RunDetailAttemptData, RunDetailData, RunDetailGetInput, RunDetailPhaseOutputData, RunDetailSectionKey,
+    RunDetailAttemptData, RunDetailData, RunDetailGetInput, RunDetailParentData, RunDetailPhaseOutputData, RunDetailSectionKey,
 } from '../schemas/run_detail_types.js';
 import { ApiError } from '../errors/api_error.js';
 import { read_failure, type ReviewReader } from './run_failure.js';
@@ -39,6 +39,8 @@ const log = get_logger('svc.run_detail');
 
 /** At most this many cut-off phase outputs are read in full per request. */
 const MAX_FULL_OUTPUT_READS = 25;
+/** Grandparents read above a sub-team run's parent. */
+const MAX_ANCESTORS = 3;
 
 /**
  * Run detail: the run row plus its phases, labels (team / workspace names
@@ -145,6 +147,9 @@ export class RunDetailService {
                 org_slug: realm_vo?.org_slug ?? null,
             }),
             children: children.status === 'fulfilled' ? children.value.items.map(to_run_detail_child_data) : [],
+            ancestors: await this._ancestors(run, parent.status === 'fulfilled' ? parent.value : null, token, {
+                realm_slug: realm_vo?.slug ?? null, org_slug: realm_vo?.org_slug ?? null,
+            }),
             failure,
             sections,
             // A run without a realm has nothing more to load — that is not "partial".
@@ -152,6 +157,34 @@ export class RunDetailService {
                 ? Object.values(sections).some((s) => s.status === 'error')
                 : (['phases', 'artifacts', 'events', 'parent', 'children'] as const).some((k) => sections[k].status === 'error'),
         };
+    }
+
+    /**
+     * The chain of runs above a sub-team run, outermost first: the parent (already read), then
+     * each grandparent (`runs/get_by_id`, up to {@link MAX_ANCESTORS} hops, best-effort).
+     */
+    private async _ancestors(
+        run: ControlRunVO,
+        parent: ControlRunVO | null,
+        token: string,
+        where: { realm_slug: string | null; org_slug: string | null },
+    ): Promise<RunDetailParentData[]> {
+        const first = to_run_detail_parent_data(run, parent, where);
+        if (!first) return [];
+        const chain = [first];
+        let cur = parent;
+        for (let hop = 0; cur?.parent_run_id && hop < MAX_ANCESTORS; hop++) {
+            let up: ControlRunVO | null = null;
+            try {
+                up = await this._control.run_by_id(String(cur.parent_run_id), token);
+            } catch (err) {
+                log.warn('run_ancestor_read_failed', { run_id: cur.parent_run_id, error: err instanceof Error ? err.message : String(err) });
+            }
+            const entry = to_run_detail_parent_data(cur, up, where);
+            if (entry) chain.unshift(entry);
+            cur = up;
+        }
+        return chain;
     }
 
     /**

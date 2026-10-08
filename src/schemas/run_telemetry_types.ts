@@ -65,6 +65,8 @@ export interface TelemetryPhaseData {
     runs: number;
     gate_outcome: string | null;
     depends_on: string[];
+    /** The phase's error as recorded (failed phases); absent from an older BFF. */
+    error?: string | null;
     /** Sub-team runs this phase started (a `uses:` / team phase), each with its own steps. */
     sub_runs?: TelemetrySubRunData[];
 }

@@ -204,6 +204,8 @@ export interface RunDetailData {
     attempts_source: 'events' | 'phases' | null;
     /** Set when this run is a sub-team run. */
     parent: RunDetailParentData | null;
+    /** The whole chain above a sub-team run, outermost first (the last one is `parent`); [] otherwise. */
+    ancestors?: RunDetailParentData[];
     /** Sub-team runs this run's team phases spawned, oldest first. */
     children: RunDetailChildData[];
     /** Why a failed / crashed / cancelled run stopped; null for any other state or when it can't be worked out. */

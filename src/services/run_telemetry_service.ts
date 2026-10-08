@@ -172,8 +172,9 @@ function to_phases(names: string[], rows: ControlRunPhaseVO[], phase_spans: Obj[
             duration_ms: start !== null && end !== null && Number.isFinite(start) ? Math.max(0, end - start) : null,
             cost_usd: phase_cost(n), tokens_in: num(bp.tokens_in) ?? sum(pb.filter((b) => b.unit_kind === 'tokens').map((b) => b.units_in)),
             tokens_out: num(bp.tokens_out) ?? sum(pb.filter((b) => b.unit_kind === 'tokens').map((b) => b.units_out)),
-            runs: Math.max(1, ps.length), gate_outcome: str(obj(ps[ps.length - 1]?.attributes)['gate.outcome']),
-            depends_on: deps,
+            // A route-back re-runs the phase's agent without a new phase span: count agent runs too.
+            runs: Math.max(1, ps.length, ...pb.map((b) => b.run_index ?? 1)), gate_outcome: str(obj(ps[ps.length - 1]?.attributes)['gate.outcome']),
+            depends_on: deps, error: str(r?.error),
         };
     });
 }
@@ -229,7 +230,7 @@ export class RunTelemetryService {
                 const snap = usage ? ((obj(data_of(usage)).run as RunUsageSnapshotVO | null) ?? null) : null;
                 const raw: Obj[] = ((d) => (Array.isArray(d) ? d.map(obj) : []))(data_of(spans));
                 const bars = to_bars(raw);
-                const phases = to_phases(phase_names(rows, [], bars), rows, raw.filter((x) => x.name === 'phase.execute'), bars, [], {});
+                const phases = to_phases(phase_names(rows, [], bars), rows, raw.filter((x) => x.name === 'phase.execute'), bars, [], obj(snap?.by_phase));
                 const grand = await this._sub_runs(child.run_id, token, depth + 1);
                 attach_sub_runs(phases, grand);
                 // Its own models plus its sub-teams' (they roll up into the parent run's totals).
