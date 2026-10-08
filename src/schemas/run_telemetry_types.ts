@@ -84,6 +84,17 @@ export interface TelemetrySubRunData {
     phases: TelemetryPhaseData[];
     /** Agent bars of those steps (`phase` is the sub-team's phase name). */
     bars: TelemetryBarData[];
+    /** Its model usage, its own sub-teams included (already counted in the parent run's totals). */
+    usage: TelemetrySubRunUsageData;
+}
+
+/** Model usage of a sub-team run; null where nothing was reported. */
+export interface TelemetrySubRunUsageData {
+    cost_usd: number | null;
+    tokens_in: number | null;
+    tokens_out: number | null;
+    cached_in: number | null;
+    model_calls: number | null;
 }
 
 /** Usage per model. */

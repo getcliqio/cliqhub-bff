@@ -15,7 +15,7 @@ import type { ControlRunPhaseVO, ControlRunVO } from '../types/core/control.js';
 import type { RunUsageSnapshotVO } from '../types/core/telemetry.js';
 import type {
     AgentKind, RunTelemetryData, RunTelemetryGetInput, TelemetryAgentData, TelemetryBarData, TelemetryModelData, TelemetryPhaseData,
-    TelemetrySubRunData,
+    TelemetrySubRunData, TelemetrySubRunUsageData,
 } from '../schemas/run_telemetry_types.js';
 import { ApiError } from '../errors/api_error.js';
 import { get_logger } from '../lib/log.js';
@@ -51,6 +51,17 @@ function kind_of(agent: string, raw: unknown): AgentKind {
     return KINDS.includes(raw as AgentKind) ? raw as AgentKind : 'custom';
 }
 /** Sum of the non-null values, or null when there are none. */
+/** A sub-team run as read here: what the page gets, plus where it hangs and its models (for roll-up). */
+type SubRun = TelemetrySubRunData & { parent_phase: string | null; models: TelemetryModelData[] };
+
+/** Hang each sub-team run under the phase that started it (internal fields dropped). */
+function attach_sub_runs(phases: TelemetryPhaseData[], subs: SubRun[]): void {
+    for (const ph of phases) {
+        const mine = subs.filter((r) => r.parent_phase === ph.name);
+        if (mine.length) ph.sub_runs = mine.map(({ parent_phase: _p, models: _m, ...r }) => r);
+    }
+}
+
 const sum = (xs: Array<number | null>): number | null => { const v = xs.filter((x): x is number => x !== null); return v.length ? v.reduce((a, b) => a + b, 0) : null; };
 
 /** Total length of the union of [start, end) intervals. */
@@ -100,6 +111,46 @@ function phase_names(rows: ControlRunPhaseVO[], wf: Obj[], bars: TelemetryBarDat
 }
 
 /** One entry per phase: status row, spans, bars, usage and workflow merged. */
+/** Models a run used, from its usage snapshot (LLM calls only), else from its token bars. */
+function to_models(snap: RunUsageSnapshotVO | null, bars: TelemetryBarData[]): TelemetryModelData[] {
+    const bm = Object.values(obj(snap?.by_model)).map(obj);
+    return bm.length
+        ? bm.map((m) => { const model = str(m.model) ?? 'unknown'; return { model, provider: str(m.provider), calls: num(m.llm_calls), tokens_in: num(m.tokens_in) ?? 0, tokens_out: num(m.tokens_out) ?? 0, cached_in: sum(bars.filter((b) => b.model === model).map((b) => b.cached_in)), cost_usd: num(m.cost_usd) }; })
+        : [...new Set(bars.filter((b) => b.model).map((b) => b.model as string))].map((model) => { const g = bars.filter((b) => b.model === model); return { model, provider: g[0].provider, calls: sum(g.map((b) => b.calls)), tokens_in: sum(g.map((b) => b.units_in)) ?? 0, tokens_out: sum(g.map((b) => b.units_out)) ?? 0, cached_in: sum(g.map((b) => b.cached_in)), cost_usd: sum(g.map((b) => b.cost_usd)) }; });
+}
+
+/**
+ * Model usage of one run: cost, tokens, calls and cache, from its models only. Shell bytes and
+ * connector calls are not tokens (Core's snapshot totals mix them in, so they aren't used here).
+ */
+function model_usage(models: TelemetryModelData[], cost_fallback: number | null): TelemetrySubRunUsageData {
+    return {
+        cost_usd: sum(models.map((m) => m.cost_usd)) ?? cost_fallback,
+        tokens_in: models.length ? models.reduce((a, m) => a + m.tokens_in, 0) : null,
+        tokens_out: models.length ? models.reduce((a, m) => a + m.tokens_out, 0) : null,
+        cached_in: sum(models.map((m) => m.cached_in)),
+        model_calls: sum(models.map((m) => m.calls)),
+    };
+}
+
+/** Add `b` into `a` field by field (null + null stays null). */
+function add_usage(a: TelemetrySubRunUsageData, b: TelemetrySubRunUsageData): TelemetrySubRunUsageData {
+    const plus = (x: number | null, y: number | null) => (x === null && y === null ? null : (x ?? 0) + (y ?? 0));
+    return { cost_usd: plus(a.cost_usd, b.cost_usd), tokens_in: plus(a.tokens_in, b.tokens_in), tokens_out: plus(a.tokens_out, b.tokens_out), cached_in: plus(a.cached_in, b.cached_in), model_calls: plus(a.model_calls, b.model_calls) };
+}
+
+/** Merge model rows by model + provider (a sub-team's models into its parent's). */
+function merge_models(rows: TelemetryModelData[]): TelemetryModelData[] {
+    const out = new Map<string, TelemetryModelData>();
+    const plus = (x: number | null, y: number | null) => (x === null && y === null ? null : (x ?? 0) + (y ?? 0));
+    for (const m of rows) {
+        const k = `${m.provider ?? ''}\u0000${m.model}`;
+        const prev = out.get(k);
+        out.set(k, prev ? { ...prev, calls: plus(prev.calls, m.calls), tokens_in: prev.tokens_in + m.tokens_in, tokens_out: prev.tokens_out + m.tokens_out, cached_in: plus(prev.cached_in, m.cached_in), cost_usd: plus(prev.cost_usd, m.cost_usd) } : { ...m });
+    }
+    return [...out.values()];
+}
+
 function to_phases(names: string[], rows: ControlRunPhaseVO[], phase_spans: Obj[], bars: TelemetryBarData[], wf: Obj[], by_phase: Obj): TelemetryPhaseData[] {
     const wf_by = new Map(wf.map((w) => [str(w.name) ?? '', w]));
     const phase_cost = (n: string): number | null => sum(Object.values(obj(obj(by_phase[n]).by_model)).map((m) => num(obj(m).cost_usd)));
@@ -158,7 +209,7 @@ export class RunTelemetryService {
      * @param token - Caller's Core token.
      * @param depth - Nesting level of the children being read (1 = direct sub-teams).
      */
-    private async _sub_runs(run_id: string, token: string, depth: number): Promise<Array<TelemetrySubRunData & { parent_phase: string | null }>> {
+    private async _sub_runs(run_id: string, token: string, depth: number): Promise<SubRun[]> {
         if (depth > MAX_SUB_DEPTH) return [];
         let children: ControlRunVO[];
         try {
@@ -167,31 +218,33 @@ export class RunTelemetryService {
             log.warn('run_telemetry_sub_runs_failed', { run_id, error: err instanceof Error ? err.message : String(err) });
             return [];
         }
-        const read = async (child: ControlRunVO): Promise<(TelemetrySubRunData & { parent_phase: string | null }) | null> => {
+        const read = async (child: ControlRunVO): Promise<SubRun | null> => {
             try {
-                const [rows, spans] = await Promise.all([
+                const [rows, spans, usage] = await Promise.all([
                     this._control.run_phases(child.run_id, token),
                     this._reads.read('runs.get_telemetry', { kind: 'spans', run_id: child.run_id }, token),
+                    // Usage is optional: without it the sub-team still shows, with no cost.
+                    this._reads.read('runs.get_telemetry', { kind: 'usage', run_id: child.run_id }, token).catch(() => null),
                 ]);
+                const snap = usage ? ((obj(data_of(usage)).run as RunUsageSnapshotVO | null) ?? null) : null;
                 const raw: Obj[] = ((d) => (Array.isArray(d) ? d.map(obj) : []))(data_of(spans));
                 const bars = to_bars(raw);
                 const phases = to_phases(phase_names(rows, [], bars), rows, raw.filter((x) => x.name === 'phase.execute'), bars, [], {});
                 const grand = await this._sub_runs(child.run_id, token, depth + 1);
-                for (const ph of phases) {
-                    const mine = grand.filter((r) => r.parent_phase === ph.name);
-                    if (mine.length) ph.sub_runs = mine.map(({ parent_phase: _p, ...r }) => r);
-                }
+                attach_sub_runs(phases, grand);
+                // Its own models plus its sub-teams' (they roll up into the parent run's totals).
+                const models = merge_models([...to_models(snap, bars), ...grand.flatMap((g) => g.models)]);
                 return {
                     run_id: child.run_id, run_name: str(child.run_name), team: str(child.team_label), state: child.state,
                     error: str(child.error), start_ms: num(child.started_at), end_ms: num(child.completed_at),
-                    phases, bars, parent_phase: str(child.parent_phase),
+                    phases, bars, usage: model_usage(models, num(snap?.total_cost_usd)), parent_phase: str(child.parent_phase), models,
                 };
             } catch (err) {
                 log.warn('run_telemetry_sub_run_failed', { run_id: child.run_id, error: err instanceof Error ? err.message : String(err) });
                 return null;
             }
         };
-        return (await Promise.all(children.map(read))).filter((r): r is TelemetrySubRunData & { parent_phase: string | null } => r !== null);
+        return (await Promise.all(children.map(read))).filter((r): r is SubRun => r !== null);
     }
 
     /**
@@ -234,10 +287,7 @@ export class RunTelemetryService {
         const out_phases = to_phases(names, rows, phase_spans, bars, wf, by_phase);
         // Sub-teams: each child run hangs under the phase that started it (best-effort).
         const sub = await this._sub_runs(p.run_id, token, 1);
-        for (const ph of out_phases) {
-            const mine = sub.filter((r) => r.parent_phase === ph.name);
-            if (mine.length) ph.sub_runs = mine.map(({ parent_phase: _p, ...r }) => r);
-        }
+        attach_sub_runs(out_phases, sub);
 
         // ── Agent cost: reported on the span, else the phase's Hub-priced model cost split by token share.
         for (const ph of names) {
@@ -267,10 +317,11 @@ export class RunTelemetryService {
         };
 
         // ── Models and agents.
-        const bm = Object.values(obj(snap?.by_model)).map(obj);
-        const by_model: TelemetryModelData[] = bm.length
-            ? bm.map((m) => { const model = str(m.model) ?? 'unknown'; return { model, provider: str(m.provider), calls: num(m.llm_calls), tokens_in: num(m.tokens_in) ?? 0, tokens_out: num(m.tokens_out) ?? 0, cached_in: sum(bars.filter((b) => b.model === model).map((b) => b.cached_in)), cost_usd: num(m.cost_usd) }; })
-            : [...new Set(bars.filter((b) => b.model).map((b) => b.model as string))].map((model) => { const g = bars.filter((b) => b.model === model); return { model, provider: g[0].provider, calls: sum(g.map((b) => b.calls)), tokens_in: sum(g.map((b) => b.units_in)) ?? 0, tokens_out: sum(g.map((b) => b.units_out)) ?? 0, cached_in: sum(g.map((b) => b.cached_in)), cost_usd: sum(g.map((b) => b.cost_usd)) }; });
+        // This run's models plus its sub-teams': a run's cost includes the sub-teams it started.
+        const own_models = to_models(snap, bars);
+        const by_model = merge_models([...own_models, ...sub.flatMap((r) => r.models)]);
+        const own_usage = model_usage(own_models, num(snap?.total_cost_usd) ?? sum(bars.map((b) => b.cost_usd)));
+        const usage_total = sub.reduce((acc, r) => add_usage(acc, r.usage), own_usage);
         by_model.sort((a, b) => (b.cost_usd ?? 0) - (a.cost_usd ?? 0) || b.tokens_in - a.tokens_in);
         const agents = new Map<string, TelemetryBarData[]>();
         for (const b of bars) { const k = `${b.phase}\u0000${b.agent}`; agents.set(k, [...(agents.get(k) ?? []), b]); }
@@ -281,7 +332,6 @@ export class RunTelemetryService {
             cost_usd: sum(g.map((b) => b.cost_usd)), failures: g.filter((b) => b.status === 'error').length, outcome: g[g.length - 1].outcome,
         })).sort((a, b) => (b.cost_usd ?? 0) - (a.cost_usd ?? 0) || b.duration_ms - a.duration_ms);
 
-        const token_bars = bars.filter((b) => b.unit_kind === 'tokens');
         const sections = {
             usage: usage.status === 'rejected' ? 'error' as const : snap ? 'ok' as const : 'empty' as const,
             spans: spans.status === 'rejected' ? 'error' as const : raw_spans.length ? 'ok' as const : 'empty' as const,
@@ -293,11 +343,11 @@ export class RunTelemetryService {
             window: { start_ms: t0, end_ms: t1 },
             totals: {
                 duration_ms: total,
-                cost_usd: num(snap?.total_cost_usd) ?? sum(bars.map((b) => b.cost_usd)),
-                tokens_in: num(snap?.total_tokens_in) ?? sum(token_bars.map((b) => b.units_in)),
-                tokens_out: num(snap?.total_tokens_out) ?? sum(token_bars.map((b) => b.units_out)),
-                cached_in: sum(bars.map((b) => b.cached_in)),
-                model_calls: num(snap?.total_llm_calls) ?? sum(bars.filter((b) => b.kind === 'llm').map((b) => b.calls)),
+                cost_usd: usage_total.cost_usd,
+                tokens_in: usage_total.tokens_in,
+                tokens_out: usage_total.tokens_out,
+                cached_in: usage_total.cached_in,
+                model_calls: usage_total.model_calls,
                 agent_runs: bars.length,
                 reworks: out_phases.reduce((a, ph) => a + Math.max(0, ph.runs - 1), 0),
                 time,

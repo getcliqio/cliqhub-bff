@@ -22,10 +22,10 @@ const SPANS = [
 const USAGE = { run: { total_tokens_in: 130, total_tokens_out: 13, total_cost_usd: 2.5, total_llm_calls: 7, by_phase: { plan: { tokens_in: 100, tokens_out: 10, by_model: { s: { model: 'sonnet', cost_usd: 2 } } }, check: { tokens_in: 30, tokens_out: 3, by_model: { h: { model: 'haiku', cost_usd: 0.5 } } } }, by_model: { s: { model: 'sonnet', provider: 'anthropic', llm_calls: 5, tokens_in: 100, tokens_out: 10, cost_usd: 2 }, h: { model: 'haiku', provider: 'anthropic', llm_calls: 2, tokens_in: 30, tokens_out: 3, cost_usd: 0.5 } } }, phases: [] };
 const PHASES = [['plan', 0, 6], ['review', 6, 44], ['check', 44, 60], ['pr', 60, 62]].map(([phase, s, e], i) => ({ phase: phase as string, status: 'completed', sequence: i + 1, started_at: t0 + (s as number) * M, completed_at: t0 + (e as number) * M }));
 
-function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_fail?: boolean; children?: Record<string, any[]>; child_spans?: Record<string, unknown>; child_phases?: Record<string, unknown[]> } = {}) {
+function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_fail?: boolean; children?: Record<string, any[]>; child_spans?: Record<string, unknown>; child_phases?: Record<string, unknown[]>; child_usage?: Record<string, unknown> } = {}) {
     const core = { post_body: vi.fn(async (p: string, b: any) => {
         if (opts.fail?.includes(p + (b.kind ?? ''))) throw new Error('boom');
-        if (p === '/v1/runs/get_telemetry' && b.run_id !== 'r1') return { ok: true, data: opts.child_spans?.[b.run_id] ?? [] };
+        if (p === '/v1/runs/get_telemetry' && b.run_id !== 'r1') return { ok: true, data: b.kind === 'usage' ? { run: opts.child_usage?.[b.run_id] ?? null } : opts.child_spans?.[b.run_id] ?? [] };
         if (p === '/v1/runs/get_telemetry') return { ok: true, data: b.kind === 'usage' ? (opts.usage ?? USAGE) : (opts.spans ?? SPANS) };
         if (p === '/v1/teams/get_phases') return { ok: true, data: { phases: [{ name: 'plan', type: 'standard' }, { name: 'review', agent: 'hug' }, { name: 'check', type: 'gate', depends_on: ['plan', 'review'] }, { name: 'pr', depends_on: ['check'] }] } };
         throw new Error(p);
@@ -87,6 +87,22 @@ describe('RunTelemetryService', () => {
         expect(d.phases.filter((p) => p.sub_runs).map((p) => p.name)).toEqual(['review']);
         expect(d.bars.some((b) => b.phase === 'draft')).toBe(false);
         expect(d.totals.agent_runs).toBe(5);
+    });
+
+    it('the run\'s cost and tokens include its sub-teams\' models, and never count shell bytes or connector calls as tokens', async () => {
+        // As run 4cdea539: the parent's snapshot files shell bytes and Jira calls under tokens; the LLM work is all in the sub-team.
+        const parent = { run: { total_cost_usd: null, total_tokens_in: 106041, total_tokens_out: 8, total_llm_calls: 0, by_model: {}, by_phase: {} }, phases: [] };
+        const child = { run_id: 'c1', run_name: 'solar-lilac-fox', team_label: '@acme/design-lld', state: 'failed', parent_phase: 'review', started_at: t0 + 6 * M, completed_at: t0 + 44 * M };
+        const { svc } = make({
+            spans: [], usage: parent,
+            children: { r1: [child], c1: [] },
+            child_spans: { c1: [span('agent.execute', 6, 10, { 'phase.name': 'draft', 'agent.name': 'cursor', 'usage.agent_kind': 'llm', 'usage.model': 'claude-sonnet-4', 'usage.provider': 'cursor', 'usage.unit_kind': 'tokens', 'usage.units_in': 155533, 'usage.units_out': 18788 })] },
+            child_usage: { c1: { total_cost_usd: 0.748419, by_model: { 'cursor/claude-sonnet-4': { model: 'claude-sonnet-4', provider: 'cursor', cost_usd: 0.748419, llm_calls: 2, tokens_in: 155533, tokens_out: 18788 } } } },
+        });
+        const d = await svc.get({ run_id: 'r1' }, 'tok');
+        expect(d.totals).toMatchObject({ cost_usd: 0.748419, tokens_in: 155533, tokens_out: 18788, model_calls: 2 });
+        expect(d.by_model).toEqual([expect.objectContaining({ model: 'claude-sonnet-4', provider: 'cursor', calls: 2, cost_usd: 0.748419 })]);
+        expect(d.phases.find((p) => p.name === 'review')!.sub_runs![0].usage).toMatchObject({ cost_usd: 0.748419, model_calls: 2 });
     });
 
     it('sub-teams that cannot be read are left out, not fatal', async () => {
