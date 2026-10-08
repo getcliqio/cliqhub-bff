@@ -7,7 +7,7 @@
  */
 
 import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
-import type { RealmRunsData, RealmRunsGetInput } from '../schemas/realm_runs_types.js';
+import type { RealmRunRowData, RealmRunsData, RealmRunsGetInput } from '../schemas/realm_runs_types.js';
 import { to_control_realm_data } from '../mappers/realm_inbox_mapper.js';
 import { to_run_row } from '../mappers/realm_runs_mapper.js';
 import { get_logger } from '../lib/log.js';
@@ -57,9 +57,10 @@ export class RealmRunsService {
         warn_rejected(log, 'realm_runs_count_failed', { all, running, awaiting_input: awaiting, failed_7d: failed }, { realm_id });
         const n = (r: PromiseSettledResult<number>) => (r.status === 'fulfilled' ? r.value : null);
 
+        const items = await this._with_parent_names(page.value.items.map(to_run_row), token);
         return {
             realm: to_control_realm_data(realm),
-            items: page.value.items.map(to_run_row),
+            items,
             total: page.value.total,
             offset,
             limit,
@@ -67,5 +68,19 @@ export class RealmRunsService {
             partial: [all, running, awaiting, failed].some((r) => r.status === 'rejected'),
             sortable: sortable_keys('runs.get'),
         };
+    }
+
+    /**
+     * Name each sub-team row's main run: from the page when it is there, else one
+     * `runs/get_by_id` per distinct missing parent (best-effort; the name stays null).
+     */
+    private async _with_parent_names(rows: RealmRunRowData[], token: string): Promise<RealmRunRowData[]> {
+        const on_page = new Map(rows.map((r) => [r.run_id, r.run_name]));
+        const missing = [...new Set(rows.map((r) => r.parent?.run_id).filter((id): id is string => !!id && !on_page.has(id)))];
+        const read = await Promise.allSettled(missing.map((id) => this._control.run_by_id(id, token)));
+        const names = new Map(on_page);
+        read.forEach((r, i) => { if (r.status === 'fulfilled' && r.value) names.set(missing[i], r.value.run_name ?? null); });
+        warn_rejected(log, 'realm_runs_parent_failed', Object.fromEntries(read.map((r, i) => [missing[i], r])), {});
+        return rows.map((r) => (r.parent ? { ...r, parent: { ...r.parent, run_name: names.get(r.parent.run_id) ?? null } } : r));
     }
 }

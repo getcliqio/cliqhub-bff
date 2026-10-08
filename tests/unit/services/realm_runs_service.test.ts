@@ -23,6 +23,24 @@ describe('RealmRunsService', () => {
         expect(dto).toMatchObject({ total: 40, offset: 20, limit: 10, counts: { all: 1284, running: 3, awaiting_input: 2, failed_7d: 4 }, partial: false });
     });
 
+    it('a sub-team row names its main run: from the page, else one read per missing parent', async () => {
+        const c = { ...mocks(), run_by_id: vi.fn(async (id: string) => (id === 'main-2' ? { run_id: 'main-2', run_name: 'quiet-amber-heron' } : null)) };
+        c.runs.mockImplementation(async (f: { limit: number }) => (f.limit === 1 ? { items: [], total: 0 } : { total: 4, items: [
+            { run_id: 'main-1', run_name: 'easy-carmine-spruce', team_label: '@m/architect', state: 'failed' },
+            { run_id: 'sub-1', run_name: 'solar-lilac-fox', team_label: '@m/design-lld', state: 'failed', parent_run_id: 'main-1', parent_phase: 'design' },
+            { run_id: 'sub-2', run_name: 'misty-oak', team_label: '@m/design-lld', state: 'completed', parent_run_id: 'main-2', parent_phase: 'design' },
+            { run_id: 'sub-3', run_name: 'odd', team_label: '@m/x', state: 'completed', parent_run_id: 'gone' },
+        ] }));
+        const dto = await new RealmRunsService(c as any, () => NOW).get({ org_slug: 'acme', slug: 'prod' }, 'tok');
+        expect(dto.items.map((r) => r.parent)).toEqual([
+            null,
+            { run_id: 'main-1', run_name: 'easy-carmine-spruce', phase: 'design' },
+            { run_id: 'main-2', run_name: 'quiet-amber-heron', phase: 'design' },
+            { run_id: 'gone', run_name: null, phase: null },
+        ]);
+        expect(c.run_by_id.mock.calls.map((x) => x[0]).sort()).toEqual(['gone', 'main-2']);
+    });
+
     it('a count failing is partial; the page failing fails the call; realm gate first', async () => {
         const c = mocks();
         c.runs.mockImplementation(async (f: { limit: number; state?: unknown }) => {

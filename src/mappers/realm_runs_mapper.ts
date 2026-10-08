@@ -16,5 +16,6 @@ export function to_run_row(r: ControlRunVO): RealmRunRowData {
         completed_at: r.completed_at ?? null,
         updated_at: r.last_updated_at ?? null,
         error: r.error ?? null,
+        parent: r.parent_run_id ? { run_id: r.parent_run_id, run_name: null, phase: r.parent_phase ?? null } : null,
     };
 }

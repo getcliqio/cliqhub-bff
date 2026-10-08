@@ -46,6 +46,15 @@ export interface RealmRunRowData {
     completed_at: number | null;
     updated_at: number | null;
     error: string | null;
+    /** Set on a sub-team run: the main run and the phase that started it (name null when unknown). */
+    parent?: RealmRunParentData | null;
+}
+
+/** The main run a sub-team run belongs to. */
+export interface RealmRunParentData {
+    run_id: string;
+    run_name: string | null;
+    phase: string | null;
 }
 
 /** `realm_runs/get` — one page of runs plus the state-chip counts. */
