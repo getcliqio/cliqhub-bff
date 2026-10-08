@@ -22,9 +22,10 @@ const SPANS = [
 const USAGE = { run: { total_tokens_in: 130, total_tokens_out: 13, total_cost_usd: 2.5, total_llm_calls: 7, by_phase: { plan: { tokens_in: 100, tokens_out: 10, by_model: { s: { model: 'sonnet', cost_usd: 2 } } }, check: { tokens_in: 30, tokens_out: 3, by_model: { h: { model: 'haiku', cost_usd: 0.5 } } } }, by_model: { s: { model: 'sonnet', provider: 'anthropic', llm_calls: 5, tokens_in: 100, tokens_out: 10, cost_usd: 2 }, h: { model: 'haiku', provider: 'anthropic', llm_calls: 2, tokens_in: 30, tokens_out: 3, cost_usd: 0.5 } } }, phases: [] };
 const PHASES = [['plan', 0, 6], ['review', 6, 44], ['check', 44, 60], ['pr', 60, 62]].map(([phase, s, e], i) => ({ phase: phase as string, status: 'completed', sequence: i + 1, started_at: t0 + (s as number) * M, completed_at: t0 + (e as number) * M }));
 
-function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_fail?: boolean } = {}) {
+function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_fail?: boolean; children?: Record<string, any[]>; child_spans?: Record<string, unknown>; child_phases?: Record<string, unknown[]> } = {}) {
     const core = { post_body: vi.fn(async (p: string, b: any) => {
         if (opts.fail?.includes(p + (b.kind ?? ''))) throw new Error('boom');
+        if (p === '/v1/runs/get_telemetry' && b.run_id !== 'r1') return { ok: true, data: opts.child_spans?.[b.run_id] ?? [] };
         if (p === '/v1/runs/get_telemetry') return { ok: true, data: b.kind === 'usage' ? (opts.usage ?? USAGE) : (opts.spans ?? SPANS) };
         if (p === '/v1/teams/get_phases') return { ok: true, data: { phases: [{ name: 'plan', type: 'standard' }, { name: 'review', agent: 'hug' }, { name: 'check', type: 'gate', depends_on: ['plan', 'review'] }, { name: 'pr', depends_on: ['check'] }] } };
         throw new Error(p);
@@ -32,7 +33,8 @@ function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_f
     const control = {
         run_by_id: vi.fn(async () => ({ run_id: 'r1', state: 'completed', realm_id: 'realm1', team_id: 't1', team_version_id: 'v1', started_at: t0, completed_at: t0 + 64 * M })),
         realm_by_id: vi.fn(async () => { if (opts.realm_fail) throw Object.assign(new Error('forbidden'), { status: 403 }); return { id: 'realm1' }; }),
-        run_phases: vi.fn(async () => PHASES),
+        run_phases: vi.fn(async (id: string) => (id === 'r1' ? PHASES : opts.child_phases?.[id] ?? [])),
+        child_runs: vi.fn(async (id: string) => ({ items: opts.children?.[id] ?? [], total: 0 })),
     } as any;
     return { svc: new RunTelemetryService(new CoreReadRepository(core), control), core, control };
 }
@@ -59,6 +61,40 @@ describe('RunTelemetryService', () => {
         expect(d.by_agent[0]).toMatchObject({ agent: 'architect', cost_usd: 2 });
         expect(d.by_agent.find((a) => a.agent === 'lint')).toMatchObject({ runs: 2, failures: 1 });
         expect(d.sections).toEqual({ usage: 'ok', spans: 'ok', phases: 'ok', workflow: 'ok' });
+    });
+
+    it('a sub-team run nests under the phase that started it, with its own steps, bars and failure', async () => {
+        const child = { run_id: 'c1', run_name: 'solar-lilac-fox', team_label: '@acme/design-lld', state: 'failed', parent_phase: 'review',
+            error: "Phase 'hug-lld' failed: Gate 'hug-lld' escalated: Review timed out after 30m", started_at: t0 + 6 * M, completed_at: t0 + 44 * M };
+        const { svc } = make({
+            children: { r1: [child], c1: [] },
+            child_phases: { c1: [{ phase: 'draft', status: 'done', sequence: 0, started_at: t0 + 6 * M, completed_at: t0 + 10 * M },
+                { phase: 'hug-lld', status: 'failed', sequence: 1, started_at: t0 + 10 * M, completed_at: t0 + 44 * M }] },
+            child_spans: { c1: [
+                span('agent.execute', 6, 10, { 'phase.name': 'draft', 'agent.name': 'cursor', 'usage.agent_kind': 'llm', 'usage.outcome': 'success' }),
+                span('phase.execute', 10, 44, { 'phase.name': 'hug-lld' }, 'ERROR'),
+                span('agent.execute', 10, 44, { 'phase.name': 'hug-lld', 'agent.name': 'hug' }),
+            ] },
+        });
+        const d = await svc.get({ run_id: 'r1' }, 'tok');
+        const review = d.phases.find((p) => p.name === 'review')!;
+        expect(review.sub_runs).toHaveLength(1);
+        const sub = review.sub_runs![0];
+        expect(sub).toMatchObject({ run_id: 'c1', team: '@acme/design-lld', state: 'failed', error: expect.stringContaining('timed out') });
+        expect(sub.phases.map((p) => [p.name, p.status])).toEqual([['draft', 'done'], ['hug-lld', 'failed']]);
+        expect(sub.bars.map((b) => [b.phase, b.agent, b.kind])).toEqual([['draft', 'cursor', 'llm'], ['hug-lld', 'hug', 'human']]);
+        // The parent's own lanes, bars and totals are unchanged by the sub-team.
+        expect(d.phases.filter((p) => p.sub_runs).map((p) => p.name)).toEqual(['review']);
+        expect(d.bars.some((b) => b.phase === 'draft')).toBe(false);
+        expect(d.totals.agent_runs).toBe(5);
+    });
+
+    it('sub-teams that cannot be read are left out, not fatal', async () => {
+        const { svc, control } = make();
+        control.child_runs.mockRejectedValueOnce(new Error('boom'));
+        const d = await svc.get({ run_id: 'r1' }, 'tok');
+        expect(d.phases.every((p) => !p.sub_runs)).toBe(true);
+        expect(d.partial).toBe(false);
     });
 
     it('a run whose team_id is an install id gets its workflow from the published team (@scope/name)', async () => {

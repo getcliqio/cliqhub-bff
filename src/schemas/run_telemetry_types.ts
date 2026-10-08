@@ -65,6 +65,25 @@ export interface TelemetryPhaseData {
     runs: number;
     gate_outcome: string | null;
     depends_on: string[];
+    /** Sub-team runs this phase started (a `uses:` / team phase), each with its own steps. */
+    sub_runs?: TelemetrySubRunData[];
+}
+
+/** A sub-team run nested under the phase that started it. */
+export interface TelemetrySubRunData {
+    run_id: string;
+    run_name: string | null;
+    /** `@scope/name` of the sub-team. */
+    team: string | null;
+    state: string;
+    /** Why it failed, as the run recorded it (e.g. a review that timed out or was rejected). */
+    error: string | null;
+    start_ms: number | null;
+    end_ms: number | null;
+    /** The sub-team's own steps (may nest further `sub_runs`). */
+    phases: TelemetryPhaseData[];
+    /** Agent bars of those steps (`phase` is the sub-team's phase name). */
+    bars: TelemetryBarData[];
 }
 
 /** Usage per model. */

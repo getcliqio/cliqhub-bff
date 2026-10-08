@@ -4,8 +4,9 @@
  * runs/get_telemetry {kind:'usage'} (Hub-priced snapshot) and {kind:'spans'}
  * (OTEL: run.execute → phase.execute → agent.execute with flat `usage.*`),
  * realms/get_by_id (access gate — Core's run reads don't check the realm),
- * teams/get_phases (workflow: phase type + depends_on for the DAG).
- * Everything but the run and the realm gate is best-effort (`sections`).
+ * teams/get_phases (workflow: phase type + depends_on for the DAG), and for sub-teams
+ * runs/get { parent_run_id } with each child's phases and spans (nested under the phase
+ * that started it, `phases[].sub_runs`). Everything but the run and the realm gate is best-effort (`sections`).
  */
 
 import type { CoreReadRepository } from '../repositories/core_read_repository.js';
@@ -14,12 +15,17 @@ import type { ControlRunPhaseVO, ControlRunVO } from '../types/core/control.js';
 import type { RunUsageSnapshotVO } from '../types/core/telemetry.js';
 import type {
     AgentKind, RunTelemetryData, RunTelemetryGetInput, TelemetryAgentData, TelemetryBarData, TelemetryModelData, TelemetryPhaseData,
+    TelemetrySubRunData,
 } from '../schemas/run_telemetry_types.js';
 import { ApiError } from '../errors/api_error.js';
 import { get_logger } from '../lib/log.js';
 import { warn_rejected } from '../lib/best_effort.js';
 
 const log = get_logger('svc.run_telemetry');
+
+/** Sub-team nesting levels read for the timeline, and sub-team runs read per level. */
+const MAX_SUB_DEPTH = 3;
+const MAX_SUB_RUNS = 50;
 
 type Obj = Record<string, unknown>;
 /** `v` as a plain record (not an array), or `{}`. */
@@ -58,6 +64,69 @@ export function union_ms(iv: Array<[number, number]>): number {
     return total;
 }
 
+/** One timeline bar per `agent.execute` span (reruns numbered per phase and agent). */
+function to_bars(raw_spans: Obj[]): TelemetryBarData[] {
+    const agent_spans = raw_spans.filter((s) => s.name === 'agent.execute').sort((a, b) => (ns_to_ms(a.start_unix_nano) ?? 0) - (ns_to_ms(b.start_unix_nano) ?? 0));
+    const seen: Record<string, number> = {};
+    return agent_spans.map((s) => {
+        const a = obj(s.attributes);
+        const agent = str(a['agent.name']) ?? str(a['usage.agent_name']) ?? 'agent';
+        const phase = str(a['phase.name']) ?? '';
+        const key = `${phase}/${agent}`;
+        seen[key] = (seen[key] ?? 0) + 1;
+        const start = ns_to_ms(s.start_unix_nano) ?? 0;
+        const end = ns_to_ms(s.end_unix_nano);
+        const outcome = str(a['usage.outcome']) ?? str(a['agent.outcome']);
+        const cost = num(a['usage.cost_usd']);
+        return {
+            id: String(s.span_id ?? `${key}#${seen[key]}`),
+            phase, agent,
+            kind: kind_of(agent, a['usage.agent_kind'] ?? a['agent.kind']),
+            model: str(a['usage.model']), provider: str(a['usage.provider']),
+            start_ms: start, end_ms: end && end >= start ? end : null,
+            status: s.status_code === 'ERROR' || outcome === 'failure' || outcome === 'failed' ? 'error' : end ? 'ok' : 'running',
+            outcome, exit_code: num(a['usage.exit_code']) ?? num(a['agent.exit_code']),
+            attempts: num(a['usage.attempts']), unit_kind: str(a['usage.unit_kind']),
+            units_in: num(a['usage.units_in']), units_out: num(a['usage.units_out']),
+            cached_in: num(a['usage.extras.cache_read_tokens']), calls: num(a['usage.external_calls']),
+            cost_usd: cost, cost_estimated: false, run_index: seen[key],
+        };
+    });
+}
+
+/** Phase names: the status rows' order, else the workflow's, else the spans'. */
+function phase_names(rows: ControlRunPhaseVO[], wf: Obj[], bars: TelemetryBarData[]): string[] {
+    return rows.length ? rows.map((r) => r.phase) : [...new Set([...wf.map((w) => str(w.name) ?? ''), ...bars.map((b) => b.phase)])].filter(Boolean);
+}
+
+/** One entry per phase: status row, spans, bars, usage and workflow merged. */
+function to_phases(names: string[], rows: ControlRunPhaseVO[], phase_spans: Obj[], bars: TelemetryBarData[], wf: Obj[], by_phase: Obj): TelemetryPhaseData[] {
+    const wf_by = new Map(wf.map((w) => [str(w.name) ?? '', w]));
+    const phase_cost = (n: string): number | null => sum(Object.values(obj(obj(by_phase[n]).by_model)).map((m) => num(obj(m).cost_usd)));
+    return names.map((n, i) => {
+        const r = rows.find((x) => x.phase === n);
+        const ps = phase_spans.filter((s) => obj(s.attributes)['phase.name'] === n);
+        const pb = bars.filter((b) => b.phase === n);
+        const w = wf_by.get(n) ?? {};
+        const type = str(obj(ps[0]?.attributes)['phase.type']) ?? str(w.type);
+        const kind: AgentKind = pb.some((b) => b.kind === 'human') || str(w.agent) === 'hug' ? 'human'
+            : (type ?? '').toUpperCase() === 'GATE' ? 'gate' : pb[0]?.kind ?? 'custom';
+        const start = num(r?.started_at) ?? (ps.length ? Math.min(...ps.map((s) => ns_to_ms(s.start_unix_nano) ?? Infinity)) : null);
+        const end = num(r?.completed_at) ?? (ps.length && ps.every((s) => ns_to_ms(s.end_unix_nano)) ? Math.max(...ps.map((s) => ns_to_ms(s.end_unix_nano) ?? 0)) : null);
+        const bp = obj(by_phase[n]);
+        const deps = Array.isArray(w.depends_on) ? (w.depends_on as unknown[]).map(String) : (i > 0 && !wf.length ? [names[i - 1]] : []);
+        return {
+            name: n, kind, type, status: r?.status ?? (pb.some((b) => b.status === 'running') ? 'running' : pb.length ? 'completed' : 'pending'),
+            start_ms: start !== null && Number.isFinite(start) ? start : null, end_ms: end,
+            duration_ms: start !== null && end !== null && Number.isFinite(start) ? Math.max(0, end - start) : null,
+            cost_usd: phase_cost(n), tokens_in: num(bp.tokens_in) ?? sum(pb.filter((b) => b.unit_kind === 'tokens').map((b) => b.units_in)),
+            tokens_out: num(bp.tokens_out) ?? sum(pb.filter((b) => b.unit_kind === 'tokens').map((b) => b.units_out)),
+            runs: Math.max(1, ps.length), gate_outcome: str(obj(ps[ps.length - 1]?.attributes)['gate.outcome']),
+            depends_on: deps,
+        };
+    });
+}
+
 /** Run page › Timeline / Usage / DAG read. */
 export class RunTelemetryService {
     constructor(private readonly _reads: CoreReadRepository, private readonly _control: ControlRepository) {}
@@ -79,6 +148,50 @@ export class RunTelemetryService {
         if (!team?.id) return null;
         // version_id names a published version of that team, so it still applies.
         return this._reads.read('teams.get_phases', { team_id: team.id, ...(version_id ? { version_id } : {}) }, token);
+    }
+
+    /**
+     * The sub-team runs a run started, each with its own phases and agent bars, nested to
+     * `MAX_SUB_DEPTH` levels. Best-effort: a child that can't be read is left out (logged).
+     *
+     * @param run_id - The parent run.
+     * @param token - Caller's Core token.
+     * @param depth - Nesting level of the children being read (1 = direct sub-teams).
+     */
+    private async _sub_runs(run_id: string, token: string, depth: number): Promise<Array<TelemetrySubRunData & { parent_phase: string | null }>> {
+        if (depth > MAX_SUB_DEPTH) return [];
+        let children: ControlRunVO[];
+        try {
+            children = (await this._control.child_runs(run_id, token, MAX_SUB_RUNS)).items ?? [];
+        } catch (err) {
+            log.warn('run_telemetry_sub_runs_failed', { run_id, error: err instanceof Error ? err.message : String(err) });
+            return [];
+        }
+        const read = async (child: ControlRunVO): Promise<(TelemetrySubRunData & { parent_phase: string | null }) | null> => {
+            try {
+                const [rows, spans] = await Promise.all([
+                    this._control.run_phases(child.run_id, token),
+                    this._reads.read('runs.get_telemetry', { kind: 'spans', run_id: child.run_id }, token),
+                ]);
+                const raw: Obj[] = ((d) => (Array.isArray(d) ? d.map(obj) : []))(data_of(spans));
+                const bars = to_bars(raw);
+                const phases = to_phases(phase_names(rows, [], bars), rows, raw.filter((x) => x.name === 'phase.execute'), bars, [], {});
+                const grand = await this._sub_runs(child.run_id, token, depth + 1);
+                for (const ph of phases) {
+                    const mine = grand.filter((r) => r.parent_phase === ph.name);
+                    if (mine.length) ph.sub_runs = mine.map(({ parent_phase: _p, ...r }) => r);
+                }
+                return {
+                    run_id: child.run_id, run_name: str(child.run_name), team: str(child.team_label), state: child.state,
+                    error: str(child.error), start_ms: num(child.started_at), end_ms: num(child.completed_at),
+                    phases, bars, parent_phase: str(child.parent_phase),
+                };
+            } catch (err) {
+                log.warn('run_telemetry_sub_run_failed', { run_id: child.run_id, error: err instanceof Error ? err.message : String(err) });
+                return null;
+            }
+        };
+        return (await Promise.all(children.map(read))).filter((r): r is TelemetrySubRunData & { parent_phase: string | null } => r !== null);
     }
 
     /**
@@ -113,60 +226,18 @@ export class RunTelemetryService {
 
         // ── Bars: agent.execute spans (phase.execute kept for phase outcome / reruns).
         const phase_spans = raw_spans.filter((s) => s.name === 'phase.execute');
-        const agent_spans = raw_spans.filter((s) => s.name === 'agent.execute').sort((a, b) => (ns_to_ms(a.start_unix_nano) ?? 0) - (ns_to_ms(b.start_unix_nano) ?? 0));
-        const seen: Record<string, number> = {};
-        const bars: TelemetryBarData[] = agent_spans.map((s) => {
-            const a = obj(s.attributes);
-            const agent = str(a['agent.name']) ?? str(a['usage.agent_name']) ?? 'agent';
-            const phase = str(a['phase.name']) ?? '';
-            const key = `${phase}/${agent}`;
-            seen[key] = (seen[key] ?? 0) + 1;
-            const start = ns_to_ms(s.start_unix_nano) ?? 0;
-            const end = ns_to_ms(s.end_unix_nano);
-            const outcome = str(a['usage.outcome']) ?? str(a['agent.outcome']);
-            const cost = num(a['usage.cost_usd']);
-            return {
-                id: String(s.span_id ?? `${key}#${seen[key]}`),
-                phase, agent,
-                kind: kind_of(agent, a['usage.agent_kind'] ?? a['agent.kind']),
-                model: str(a['usage.model']), provider: str(a['usage.provider']),
-                start_ms: start, end_ms: end && end >= start ? end : null,
-                status: s.status_code === 'ERROR' || outcome === 'failure' || outcome === 'failed' ? 'error' : end ? 'ok' : 'running',
-                outcome, exit_code: num(a['usage.exit_code']) ?? num(a['agent.exit_code']),
-                attempts: num(a['usage.attempts']), unit_kind: str(a['usage.unit_kind']),
-                units_in: num(a['usage.units_in']), units_out: num(a['usage.units_out']),
-                cached_in: num(a['usage.extras.cache_read_tokens']), calls: num(a['usage.external_calls']),
-                cost_usd: cost, cost_estimated: false, run_index: seen[key],
-            };
-        });
+        const bars = to_bars(raw_spans);
 
         // ── Phases: status rows first (authoritative order), spans / usage / workflow merged in.
         const by_phase = obj(snap?.by_phase);
-        const wf_by = new Map(wf.map((w) => [str(w.name) ?? '', w]));
-        const names = rows.length ? rows.map((r) => r.phase) : [...new Set([...wf.map((w) => str(w.name) ?? ''), ...bars.map((b) => b.phase)])].filter(Boolean);
-        const phase_cost = (n: string): number | null => sum(Object.values(obj(obj(by_phase[n]).by_model)).map((m) => num(obj(m).cost_usd)));
-        const out_phases: TelemetryPhaseData[] = names.map((n, i) => {
-            const r = rows.find((x) => x.phase === n);
-            const ps = phase_spans.filter((s) => obj(s.attributes)['phase.name'] === n);
-            const pb = bars.filter((b) => b.phase === n);
-            const w = wf_by.get(n) ?? {};
-            const type = str(obj(ps[0]?.attributes)['phase.type']) ?? str(w.type);
-            const kind: AgentKind = pb.some((b) => b.kind === 'human') || str(w.agent) === 'hug' ? 'human'
-                : (type ?? '').toUpperCase() === 'GATE' ? 'gate' : pb[0]?.kind ?? 'custom';
-            const start = num(r?.started_at) ?? (ps.length ? Math.min(...ps.map((s) => ns_to_ms(s.start_unix_nano) ?? Infinity)) : null);
-            const end = num(r?.completed_at) ?? (ps.length && ps.every((s) => ns_to_ms(s.end_unix_nano)) ? Math.max(...ps.map((s) => ns_to_ms(s.end_unix_nano) ?? 0)) : null);
-            const bp = obj(by_phase[n]);
-            const deps = Array.isArray(w.depends_on) ? (w.depends_on as unknown[]).map(String) : (i > 0 && !wf.length ? [names[i - 1]] : []);
-            return {
-                name: n, kind, type, status: r?.status ?? (pb.some((b) => b.status === 'running') ? 'running' : pb.length ? 'completed' : 'pending'),
-                start_ms: start !== null && Number.isFinite(start) ? start : null, end_ms: end,
-                duration_ms: start !== null && end !== null && Number.isFinite(start) ? Math.max(0, end - start) : null,
-                cost_usd: phase_cost(n), tokens_in: num(bp.tokens_in) ?? sum(pb.filter((b) => b.unit_kind === 'tokens').map((b) => b.units_in)),
-                tokens_out: num(bp.tokens_out) ?? sum(pb.filter((b) => b.unit_kind === 'tokens').map((b) => b.units_out)),
-                runs: Math.max(1, ps.length), gate_outcome: str(obj(ps[ps.length - 1]?.attributes)['gate.outcome']),
-                depends_on: deps,
-            };
-        });
+        const names = phase_names(rows, wf, bars);
+        const out_phases = to_phases(names, rows, phase_spans, bars, wf, by_phase);
+        // Sub-teams: each child run hangs under the phase that started it (best-effort).
+        const sub = await this._sub_runs(p.run_id, token, 1);
+        for (const ph of out_phases) {
+            const mine = sub.filter((r) => r.parent_phase === ph.name);
+            if (mine.length) ph.sub_runs = mine.map(({ parent_phase: _p, ...r }) => r);
+        }
 
         // ── Agent cost: reported on the span, else the phase's Hub-priced model cost split by token share.
         for (const ph of names) {
