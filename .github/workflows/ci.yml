@@ -12,4 +12,6 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - run: npm run test:e2e --if-present
+      # The Playwright e2e suite (npm run test:e2e) starts Core and the web app from the sibling
+      # checkouts (../cliqhub-core, ../cliqhub-frontend) against a local Postgres. This job checks
+      # out only this repo, so it runs locally (dev-local), not here.
