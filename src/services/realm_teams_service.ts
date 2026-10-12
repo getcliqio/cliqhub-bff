@@ -80,7 +80,7 @@ export class RealmTeamsService {
         });
         // Latest published version, for "update available" (published teams only).
         const latest = await map_limited(base, 6, async ({ r, scope, slug }) => {
-            if (r.origin !== 'published' || !scope) return null;
+            if (r.origin !== 'hub' || !scope) return null;
             const v = await best_effort(
                 log, 'realm_teams_latest_version_failed',
                 this._teams.get_versions({ name: slug, scope, latest_only: true }, token), null,

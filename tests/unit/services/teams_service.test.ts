@@ -96,7 +96,7 @@ describe('TeamsService', () => {
         it('maps the realm roster (realm_id) to the same shape with coverage fields', async () => {
             mock_repo.get.mockResolvedValue({
                 items: [{
-                    name: 'tdd-git', scope: 'cliq', slug: 'tdd-git', label: 'TDD', origin: 'published',
+                    name: 'tdd-git', scope: 'cliq', slug: 'tdd-git', label: 'TDD', origin: 'hub',
                     sample_team_id: TEAM_UUID, installed_daemon_ids: ['d1'], installed_count: 1,
                     online_daemon_count: 1, coverage_label: 'full', missing_agents: [], in_team_list: true,
                     last_run_at: null,
@@ -108,7 +108,7 @@ describe('TeamsService', () => {
 
             expect(mock_repo.get).toHaveBeenCalledWith({ realm_id: 'realm-1' }, 'jwt');
             expect(data.teams[0]).toMatchObject({
-                id: TEAM_UUID, origin: 'published', coverage_label: 'full', installed_daemon_ids: ['d1'],
+                id: TEAM_UUID, origin: 'hub', coverage_label: 'full', installed_daemon_ids: ['d1'],
                 description: '', latest_version: '', install_count: 0, tags: [],
             });
         });

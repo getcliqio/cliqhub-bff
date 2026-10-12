@@ -3,7 +3,7 @@ import { RealmTeamsService } from '../../../src/services/realm_teams_service.js'
 import { is_newer, parse_label } from '../../../src/mappers/realm_teams_mapper.js';
 import { ApiError } from '../../../src/errors/api_error.js';
 
-const row = (label: string, over: Record<string, unknown> = {}) => ({ slug: label.split('/')[1], label, version: '2.4.1', origin: 'published', in_team_list: true, installed_count: 2, online_daemon_count: 3, last_run_at: 5, missing_agents: [], ...over });
+const row = (label: string, over: Record<string, unknown> = {}) => ({ slug: label.split('/')[1], label, version: '2.4.1', origin: 'hub', in_team_list: true, installed_count: 2, online_daemon_count: 3, last_run_at: 5, missing_agents: [], ...over });
 
 function mocks() {
     return {
@@ -11,7 +11,7 @@ function mocks() {
         teams: {
             get: vi.fn().mockImplementation(async (f: { limit: number; coverage?: string }) => (f.limit === 1
                 ? { items: [], total: f.coverage === 'full' ? 4 : f.coverage === 'partial' ? 1 : f.coverage === 'none' ? 1 : 6, offset: 0, limit: 1 }
-                : { items: [row('@cliq/feature-dev-js'), row('@me/local-thing', { origin: 'local', version: null })], total: 6, offset: 0, limit: 10 })),
+                : { items: [row('@cliq/feature-dev-js'), row('@me/local-thing', { origin: 'cli', version: null })], total: 6, offset: 0, limit: 10 })),
             get_versions: vi.fn().mockResolvedValue({ name: 'feature-dev-js', scope: 'cliq', version: '2.5.0' }),
         },
     };
@@ -36,7 +36,7 @@ describe('RealmTeamsService', () => {
         expect(m.teams.get_versions).toHaveBeenCalledTimes(1);
         expect(m.teams.get_versions).toHaveBeenCalledWith({ name: 'feature-dev-js', scope: 'cliq', latest_only: true }, 'tok');
         expect(dto.items[0]).toMatchObject({ scope: 'cliq', slug: 'feature-dev-js', latest_version: '2.5.0', update_available: true, installed_count: 2, online_daemon_count: 3 });
-        expect(dto.items[1]).toMatchObject({ origin: 'local', update_available: false, latest_version: null });
+        expect(dto.items[1]).toMatchObject({ origin: 'cli', update_available: false, latest_version: null });
         expect(dto.counts).toEqual({ all: 6, full: 4, partial: 1, none: 1 });
     });
 

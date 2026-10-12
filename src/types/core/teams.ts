@@ -34,7 +34,7 @@ export interface TeamVO {
     online_daemon_count?: number;
     coverage_label?: string;
     missing_agents?: string[];
-    origin?: 'published' | 'local';
+    origin?: 'hub' | 'cli';
     in_team_list?: boolean;
     last_run_at?: number | null;
     slug?: string;

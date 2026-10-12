@@ -73,12 +73,12 @@ describe('to_team_list_item_data', () => {
 
     it('keeps realm coverage fields', () => {
         const data = to_team_list_item_data({
-            name: 'x', scope: null, origin: 'local', in_team_list: false, installed_daemon_ids: ['d1', 'd2'],
+            name: 'x', scope: null, origin: 'cli', in_team_list: false, installed_daemon_ids: ['d1', 'd2'],
             installed_count: 2, online_daemon_count: 1, coverage_label: 'partial', missing_agents: ['claude'],
             last_run_at: 5, label: 'X',
         });
         expect(data).toMatchObject({
-            origin: 'local', in_team_list: false, installed_daemon_ids: ['d1', 'd2'], installed_count: 2,
+            origin: 'cli', in_team_list: false, installed_daemon_ids: ['d1', 'd2'], installed_count: 2,
             online_daemon_count: 1, coverage_label: 'partial', missing_agents: ['claude'], last_run_at: 5, label: 'X',
         });
     });

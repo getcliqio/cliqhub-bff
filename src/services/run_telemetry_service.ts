@@ -218,7 +218,7 @@ export class RunTelemetryService {
             workflow: workflow.status === 'rejected' ? 'error' as const : wf.length ? 'ok' as const : 'empty' as const,
         };
         return {
-            run: { run_id: run.run_id, state: run.state, started_at: num(run.started_at), completed_at: num(run.completed_at) },
+            run: { run_id: run.run_id, state: run.state, started_at: num(run.started_at), completed_at: num(run.completed_at), origin: typeof run.origin === 'string' ? run.origin : null },
             window: { start_ms: t0, end_ms: t1 },
             totals: {
                 duration_ms: total,
