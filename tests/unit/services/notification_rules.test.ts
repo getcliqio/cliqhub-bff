@@ -26,6 +26,8 @@ describe('notification_rules', () => {
     it('labels destinations without leaking secrets', () => {
         expect(destination_label({ type: 'slack', webhook_url: 'https://hooks.slack.com/services/T/B/abcd1234' })).toBe('Slack webhook ••••1234');
         expect(destination_label({ type: 'email', address: 'ops@acme.com' })).toBe('ops@acme.com');
+        // A personal channel's email goes to the owner's account address (no fixed address).
+        expect(destination_label({ type: 'email', account: true })).toBe('Account email');
         expect(destination_label({ type: 'webhook', url: 'https://events.pagerduty.com/v2/enqueue', headers: { Authorization: 'x' } })).toBe('Webhook · events.pagerduty.com');
         expect(destination_label({ type: 'cliqhub' })).toBe('In-app (CliqHub)');
     });
