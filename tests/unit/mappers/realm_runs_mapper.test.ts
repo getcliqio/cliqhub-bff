@@ -38,7 +38,14 @@ describe('to_run_row', () => {
             completed_at: 2000,
             updated_at: 1500,
             error: 'oops',
+            // Not a sub-team run: no main run.
+            parent: null,
         });
+    });
+
+    it('a sub-team run carries its main run (id and the phase that started it)', () => {
+        const row = to_run_row(core_run({ parent_run_id: 'main-1', parent_phase: 'call-universe' } as any));
+        expect(row.parent).toEqual({ run_id: 'main-1', run_name: null, phase: 'call-universe' });
     });
 
     it('maps origin → origin and team_version → version as strings', () => {
