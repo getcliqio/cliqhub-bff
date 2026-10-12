@@ -87,10 +87,10 @@ describe('NotificationCenterService.check', () => {
 describe('NotificationCenterService.get — what the viewer can edit', () => {
     const viewer = { user_id: 'u1', site_admin: false };
     // Core's seeded roles (auth/permissions.ts DEFAULT_ROLES): only the owner role is `is_system`;
-    // the admin role holds every assignable permission, which excludes the owner-only `rules.manage`.
+    // the admin role holds every assignable permission, including `rules.manage` (org-wide rules).
     const ROLES = [
         { id: 'role-owner', org_id: 'o1', slug: 'owner', name: 'Owner', permissions: [], is_system: true, is_default: true, member_count: 1 },
-        { id: 'role-admin', org_id: 'o1', slug: 'admin', name: 'Admin', permissions: ['channels.manage', 'channels.manage.realm', 'rules.manage.realm', 'org.settings'], is_system: false, is_default: true, member_count: 0 },
+        { id: 'role-admin', org_id: 'o1', slug: 'admin', name: 'Admin', permissions: ['channels.manage', 'channels.manage.realm', 'rules.manage', 'rules.manage.realm', 'org.settings'], is_system: false, is_default: true, member_count: 0 },
         { id: 'role-operator', org_id: 'o1', slug: 'operator', name: 'Operator', permissions: ['rules.manage.realm', 'channels.manage.realm'], is_system: false, is_default: true, member_count: 0 },
         { id: 'role-member', org_id: 'o1', slug: 'member', name: 'Member', permissions: ['inbox.view'], is_system: false, is_default: true, member_count: 0 },
     ];
@@ -102,7 +102,7 @@ describe('NotificationCenterService.get — what the viewer can edit', () => {
             id: 'o1', slug: 'acme', display_name: 'Acme', created_at: '2026-10-02T10:00:00Z', status: 'active',
             owner: null, deleted_at: null, pending_owner_invite: null, my_role: legacy_role,
             members: [{ user_id: 'u1', username: 'me', display_name: 'Me', email: 'me@example.test', role: legacy_role, role_id, status: 'active', invited_at: null, joined_at: '2026-10-02T10:00:00Z', deleted_at: null }],
-            scopes: [], roles: ROLES, available_permissions: [], owner_only_permissions: ['org.delete', 'org.transfer', 'rules.manage'],
+            scopes: [], roles: ROLES, available_permissions: [], owner_only_permissions: ['org.delete', 'org.transfer'],
         });
         (m.control as any).realm_members = vi.fn().mockResolvedValue(realm_members);
         return { m, svc: new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any) };
@@ -116,9 +116,9 @@ describe('NotificationCenterService.get — what the viewer can edit', () => {
         expect((m.orgs as any).get_by_id).toHaveBeenCalledWith({ org_id: 'o1' }, 'tok');
     });
 
-    it('admin: org channels and realm edits, but not org rules (owner-only)', async () => {
+    it('admin (holds rules.manage): org rules, channels and realm edits', async () => {
         const { svc } = with_role('role-admin', 'admin');
-        expect(flags(await svc.get({}, 'tok', viewer))).toEqual({ rules: false, channels: true, realm: true });
+        expect(flags(await svc.get({}, 'tok', viewer))).toEqual({ rules: true, channels: true, realm: true });
     });
 
     it('operator: realm edits only', async () => {

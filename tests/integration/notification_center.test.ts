@@ -90,14 +90,14 @@ describe('notification center routes', () => {
         for (const c of core.mock.calls) expect(c[2]).toBe('tok-p');
     });
 
-    it('get carries locked, lock_reason, recipients and system_key of rules and channels', async () => {
+    it('get carries locked, lock_reason and system_key of rules and channels', async () => {
         const sid = sess();
         const { core } = mock();
         const base = core.getMockImplementation()!;
         core.mockImplementation(async (path: string, ...rest: any[]) => {
             if (path === '/v1/orgs/get_notification_rules') return { ok: true, data: [{
                 id: 'sys', event: 'invite.org.sent', channel_id: 'ch_email', realm_id: null, org_id: ORG, team_slug: null, priority: 0,
-                recipients: ['invitee'], system_key: 'invite.sent.invitee', locked: true, lock_reason: 'Invites must reach the invited person.',
+                system_key: 'invite.sent.invitee', locked: true, lock_reason: 'Invites must reach the invited person.',
             }] } as any;
             if (path === '/v1/notification_channels/get') return { ok: true, data: [{
                 id: 'ch_email', name: 'Email', realm_id: null, org_id: ORG, user_id: null,
@@ -110,7 +110,7 @@ describe('notification center routes', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.data.rules[0]).toMatchObject({
-            id: 'sys', event: 'invite.org.sent', channel_name: 'Email', recipients: ['invitee'],
+            id: 'sys', event: 'invite.org.sent', channel_name: 'Email',
             system_key: 'invite.sent.invitee', locked: true, lock_reason: 'Invites must reach the invited person.',
         });
         expect(res.body.data.channels.find((c: any) => c.id === 'ch_email')).toMatchObject({ system_key: 'org.email', locked: true, lock_reason: 'Org email is built in.', enabled: true });
@@ -119,6 +119,7 @@ describe('notification center routes', () => {
     describe('get: org edit flags follow the viewer\'s role (Core orgs/get_by_id)', () => {
         const OWNER_ROLE = 'aaaaaaaa-0000-4000-8000-000000000001';
         const ADMIN_ROLE = 'aaaaaaaa-0000-4000-8000-000000000002';
+        const OPERATOR_ROLE = 'aaaaaaaa-0000-4000-8000-000000000003';
         /** Core answers for one org where the viewer `u-1` holds `role_id`; `orgs/get { mine }` reports the legacy role `admin` for both. */
         function core_for(role_id: string) {
             return stub_core({
@@ -130,10 +131,11 @@ describe('notification center routes', () => {
                     scopes: [],
                     roles: [
                         { id: OWNER_ROLE, org_id: ORG, slug: 'owner', name: 'Owner', permissions: [], is_system: true, is_default: true, member_count: 1, created_at: '2026-10-02T10:00:00.000Z' },
-                        { id: ADMIN_ROLE, org_id: ORG, slug: 'admin', name: 'Admin', permissions: ['org.settings', 'channels.manage', 'channels.manage.realm', 'rules.manage.realm'], is_system: false, is_default: true, member_count: 1, created_at: '2026-10-02T10:00:00.000Z' },
+                        { id: ADMIN_ROLE, org_id: ORG, slug: 'admin', name: 'Admin', permissions: ['org.settings', 'channels.manage', 'channels.manage.realm', 'rules.manage', 'rules.manage.realm'], is_system: false, is_default: true, member_count: 1, created_at: '2026-10-02T10:00:00.000Z' },
+                        { id: OPERATOR_ROLE, org_id: ORG, slug: 'operator', name: 'Operator', permissions: ['channels.manage.realm', 'rules.manage.realm'], is_system: false, is_default: true, member_count: 0, created_at: '2026-10-02T10:00:00.000Z' },
                     ],
-                    available_permissions: ['org.settings', 'channels.manage', 'channels.manage.realm', 'rules.manage.realm'],
-                    owner_only_permissions: ['org.delete', 'org.transfer', 'rules.manage'],
+                    available_permissions: ['org.settings', 'channels.manage', 'channels.manage.realm', 'rules.manage', 'rules.manage.realm'],
+                    owner_only_permissions: ['org.delete', 'org.transfer'],
                 }),
                 '/v1/orgs/get_notification_rules': ok([]),
                 '/v1/notification_channels/get': ok([]),
@@ -142,13 +144,20 @@ describe('notification center routes', () => {
             });
         }
 
-        it('org admin: channels editable, org rules not (rules.manage is owner-only)', async () => {
+        it('org admin (role holds rules.manage): rules and channels editable', async () => {
             const sid = sess();
             const calls = core_for(ADMIN_ROLE);
             const res = await request(app).post('/v1/notification_center/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({});
             expect(res.status).toBe(200);
-            expect(res.body.data.orgs[0]).toMatchObject({ id: ORG, can_edit: false, can_edit_channels: true });
+            expect(res.body.data.orgs[0]).toMatchObject({ id: ORG, can_edit: true, can_edit_channels: true });
             expect(calls.find((c) => c.path === '/v1/orgs/get_by_id')!.body).toEqual({ org_id: ORG });
+        });
+
+        it('a role without rules.manage or channels.manage: neither editable', async () => {
+            const sid = sess();
+            core_for(OPERATOR_ROLE);
+            const res = await request(app).post('/v1/notification_center/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({});
+            expect(res.body.data.orgs[0]).toMatchObject({ can_edit: false, can_edit_channels: false });
         });
 
         it('org owner: rules and channels editable', async () => {
@@ -188,20 +197,8 @@ describe('notification center routes', () => {
         });
     });
 
-    it('set_rules: Core 422 for a non-member recipient passes through with its details', async () => {
-        const sid = sess();
-        const details = { field: 'recipients', not_members: ['u-9'] };
-        stub_core({ '/v1/orgs/set_notification_rules': fail(422, 'invalid_params', 'Recipients must be members of the organization', details) });
-
-        const res = await request(app).post('/v1/notification_center/set_rules').set(CSRF).set('Cookie', `test_sid=${sid}`)
-            .send({ org_id: ORG, events: ['run.failed'], channel_id: 'c1' });
-
-        expect(res.status).toBe(422);
-        expect(res.body).toEqual({ ok: false, error: { code: 'invalid_params', message: 'Recipients must be members of the organization', details } });
-    });
-
     it.each([
-        ['/v1/orgs/set_notification_rules', 422, 'invalid_params', { field: 'recipients', not_members: ['u-9'] }],
+        ['/v1/orgs/set_notification_rules', 422, 'invalid_params', { field: 'event' }],
         ['/v1/notification_channels/create', 400, 'bad_request', undefined],
         ['/v1/notification_channels/update', 404, 'not_found', undefined],
         ['/v1/notification_channels/remove', 409, 'conflict', undefined],
