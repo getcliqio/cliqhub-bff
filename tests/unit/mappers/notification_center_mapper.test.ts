@@ -14,11 +14,12 @@ describe('notification_center_mapper', () => {
 
     it('channel owner kind: personal > realm > org; destinations masked', () => {
         const base = { id: 'c', name: 'n', org_id: 'o1', destinations: [{ type: 'slack', webhook_url: 'https://h/abcd1234' }], enabled: 1, system_key: null, locked: false, lock_reason: null };
-        expect(to_notif_channel_data({ ...base, realm_id: null, user_id: 'u1' }, ORG, null).owner.kind).toBe('personal');
+        // A personal channel names whose it is, so the UI can tell "you" from another person.
+        expect(to_notif_channel_data({ ...base, realm_id: null, user_id: 'u1' }, ORG, null).owner).toMatchObject({ kind: 'personal', user_id: 'u1' });
         const realm = to_notif_channel_data({ ...base, realm_id: 'r1', user_id: null }, ORG, REALM);
         expect(realm).toEqual({
             id: 'c', name: 'n', enabled: true, rule_count: 0, system_key: null, locked: false, lock_reason: null,
-            owner: { kind: 'realm', org_id: 'o1', org_slug: 'acme', realm_id: 'r1', realm_slug: 'prod' },
+            owner: { kind: 'realm', org_id: 'o1', org_slug: 'acme', realm_id: 'r1', realm_slug: 'prod', user_id: null },
             destinations: [{ type: 'slack', label: 'Slack webhook ••••1234' }],
         });
     });

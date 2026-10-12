@@ -29,6 +29,7 @@ export function to_notif_channel_data(c: NotifChannelVO, org: OrgRef, realm: Not
             org_slug: org.slug,
             realm_id: realm?.id ?? null,
             realm_slug: realm?.slug ?? null,
+            user_id: c.user_id ? String(c.user_id) : null,
         },
         destinations: (c.destinations ?? []).map((d) => ({ type: d.type, label: destination_label(d) })),
         enabled: Boolean(c.enabled),

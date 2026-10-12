@@ -100,6 +100,8 @@ export interface NotifChannelOwnerData {
     org_slug: string;
     realm_id: string | null;
     realm_slug: string | null;
+    /** The person a personal channel belongs to (`kind: 'personal'`); null otherwise. */
+    user_id: string | null;
 }
 
 /** A notification channel with its destinations and how many rules use it. */
