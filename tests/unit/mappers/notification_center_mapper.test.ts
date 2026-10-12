@@ -24,48 +24,29 @@ describe('notification_center_mapper', () => {
         });
     });
 
-    it('rule scope: team only inside a realm', () => {
+    it('rule scope: a realm rule, or org-wide without a realm', () => {
         const vo = {
-            id: 'x', realm_id: 'r1', org_id: null, team_slug: 'dev', event: 'run.*', channel_id: 'c', priority: 2,
-            recipients: [], system_key: null, locked: false, lock_reason: null,
+            id: 'x', realm_id: 'r1', org_id: null, event: 'run.*', channel_id: 'c', priority: 2,
+            system_key: null, locked: false, lock_reason: null,
         };
-        expect(to_notif_rule_data(vo, ORG, REALM, '#ops')).toMatchObject({ scope: { kind: 'team', team_slug: 'dev', realm_slug: 'prod' }, channel_name: '#ops', priority: 2, replaces: [] });
-        expect(to_notif_rule_data(vo, ORG, null, null).scope).toMatchObject({ kind: 'org', team_slug: null, realm_id: null });
+        expect(to_notif_rule_data(vo, ORG, REALM, '#ops')).toMatchObject({ scope: { kind: 'realm', realm_slug: 'prod' }, channel_name: '#ops', priority: 2, replaces: [] });
+        expect(to_notif_rule_data(vo, ORG, null, null).scope).toEqual({ kind: 'org', org_id: ORG.id, org_slug: ORG.slug, realm_id: null, realm_slug: null });
     });
 
-    it('locked system channel and rule: system_key, lock, lock_reason and recipients carried', () => {
+    it('locked channel and rule: system_key, lock and lock_reason carried; rules have no recipients', () => {
         const channel = to_notif_channel_data({
-            id: 'ch_email', name: 'Email', org_id: 'o1', realm_id: null, user_id: null,
-            destinations: [{ type: 'email', provider: 'brevo' }], enabled: 1,
-            system_key: 'org.email', locked: true, lock_reason: 'Org email is built in.',
+            id: 'ch_x', name: 'Ops', org_id: 'o1', realm_id: null, user_id: null,
+            destinations: [{ type: 'cliqhub' }], enabled: 1,
+            system_key: 'test.locked', locked: true, lock_reason: 'Kept.',
         }, ORG, null);
-        expect(channel).toMatchObject({ system_key: 'org.email', locked: true, lock_reason: 'Org email is built in.', enabled: true });
+        expect(channel).toMatchObject({ system_key: 'test.locked', locked: true, lock_reason: 'Kept.', enabled: true });
 
         const rule = to_notif_rule_data({
-            id: 'r', realm_id: null, org_id: 'o1', team_slug: null, event: 'invite.org.sent', channel_id: 'ch_email', priority: 0,
-            recipients: ['invitee'], system_key: 'invite.sent.invitee', locked: true,
-            lock_reason: 'Invites must reach the invited person.',
-        }, ORG, null, 'Email');
-        expect(rule).toMatchObject({
-            event: 'invite.org.sent', recipients: ['invitee'], system_key: 'invite.sent.invitee',
-            locked: true, lock_reason: 'Invites must reach the invited person.', scope: { kind: 'org' },
-        });
-    });
-
-    it('unlocked default rule: editable, recipients as sent', () => {
-        const rule = to_notif_rule_data({
-            id: 'r', realm_id: null, org_id: 'o1', team_slug: null, event: 'invite.org.accepted', channel_id: 'c', priority: 0,
-            recipients: ['org_owners', 'inviter'], system_key: 'invite.accepted.owners', locked: false, lock_reason: null,
-        }, ORG, null, null);
-        expect(rule).toMatchObject({ locked: false, lock_reason: null, recipients: ['org_owners', 'inviter'] });
-    });
-
-    it('rule without named recipients (Core null): empty list, the channel\'s own destinations', () => {
-        const rule = to_notif_rule_data({
-            id: 'r', realm_id: null, org_id: 'o1', team_slug: null, event: 'run.failed', channel_id: 'c', priority: 0,
-            recipients: null, system_key: null, locked: false, lock_reason: null,
-        }, ORG, null, null);
-        expect(rule.recipients).toEqual([]);
+            id: 'r', realm_id: 'r1', org_id: null, event: 'run.failed', channel_id: 'ch_x', priority: 0,
+            system_key: 'realm.members.run.failed', locked: false, lock_reason: null,
+        }, ORG, REALM, 'All realm members');
+        expect(rule).toMatchObject({ event: 'run.failed', system_key: 'realm.members.run.failed', locked: false, scope: { kind: 'realm' } });
+        expect(rule).not.toHaveProperty('recipients');
     });
 
     it('check entry', () => {

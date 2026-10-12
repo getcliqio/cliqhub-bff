@@ -4,7 +4,7 @@ import { ApiError } from '../../../src/errors/api_error.js';
 
 const VIEWER = { user_id: 'u1', site_admin: false };
 const ORG = { id: 'o1', slug: 'acme', display_name: 'Acme', role: 'owner', member_count: 1, scope_count: 1 };
-const rule = (id: string, event: string, over: Record<string, unknown> = {}) => ({ id, event, channel_id: 'c1', realm_id: null, org_id: 'o1', team_slug: null, priority: 0, ...over });
+const rule = (id: string, event: string, over: Record<string, unknown> = {}) => ({ id, event, channel_id: 'c1', realm_id: null, org_id: 'o1', priority: 0, ...over });
 
 function mocks() {
     return {
@@ -14,7 +14,7 @@ function mocks() {
             org_notification_rules: vi.fn().mockResolvedValue([rule('org-run', 'run.failed')]),
             realm_notification_rules: vi.fn().mockResolvedValue([
                 rule('realm-run', 'run.*', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
-                rule('team-hug', 'hug.review_requested', { realm_id: 'r1', org_id: null, team_slug: 'dev', channel_id: 'c2' }),
+                rule('realm-hug', 'hug.review_requested', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
             ]),
             org_channels: vi.fn().mockResolvedValue([
                 { id: 'c1', name: '#eng', realm_id: null, org_id: 'o1', user_id: null, destinations: [{ type: 'slack', webhook_url: 'https://h/x/1234' }], enabled: 1, rule_count: 1 },
@@ -25,24 +25,22 @@ function mocks() {
             realm_by_id: vi.fn().mockResolvedValue({ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }),
             realms_page: vi.fn().mockResolvedValue({ items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }], total: 1 }),
         },
-        // Core teams/get { realm_id } → PagedData<TeamData>; slug falls back to name.
-        teams: { get: vi.fn().mockResolvedValue({ items: [{ slug: 'dev', name: 'dev', scope: null }, { name: 'ops', scope: null }], total: 2, offset: 0, limit: 200 }) },
     };
 }
 
 describe('NotificationCenterService.get', () => {
     let m: ReturnType<typeof mocks>;
     let svc: NotificationCenterService;
-    beforeEach(() => { m = mocks(); svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any); });
+    beforeEach(() => { m = mocks(); svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any); });
 
     it('composes rules across org + realm with scope, channel names and replaces', async () => {
         const dto = await svc.get({}, 'tok', VIEWER);
         expect(dto.rules.map((r) => [r.id, r.scope.kind, r.channel_name])).toEqual([
             // Sorted by selector ('run.*' < 'run.failed'), then broad → specific.
-            ['team-hug', 'team', '#prod-oncall'], ['realm-run', 'realm', '#prod-oncall'], ['org-run', 'org', '#eng'],
+            ['realm-hug', 'realm', '#prod-oncall'], ['realm-run', 'realm', '#prod-oncall'], ['org-run', 'org', '#eng'],
         ]);
         expect(dto.rules.find((r) => r.id === 'realm-run')!.replaces).toEqual(['org-run']);
-        expect(dto.rules.find((r) => r.id === 'team-hug')!.scope).toMatchObject({ realm_slug: 'prod', team_slug: 'dev', org_slug: 'acme' });
+        expect(dto.rules.find((r) => r.id === 'realm-hug')!.scope).toEqual({ kind: 'realm', org_id: 'o1', org_slug: 'acme', realm_id: 'r1', realm_slug: 'prod' });
         expect(dto.channels.map((c) => [c.name, c.owner.kind, c.enabled])).toEqual([['#eng', 'org', true], ['#prod-oncall', 'realm', true], ['Mine', 'personal', false]]);
         expect(dto.channels[0].destinations[0].label).toBe('Slack webhook ••••1234');
         expect(dto.event_types).toHaveLength(3);
@@ -66,7 +64,7 @@ describe('NotificationCenterService.get', () => {
 describe('NotificationCenterService.check', () => {
     let m: ReturnType<typeof mocks>;
     let svc: NotificationCenterService;
-    beforeEach(() => { m = mocks(); svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any); });
+    beforeEach(() => { m = mocks(); svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any); });
 
     it('resolves every event for the realm; realm wildcard replaces the org rule; gaps are empty', async () => {
         const dto = await svc.check({ realm_id: 'r1' }, 'tok');
@@ -74,18 +72,10 @@ describe('NotificationCenterService.check', () => {
         expect(row('run.failed').winners.map((w) => w.rule_id)).toEqual(['realm-run']);
         expect(row('run.failed').replaced.map((w) => w.rule_id)).toEqual(['org-run']);
         expect(row('run.completed').winners.map((w) => w.selector)).toEqual(['run.*']);
-        // Team rule does not apply without choosing the team.
-        expect(row('hug.review_requested').winners).toEqual([]);
-        expect(dto.teams).toEqual(['dev', 'ops']);
-        expect(m.teams.get).toHaveBeenCalledWith({ realm_id: 'r1', limit: 200 }, 'tok');
+        expect(row('hug.review_requested').winners.map((w) => [w.rule_id, w.tier])).toEqual([['realm-hug', 'realm']]);
+        // No team level: nothing about teams in the answer.
+        expect(dto).not.toHaveProperty('teams');
         expect(dto.realm).toMatchObject({ org_id: 'o1', org_slug: 'acme' });
-    });
-
-    it('with a team, its rules win', async () => {
-        const dto = await svc.check({ realm_id: 'r1', team_slug: 'dev' }, 'tok');
-        expect(dto.rows.find((r) => r.event === 'hug.review_requested')!.winners).toEqual([
-            { rule_id: 'team-hug', selector: 'hug.review_requested', tier: 'team', channel_id: 'c2', channel_name: '#prod-oncall' },
-        ]);
     });
 
     it('realm lookup is the gate', async () => {
@@ -115,7 +105,7 @@ describe('NotificationCenterService.get — what the viewer can edit', () => {
             scopes: [], roles: ROLES, available_permissions: [], owner_only_permissions: ['org.delete', 'org.transfer', 'rules.manage'],
         });
         (m.control as any).realm_members = vi.fn().mockResolvedValue(realm_members);
-        return { m, svc: new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any) };
+        return { m, svc: new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any) };
     }
     const flags = (dto: Awaited<ReturnType<NotificationCenterService['get']>>) =>
         ({ rules: dto.orgs[0].can_edit, channels: dto.orgs[0].can_edit_channels, realm: dto.realms[0].can_edit });
@@ -163,10 +153,10 @@ describe('NotificationCenterService.set_rules', () => {
     it('writes one rule per event at the chosen level, as the bearer', async () => {
         const m = mocks();
         (m.control as any).set_rule = vi.fn().mockImplementation(async (b: { event: string }) => ({ id: `id-${b.event}` }));
-        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any);
-        const out = await svc.set_rules({ realm_id: 'r1', team_slug: 'dev', events: ['run.failed', 'run.crashed', 'run.failed'], channel_id: 'c2' }, 'tok');
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
+        const out = await svc.set_rules({ realm_id: 'r1', events: ['run.failed', 'run.crashed', 'run.failed'], channel_id: 'c2' }, 'tok');
         expect(out.saved.map((s) => s.event)).toEqual(['run.failed', 'run.crashed']);
-        expect((m.control as any).set_rule).toHaveBeenCalledWith({ realm_id: 'r1', team_slug: 'dev', event: 'run.crashed', channel_id: 'c2' }, 'tok');
+        expect((m.control as any).set_rule).toHaveBeenCalledWith({ realm_id: 'r1', event: 'run.crashed', channel_id: 'c2' }, 'tok');
         const org = await svc.set_rules({ org_id: 'o1', events: ['*'], channel_id: 'c1' }, 'tok');
         expect(org.saved).toEqual([{ event: '*', rule_id: 'id-*' }]);
         expect((m.control as any).set_rule).toHaveBeenLastCalledWith({ org_id: 'o1', event: '*', channel_id: 'c1' }, 'tok');
@@ -178,7 +168,7 @@ describe('NotificationCenterService.set_rules', () => {
             if (b.event === 'bad') throw new ApiError('bad_request', 'Nope', 400);
             return { id: 'ok' };
         });
-        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any);
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
         expect(await svc.set_rules({ org_id: 'o1', events: ['run.failed', 'bad'], channel_id: 'c1' }, 'tok')).toEqual({
             saved: [{ event: 'run.failed', rule_id: 'ok' }],
             failed: [{ event: 'bad', error: 'Nope', code: 'bad_request', details: null }],
@@ -194,7 +184,7 @@ describe('NotificationCenterService.set_rules', () => {
             if (b.event === 'invite.org.sent') throw locked;
             return { id: 'ok' };
         });
-        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any);
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
 
         await expect(svc.set_rules({ org_id: 'o1', events: ['invite.org.sent'], channel_id: 'c1' }, 'tok')).rejects.toBe(locked);
 
@@ -209,7 +199,7 @@ describe('NotificationCenterService.get — realm paging', () => {
     it('reads rules/channels only for the realms on the page; org data always', async () => {
         const m = mocks();
         m.control.realms_page.mockResolvedValue({ items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }, { id: 'rx', slug: 'other', name: 'x', org_slug: 'not-mine' }], total: 37 });
-        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any);
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
         const dto = await svc.get({ realm_q: 'pro', realm_limit: 10, realm_offset: 20 }, 'tok', VIEWER);
         expect(m.control.realms_page).toHaveBeenCalledWith({ org_id: undefined, query: 'pro', limit: 10, offset: 20 }, 'tok');
         // Realms of orgs outside the view are dropped.
@@ -222,7 +212,7 @@ describe('NotificationCenterService.get — realm paging', () => {
 
     it('realm view reads just that realm', async () => {
         const m = mocks();
-        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any);
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
         const dto = await svc.get({ realm_id: 'r1' }, 'tok', VIEWER);
         expect(m.control.realm_by_id).toHaveBeenCalledWith('r1', 'tok');
         expect(m.control.realms_page).not.toHaveBeenCalled();
@@ -232,7 +222,7 @@ describe('NotificationCenterService.get — realm paging', () => {
     it('realm search failing keeps org rules and flags partial', async () => {
         const m = mocks();
         m.control.realms_page.mockRejectedValue(new ApiError('upstream', 'Core down', 502));
-        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any, m.teams as any);
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
         const dto = await svc.get({}, 'tok', VIEWER);
         expect(dto.partial).toBe(true);
         expect(dto.realm_page).toMatchObject({ status: 'error', error: 'Core down' });

@@ -4,7 +4,7 @@
  *
  * Routes (controllers/notification_center_controller.ts):
  *   POST /v1/notification_center/get        — rules + channels by org and realm
- *   POST /v1/notification_center/check      — who is told for each event in a realm (or team)
+ *   POST /v1/notification_center/check      — who is told for each event in a realm
  *   POST /v1/notification_center/set_rules  — one rule per event at one level, one channel
  *
  * BFF composition over Core: `/v1/orgs/get { mine }` → per org `/v1/orgs/get_notification_rules`
@@ -36,30 +36,25 @@ export const NotificationCenterGetInput = z.object({
 }).strict();
 export type NotificationCenterGetInput = z.infer<typeof NotificationCenterGetInput>;
 
-/** POST /v1/notification_center/check — after org, realm and team rules are applied. */
+/** POST /v1/notification_center/check — after org and realm rules are applied. */
 export const NotificationCenterCheckInput = z.object({
     realm_id: RealmIdField
         .describe('Realm to check'),
-    team_slug: TeamSlugField.optional()
-        .describe('Also apply this team\'s rules'),
 }).strict();
 export type NotificationCenterCheckInput = z.infer<typeof NotificationCenterCheckInput>;
 
-/** POST /v1/notification_center/set_rules — org-wide (`org_id`), realm (`realm_id`) or team (`realm_id` + `team_slug`). */
+/** POST /v1/notification_center/set_rules — org-wide (`org_id`) or realm (`realm_id`). */
 export const NotificationCenterSetRulesInput = z.object({
     org_id: z.string().uuid().optional()
         .describe('Org-wide rules (omit when realm_id is set)'),
     realm_id: RealmIdField.optional()
-        .describe('Realm rules, or team rules with team_slug'),
-    team_slug: TeamSlugField.optional()
-        .describe('Team the rules are for (needs realm_id)'),
+        .describe('Realm rules'),
     events: z.array(z.string().trim().min(1).max(200)).min(1).max(60)
         .describe('Event selectors: exact, family wildcard (run.*) or *'),
     channel_id: z.string().trim().min(1).max(200)
         .describe('Channel every rule sends to'),
 }).strict().superRefine((b, ctx) => {
     if (!b.realm_id && !b.org_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['org_id'], message: 'org_id or realm_id is required' });
-    if (b.team_slug && !b.realm_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['team_slug'], message: 'team_slug needs realm_id' });
 });
 export type NotificationCenterSetRulesInput = z.infer<typeof NotificationCenterSetRulesInput>;
 
@@ -73,17 +68,16 @@ export interface NotifViewer {
 
 // ─── Response data ──────────────────────────────────────────────────────────
 
-/** Tier a rule applies at (narrowest wins). */
-export type NotifScopeKind = 'org' | 'realm' | 'team';
+/** Tier a rule applies at (a realm's rules replace the org's for that realm). */
+export type NotifScopeKind = 'org' | 'realm';
 
-/** Where a rule applies: an org, a realm, or one team in a realm. */
+/** Where a rule applies: an org or a realm. */
 export interface NotifScopeData {
     kind: NotifScopeKind;
     org_id: string;
     org_slug: string;
     realm_id: string | null;
     realm_slug: string | null;
-    team_slug: string | null;
 }
 
 /** One delivery target of a channel, for display. */
@@ -130,8 +124,6 @@ export interface NotifRuleData {
     priority: number;
     /** Broader rules this one replaces (same org/realm, overlapping event selector). */
     replaces: string[];
-    /** Who the rule tells: `invitee`, `org_owners`, `inviter` or user ids; empty → the channel's own destinations. */
-    recipients: string[];
     /** Set on the rules every org is seeded with (e.g. `invite.sent.invitee`). */
     system_key: string | null;
     /** Cannot be changed or removed; the UI shows `lock_reason`. */
@@ -147,7 +139,7 @@ export interface NotifOrgData {
     role: string;
     status: 'ok' | 'error';
     error: string | null;
-    /** May add/change org-wide rules (Core `rules.manage`: org owners and site admins). */
+    /** May add/change org-wide rules (Core `rules.manage`: owners, site admins and roles that hold it). */
     can_edit: boolean;
     /** May add/change org channels (Core `channels.manage`). */
     can_edit_channels: boolean;
@@ -157,7 +149,7 @@ export interface NotifOrgData {
 export interface NotifRealmData extends NotifRealmRefData {
     status: 'ok' | 'error';
     error: string | null;
-    /** May add/change realm + team rules and realm channels (`rules.manage.realm` or realm admin). */
+    /** May add/change realm rules and realm channels (`rules.manage.realm` or realm admin). */
     can_edit: boolean;
 }
 
@@ -212,12 +204,9 @@ export interface NotifRealmRefData {
     org_slug: string;
 }
 
-/** `notification_center/check` — who gets told for each event in a realm (or team). */
+/** `notification_center/check` — who gets told for each event in a realm. */
 export interface NotificationCheckData {
     realm: NotifRealmRefData;
-    team_slug: string | null;
-    /** Teams you can check in this realm (from the realm roster and existing team rules). */
-    teams: string[];
     rows: NotifCheckRowData[];
     partial: boolean;
 }

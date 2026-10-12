@@ -366,7 +366,7 @@ export interface OrgDetailData {
     roles: OrgRoleData[];
     /** Permissions a custom role can hold. */
     available_permissions: string[];
-    /** Permissions only the owner role has (never assignable): `org.delete`, `org.transfer`, `rules.manage`. */
+    /** Permissions only the owner role has (never assignable): `org.delete`, `org.transfer`. */
     owner_only_permissions: string[];
 }
 

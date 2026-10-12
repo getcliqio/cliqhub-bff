@@ -40,7 +40,7 @@ export function to_notif_channel_data(c: NotifChannelVO, org: OrgRef, realm: Not
     };
 }
 
-/** A rule with its scope (org-wide, realm or team-in-realm), channel name, recipients and lock. */
+/** A rule with its scope (org-wide or realm), channel name and lock. */
 export function to_notif_rule_data(
     r: NotifRuleVO, org: OrgRef, realm: NotifRealmRefData | null, channel_name: string | null,
 ): NotifRuleData {
@@ -48,18 +48,16 @@ export function to_notif_rule_data(
         id: r.id,
         event: r.event,
         scope: {
-            kind: realm ? (r.team_slug ? 'team' : 'realm') : 'org',
+            kind: realm ? 'realm' : 'org',
             org_id: org.id,
             org_slug: org.slug,
             realm_id: realm?.id ?? null,
             realm_slug: realm?.slug ?? null,
-            team_slug: realm ? r.team_slug ?? null : null,
         },
         channel_id: r.channel_id,
         channel_name,
         priority: r.priority ?? 0,
         replaces: [],
-        recipients: [...(r.recipients ?? [])],
         system_key: r.system_key ?? null,
         locked: r.locked === true,
         lock_reason: r.lock_reason ?? null,

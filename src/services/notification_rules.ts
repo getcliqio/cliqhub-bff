@@ -4,7 +4,7 @@
  * so what the console shows matches what actually fires:
  *
  *   - a rule's `event` is a selector: exact type, family wildcard (`run.*`) or `*`
- *   - tiers: team-in-realm → realm → org; the first tier with ANY matching
+ *   - tiers: realm → org; the first tier with ANY matching
  *     rule wins, and all its matching rules fire ("replace" semantics)
  */
 
@@ -20,8 +20,8 @@ export interface TieredRule {
     tier: NotifScopeKind;
 }
 
-/** Tier specificity: higher wins (team > realm > org). */
-export const TIER_RANK: Record<NotifScopeKind, number> = { team: 3, realm: 2, org: 1 };
+/** Tier specificity: higher wins (realm > org). */
+export const TIER_RANK: Record<NotifScopeKind, number> = { realm: 2, org: 1 };
 
 /** Selectors that match a concrete event: exact, its family wildcard, and `*`. */
 export function matching_selectors(event: string): string[] {
@@ -49,7 +49,7 @@ export function selectors_overlap(a: string, b: string): boolean {
     return false;
 }
 
-/** Resolve one event for a realm (+ optional team) from the rules in play there. */
+/** Resolve one event for a realm from the rules in play there (realm rules, else org rules). */
 export function resolve_event<T extends TieredRule>(event: string, rules: T[]): { winners: T[]; replaced: T[] } {
     const matching = rules.filter((r) => selector_matches(r.event, event));
     if (matching.length === 0) return { winners: [], replaced: [] };
@@ -78,8 +78,7 @@ export function sort_rules(rules: NotifRuleData[]): NotifRuleData[] {
     return [...rules].sort((a, b) =>
         a.event.localeCompare(b.event)
         || TIER_RANK[a.scope.kind] - TIER_RANK[b.scope.kind]
-        || (a.scope.realm_slug ?? '').localeCompare(b.scope.realm_slug ?? '')
-        || (a.scope.team_slug ?? '').localeCompare(b.scope.team_slug ?? ''));
+        || (a.scope.realm_slug ?? '').localeCompare(b.scope.realm_slug ?? ''));
 }
 
 /** `••••` plus the last `keep` characters (all dots when too short to show any). */

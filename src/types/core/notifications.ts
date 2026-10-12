@@ -8,12 +8,10 @@ export interface NotifRuleVO {
     id: string;
     realm_id: string | null;
     org_id: string | null;
-    team_slug: string | null;
     event: string;
     channel_id: string;
     priority: number;
     /** Who the rule tells: `invitee`, `org_owners`, `inviter` or user ids; null → the channel's own destinations. */
-    recipients: string[] | null;
     /** Set on the rules every org is seeded with. */
     system_key: string | null;
     /** A locked rule cannot be changed or removed (409 `locked`). */

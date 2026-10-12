@@ -32,13 +32,13 @@ describe('notification_rules', () => {
         expect(destination_label({ type: 'cliqhub' })).toBe('In-app (CliqHub)');
     });
     it('marks broader overlapping rules in the same context as replaced, and sorts broad → specific', () => {
-        const mk = (id: string, event: string, kind: 'org' | 'realm' | 'team', realm_id: string | null = null) => ({
+        const mk = (id: string, event: string, kind: 'org' | 'realm', realm_id: string | null = null) => ({
             id, event, channel_id: 'c', channel_name: null, priority: 0, replaces: [] as string[],
-            scope: { kind, org_id: 'o1', org_slug: 'acme', realm_id, realm_slug: realm_id, team_slug: kind === 'team' ? 'dev' : null },
+            scope: { kind, org_id: 'o1', org_slug: 'acme', realm_id, realm_slug: realm_id },
         });
-        const rules = [mk('t', 'run.failed', 'team', 'r1'), mk('r', 'run.*', 'realm', 'r1'), mk('r2', 'run.*', 'realm', 'r2'), mk('o', '*', 'org')];
+        const rules = [mk('r', 'run.*', 'realm', 'r1'), mk('r2', 'run.*', 'realm', 'r2'), mk('o', '*', 'org')];
         mark_replaces(rules);
-        expect(Object.fromEntries(rules.map((r) => [r.id, r.replaces]))).toEqual({ t: ['r', 'o'], r: ['o'], r2: ['o'], o: [] });
-        expect(sort_rules(rules).map((r) => r.id)).toEqual(['o', 'r', 'r2', 't']);
+        expect(Object.fromEntries(rules.map((r) => [r.id, r.replaces]))).toEqual({ r: ['o'], r2: ['o'], o: [] });
+        expect(sort_rules(rules).map((r) => r.id)).toEqual(['o', 'r', 'r2']);
     });
 });

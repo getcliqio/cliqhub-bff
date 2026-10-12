@@ -219,7 +219,7 @@ export function build_container(deps: {
         ),
         inbox_controller: new InboxController(inbox_service),
         notification_center_controller: new NotificationCenterController(
-            new NotificationCenterService(orgs_repo, dashboard_repo, control_repo, teams_repo),
+            new NotificationCenterService(orgs_repo, dashboard_repo, control_repo),
         ),
         org_page_controller: new OrgPageController(new OrgPageService(core_reads)),
         realm_inbox_controller: new RealmInboxController(new RealmInboxService(control_repo)),
