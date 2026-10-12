@@ -12,6 +12,8 @@ export function to_run_row(r: ControlRunVO): RealmRunRowData {
         state: r.state,
         current_phase: r.current_phase ?? null,
         daemon_id: r.daemon_id ?? null,
+        origin: typeof r.origin === 'string' ? r.origin : null,
+        version: typeof r.team_version === 'string' ? r.team_version : null,
         started_at: r.started_at ?? null,
         completed_at: r.completed_at ?? null,
         updated_at: r.last_updated_at ?? null,

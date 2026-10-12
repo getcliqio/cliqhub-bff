@@ -46,6 +46,8 @@ export interface InboxItemData {
     /** Review-only extras. */
     message: string | null;
     artifact_count: number | null;
+    /** Who initiated the run: `'hub'` (dispatched) or `'cli'` (local), or null for reviews / pre-refactor runs. */
+    origin: string | null;
 }
 
 /** Whether one best-effort section loaded; `error` is Core's message (or a generic one). */

@@ -23,7 +23,7 @@ describe('realm inbox mapper', () => {
     it('review item: title falls back to run name then a default; state defaults to pending', () => {
         expect(to_inbox_review_item({ review_id: 'rv1', run_name: 'nightly', requested_at: 9, artifact_count: 2 } as any)).toEqual({
             kind: 'review', id: 'rv1', run_id: null, title: 'nightly', team: null, phase: null,
-            state: 'pending', at: 9, error: null, message: null, artifact_count: 2,
+            state: 'pending', at: 9, error: null, message: null, artifact_count: 2, origin: null,
         });
         const full = to_inbox_review_item({
             review_id: 'rv2', run_id: 'run-1', title: 'Check', team: 't', phase: 'qa', status: 'approved',
@@ -37,7 +37,7 @@ describe('realm inbox mapper', () => {
         const run = { run_id: 'r', state: 'failed', started_at: 1, last_updated_at: 5, completed_at: 9, error: 'boom' } as any;
         expect(to_inbox_run_item(run, 'failed')).toEqual({
             kind: 'failed', id: 'r', run_id: 'r', title: 'r', team: null, phase: null,
-            state: 'failed', at: 9, error: 'boom', message: null, artifact_count: null,
+            state: 'failed', at: 9, error: 'boom', message: null, artifact_count: null, origin: null,
         });
         expect(to_inbox_run_item(run, 'run').at).toBe(5);
         expect(to_inbox_run_item({ run_id: 'r', state: 'failed', started_at: 1, last_updated_at: 4 } as any, 'failed').at).toBe(4);

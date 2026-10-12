@@ -127,7 +127,7 @@ export interface TelemetryAgentData {
 
 /** `run_telemetry/get` */
 export interface RunTelemetryData {
-    run: { run_id: string; state: string; started_at: number | null; completed_at: number | null };
+    run: { run_id: string; state: string; started_at: number | null; completed_at: number | null; origin: string | null };
     window: { start_ms: number | null; end_ms: number | null };
     totals: {
         duration_ms: number | null;

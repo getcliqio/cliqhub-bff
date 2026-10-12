@@ -29,6 +29,8 @@ export const RealmRunsGetInput = z.object({
     offset: z.number().int().min(0).optional()
         .describe('Zero-based page offset'),
     ...sort_fields(['run_name', 'state', 'team', 'started_at', 'last_updated_at'], 'default last_updated_at desc'),
+    /** Filter by origin: `'cli'` or `'hub'`. */
+    origin: z.enum(['cli', 'hub']).optional(),
 }).strict();
 export type RealmRunsGetInput = z.infer<typeof RealmRunsGetInput>;
 
@@ -42,6 +44,10 @@ export interface RealmRunRowData {
     state: string;
     current_phase: string | null;
     daemon_id: string | null;
+    /** Who initiated this run: `'cli'` or `'hub'`, or null for pre-refactor runs. */
+    origin: string | null;
+    /** Team version snapshot when the run was created. */
+    version: string | null;
     started_at: number | null;
     completed_at: number | null;
     updated_at: number | null;

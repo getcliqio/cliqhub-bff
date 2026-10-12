@@ -104,6 +104,7 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     '/v1/reviews/get': 'token',
     '/v1/reviews/get_by_id': 'token',
     '/v1/reviews/create': 'token',
+    '/v1/reviews/remind': 'token',
     '/v1/reviews/verdict': 'token',
     '/v1/reviews/ack': 'token',
     '/v1/reviews/get_messages': 'token',

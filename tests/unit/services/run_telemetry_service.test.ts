@@ -31,7 +31,7 @@ function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_f
         throw new Error(p);
     }) } as any;
     const control = {
-        run_by_id: vi.fn(async () => ({ run_id: 'r1', state: 'completed', realm_id: 'realm1', team_id: 't1', team_version_id: 'v1', started_at: t0, completed_at: t0 + 64 * M })),
+        run_by_id: vi.fn(async () => ({ run_id: 'r1', state: 'completed', realm_id: 'realm1', team_id: 't1', team_version_id: 'v1', origin: 'hub', started_at: t0, completed_at: t0 + 64 * M })),
         realm_by_id: vi.fn(async () => { if (opts.realm_fail) throw Object.assign(new Error('forbidden'), { status: 403 }); return { id: 'realm1' }; }),
         run_phases: vi.fn(async (id: string) => (id === 'r1' ? PHASES : opts.child_phases?.[id] ?? [])),
         child_runs: vi.fn(async (id: string) => ({ items: opts.children?.[id] ?? [], total: 0 })),
@@ -61,6 +61,8 @@ describe('RunTelemetryService', () => {
         expect(d.by_agent[0]).toMatchObject({ agent: 'architect', cost_usd: 2 });
         expect(d.by_agent.find((a) => a.agent === 'lint')).toMatchObject({ runs: 2, failures: 1 });
         expect(d.sections).toEqual({ usage: 'ok', spans: 'ok', phases: 'ok', workflow: 'ok' });
+        /** The run summary includes origin from the Core run. */
+        expect(d.run.origin).toBe('hub');
     });
 
     it('a sub-team run nests under the phase that started it, with its own steps, bars and failure', async () => {
@@ -144,6 +146,14 @@ describe('RunTelemetryService', () => {
         const { svc } = make({ fail: ['/v1/runs/get_telemetryspans'] });
         const d = await svc.get({ run_id: 'r1' }, 'tok');
         expect(d).toMatchObject({ partial: true, sections: { spans: 'error', usage: 'ok' } });
+    });
+
+    it('run without origin returns null in the run summary', async () => {
+        const { svc, control } = make();
+        /** Override to omit origin from the Core run. */
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', state: 'completed', realm_id: 'realm1', team_id: 't1', team_version_id: 'v1', started_at: t0, completed_at: t0 + 64 * M });
+        const d = await svc.get({ run_id: 'r1' }, 'tok');
+        expect(d.run.origin).toBeNull();
     });
 
     it('realm gate: no access to the realm → no telemetry', async () => {

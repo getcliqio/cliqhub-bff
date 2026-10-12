@@ -47,7 +47,7 @@ export class RealmRunsService {
         const count = (f: { state?: ControlRunState | ControlRunState[]; since_ms?: number }) =>
             this._control.runs({ realm_id, limit: 1, ...f }, token).then((x) => x.total);
         const [page, all, running, awaiting, failed] = await Promise.allSettled([
-            this._control.runs({ realm_id, limit, offset, ...(state ? { state } : {}), ...core_query(p.q), ...(p.since_ms ? { since_ms: p.since_ms } : {}), ...core_sort('runs.get', p) }, token),
+            this._control.runs({ realm_id, limit, offset, ...(state ? { state } : {}), ...core_query(p.q), ...(p.since_ms ? { since_ms: p.since_ms } : {}), ...(p.origin ? { origin: p.origin } : {}), ...core_sort('runs.get', p) }, token),
             count({}),
             count({ state: 'running' }),
             count({ state: 'awaiting_input' }),

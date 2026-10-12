@@ -41,7 +41,7 @@ export interface RealmTeamRowData {
     version: string | null;
     latest_version: string | null;
     update_available: boolean;
-    origin: 'published' | 'local';
+    origin: 'hub' | 'cli';
     /** On the realm's team list (vs only found on a daemon). */
     in_team_list: boolean;
     /** Online realm daemons with this team installed / online daemons. */

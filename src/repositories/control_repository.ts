@@ -31,6 +31,8 @@ export interface ControlRunsFilter {
     offset?: number;
     sort_by?: string;
     sort_dir?: SortDir;
+    /** Filter by origin: `'cli'` or `'hub'`. */
+    origin?: string;
 }
 
 /** `runs/get` filter for one team (optionally narrowed to an org or realm). */

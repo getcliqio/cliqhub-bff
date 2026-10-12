@@ -26,6 +26,7 @@ export function to_inbox_review_item(r: ControlReviewVO): InboxItemData {
         error: null,
         message: r.message ?? null,
         artifact_count: num_or_null(r.artifact_count),
+        origin: null,
     };
 }
 
@@ -47,6 +48,7 @@ export function to_inbox_run_item(r: ControlRunVO, kind: 'input' | 'failed' | 'r
         error: r.error ?? null,
         message: null,
         artifact_count: null,
+        origin: typeof r.origin === 'string' ? r.origin : null,
     };
 }
 

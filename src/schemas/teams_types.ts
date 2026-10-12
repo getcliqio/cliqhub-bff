@@ -63,8 +63,8 @@ export const TeamsGetInput = z.object({
         .describe('Realm mode: the realm roster with coverage'),
     daemon_id: z.string().min(1).optional()
         .describe('Daemon mode: teams installed on this daemon'),
-    origin: z.enum(['published', 'local']).optional()
-        .describe('Realm mode: published catalog teams or local installs'),
+    origin: z.enum(['hub', 'cli']).optional()
+        .describe('Realm mode: Hub catalog teams or CLI-installed'),
     coverage: z.enum(['full', 'partial', 'none']).optional()
         .describe('Realm mode: coverage across the realm daemons'),
     sort_by: z.enum(['team', 'origin', 'coverage', 'name', 'install_count', 'created_at', 'updated_at']).optional()
@@ -229,7 +229,7 @@ export interface TeamListItemData {
     updated_at?: number;
     // Realm mode
     label?: string;
-    origin?: 'published' | 'local';
+    origin?: 'hub' | 'cli';
     in_team_list?: boolean;
     installed_daemon_ids?: string[];
     installed_count?: number;
