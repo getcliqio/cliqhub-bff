@@ -41,7 +41,6 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     '/v1/realms/get_members': 'token',
     '/v1/realms/add_member': 'token',
     '/v1/realms/remove_member': 'token',
-    '/v1/realms/add_team': 'token',
     '/v1/realms/remove_team': 'token',
     '/v1/realms/a2a': 'token',
 

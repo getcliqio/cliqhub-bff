@@ -56,6 +56,8 @@ const OWN_ROUTES: Record<string, RouteAuth> = {
     'POST /v1/teams/get_versions': 'public',
     'POST /v1/teams/get_phases': 'public',
     'POST /v1/teams/build': 'public', // rate limited
+    // One realm: forwarded to Core (CLI tokens too). `realm_ids`: a signed-in user (controller checks).
+    'POST /v1/realms/add_team': 'token',
     'POST /v1/teams/create': 'session',
     'POST /v1/teams/update': 'session',
     'POST /v1/teams/download': 'session',

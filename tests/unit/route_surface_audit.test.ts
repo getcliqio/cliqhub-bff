@@ -79,6 +79,11 @@ describe('BFF route surface audit', () => {
 		expect(app_src).toContain('Unknown API route');
 	});
 
+	it('realms/add_team is the BFF’s own token route (one realm → Core unchanged; realm_ids → pre-flight, then each)', () => {
+		expect(PASSTHROUGH).not.toContain('/v1/realms/add_team');
+		expect(ROUTE_AUTH['POST /v1/realms/add_team']).toBe('token');
+	});
+
 	it('passthrough covers control-plane daemons, realms, dispatch, events', () => {
 		for (const route of [
 			'/v1/daemons/get_by_id',
@@ -87,7 +92,6 @@ describe('BFF route surface audit', () => {
 			'/v1/realms/get_members',
 			'/v1/realms/add_member',
 			'/v1/realms/remove_member',
-			'/v1/realms/add_team',
 			'/v1/realms/remove_team',
 			'/v1/realms/a2a',
 			'/v1/runs/enqueue',

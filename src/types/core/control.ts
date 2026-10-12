@@ -9,6 +9,17 @@ export interface ControlRealmVO {
     slug: string;
     name: string;
     org_slug?: string | null;
+    /** The realm's owner (an admin of it); sent by `realms/get_by_id`. */
+    owner_user_id?: string | null;
+}
+
+/** One team in an org's library (`orgs/get_teams`). */
+export interface ControlOrgTeamVO {
+    team_id: string;
+    scope: string | null;
+    name: string;
+    /** The org owns the team's scope. */
+    own: boolean;
 }
 
 /** A run row (`runs/get`, `runs/get_by_id`); Core sends more fields than typed. */

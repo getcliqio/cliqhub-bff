@@ -15,7 +15,7 @@ import type { CoreClient } from './core_client.js';
 import type { SortDir } from '../lib/core_list.js';
 import type {
     ControlDaemonVO, ControlPageVO, ControlRealmListItemVO, ControlRealmMemberVO, ControlRealmVO,
-    ControlReviewVO, ControlRunPhaseVO, ControlRunVO, ControlArtifactVO } from '../types/core/control.js';
+    ControlReviewVO, ControlRunPhaseVO, ControlRunVO, ControlArtifactVO, ControlOrgTeamVO } from '../types/core/control.js';
 import type { InAppNotificationPageVO, InAppNotificationVO, NotifChannelVO, NotifRuleVO } from '../types/core/notifications.js';
 
 /** Core run states (`runs/get` `state` filter). */
@@ -190,6 +190,20 @@ export class ControlRepository {
         const path = body.realm_id ? '/v1/realms/set_notification_rules' : '/v1/orgs/set_notification_rules';
         const res = await this._core.post_body<{ data: NotifRuleVO }>(path, body, token);
         return res.data;
+    }
+
+    /** `POST /v1/orgs/get_teams { org_id }` — the org's team library. */
+    async org_teams(org_id: string, token: string): Promise<ControlOrgTeamVO[]> {
+        const res = await this._core.post_body<{ data?: { items?: ControlOrgTeamVO[] } }>('/v1/orgs/get_teams', { org_id }, token);
+        return Array.isArray(res.data?.items) ? res.data!.items! : [];
+    }
+
+    /**
+     * `POST /v1/realms/add_team { realm_id, scope, slug }` — adds a published team to one realm
+     * (Core also adds it to the realm's org when allowed, and sends install to online daemons).
+     */
+    async add_team(body: { realm_id: string; scope: string; slug: string }, token: string): Promise<Record<string, unknown>> {
+        return this._core.post_body<Record<string, unknown>>('/v1/realms/add_team', body, token);
     }
 
     /** `POST /v1/events/types/list` — the event types rules can subscribe to. */

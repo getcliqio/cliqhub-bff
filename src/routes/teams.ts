@@ -13,13 +13,14 @@
  * POST /v1/teams/delete
  * POST /v1/teams/rename
  * POST /v1/teams/build       (rate limited)
+ * POST /v1/realms/add_team   (one realm → Core; `realm_ids` → pre-flight, then each realm)
  */
 import type { RouteRegistrar } from './registrar.js';
 import type { Container } from '../container.js';
 import { create_rate_limiter } from '../middleware/rate_limit.js';
 
 /** Mounts the teams routes listed above. */
-export function register_teams_routes(r: RouteRegistrar, { config, teams_controller: c }: Container): void {
+export function register_teams_routes(r: RouteRegistrar, { config, teams_controller: c, team_install_controller: install }: Container): void {
     r.post('/v1/teams/get', c.wrap(c.get));
     r.post('/v1/teams/get_by_id', c.wrap(c.get_by_id));
     r.post('/v1/teams/get_versions', c.wrap(c.get_versions));
@@ -32,4 +33,5 @@ export function register_teams_routes(r: RouteRegistrar, { config, teams_control
     r.post('/v1/teams/delete', c.wrap(c.delete));
     r.post('/v1/teams/rename', c.wrap(c.rename));
     r.post('/v1/teams/build', create_rate_limiter(config), c.wrap(c.build));
+    r.post('/v1/realms/add_team', install.wrap(install.add_team));
 }
