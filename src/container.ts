@@ -236,6 +236,7 @@ export function build_container(deps: {
             new RealmTeamsService(control_repo, teams_repo),
             new RealmDaemonsService(control_repo, teams_repo),
             new RealmSettingsService(control_repo, tokens_repo, invitations_repo),
+            teams_repo,
         )),
         run_detail_controller: new RunDetailController(new RunDetailService(
             control_repo,

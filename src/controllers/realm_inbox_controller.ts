@@ -34,7 +34,7 @@ export class RealmInboxController extends BaseController {
      * @param res - `{ ok: true, data: RealmInboxData }`; 403/404 when the realm is not visible
      */
     async get(req: ApiRequest<RealmInboxGetInput, RealmInboxData>, res: ApiOkResponse<RealmInboxData>): Promise<void> {
-        const { summary, ...ref } = this.parse_body(RealmInboxGetInput, req);
+        const { summary, teams_offset, members_offset, ...ref } = this.parse_body(RealmInboxGetInput, req);
         const session = this.session(req);
         if (!summary || !this._realm_summary_service) {
             this.ok(res, await this._realm_inbox_service.get(ref, session.target_token));
@@ -42,7 +42,7 @@ export class RealmInboxController extends BaseController {
         }
         const [inbox, realm_summary] = await Promise.all([
             this._realm_inbox_service.get(ref, session.target_token),
-            this._realm_summary_service.get(ref, session.target_token, to_realm_settings_viewer(session)),
+            this._realm_summary_service.get(ref, session.target_token, to_realm_settings_viewer(session), { teams_offset, members_offset }),
         ]);
         this.ok(res, { ...inbox, summary: realm_summary });
     }

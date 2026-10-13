@@ -19,6 +19,9 @@ export const RealmInboxGetInput = z.object({
     ...RealmRefFields,
     /** Also compose the realm page summary (realm teams + daemons + settings reads). */
     summary: z.boolean().optional(),
+    /** Summary: which page of the realm's teams / members to return (pages of 5). */
+    teams_offset: z.number().int().min(0).max(10_000).optional(),
+    members_offset: z.number().int().min(0).max(10_000).optional(),
 }).strict();
 export type RealmInboxGetInput = z.infer<typeof RealmInboxGetInput>;
 
@@ -83,12 +86,22 @@ export interface RealmSummaryData {
         updated_at: number | null;
         created_by_username: string | null;
     };
-    /** Teams on the realm (first page) — null when the read failed. */
+    /** Teams on the realm, one page (most recently run first) — null when the read failed. */
     teams: {
         total: number;
         /** Teams whose workflow names an agent the org has not registered. */
         missing_agents: number;
-        items: Array<{ scope: string | null; slug: string; label: string; version: string | null; missing_agents: string[] }>;
+        offset: number;
+        limit: number;
+        items: Array<{
+            scope: string | null; slug: string; label: string; version: string | null;
+            /** Newer published version, when there is one. */
+            latest_version: string | null;
+            missing_agents: string[];
+            last_run_at: number | null;
+            /** From the team's catalog entry; null when unknown (CLI installs, or the read failed). */
+            description: string | null;
+        }>;
     } | null;
     daemons: {
         online: number;
@@ -96,8 +109,11 @@ export interface RealmSummaryData {
         items: Array<{ id: string; name: string; status: string }>;
         truncated: boolean;
     } | null;
+    /** People in the realm, one page (admins, then operators, then members) — null when the read failed. */
     people: {
         total: number;
+        offset: number;
+        limit: number;
         by_role: Record<string, number>;
         items: Array<{ member_id: string; username: string | null; role: string; is_you: boolean }>;
         /** Pending invites; null when the viewer can't see them. */
