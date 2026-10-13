@@ -207,6 +207,8 @@ export interface TeamPageData {
         support: TeamPhaseData[];
         inputs: TeamInputData[];
         agents: string[];
+        /** Agents this team defines itself (team.yml `agents:`): the command a daemon runs and the env it expects. */
+        agent_defs?: Array<{ name: string; entry: string | null; env: string[] }>;
         latest: TeamReleaseData | null;
         installs: TeamInstallData[];
     };

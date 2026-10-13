@@ -2,7 +2,8 @@
  * Realm inbox — everything in one realm that needs a person (request schema + response data).
  *
  * Routes (controllers/realm_inbox_controller.ts):
- *   POST /v1/realm_inbox/get — pending reviews, runs awaiting input, recent failures, running runs
+ *   POST /v1/realm_inbox/get — pending reviews, runs awaiting input, recent failures, running runs;
+ *     with `summary: true` also the realm page summary (header, teams, daemons, people)
  *
  * BFF composition over Core: `/v1/realms/get_by_id { slug, org_slug }` → `/v1/reviews/get` (pending)
  * + `/v1/runs/get` (awaiting_input | failed+crashed 24h | running).
@@ -14,7 +15,11 @@ import { RealmRefFields } from './realm_ref.js';
 // ─── Inputs ─────────────────────────────────────────────────────────────────
 
 /** POST /v1/realm_inbox/get */
-export const RealmInboxGetInput = z.object(RealmRefFields).strict();
+export const RealmInboxGetInput = z.object({
+    ...RealmRefFields,
+    /** Also compose the realm page summary (realm teams + daemons + settings reads). */
+    summary: z.boolean().optional(),
+}).strict();
 export type RealmInboxGetInput = z.infer<typeof RealmInboxGetInput>;
 
 // ─── Response data ──────────────────────────────────────────────────────────
@@ -66,4 +71,37 @@ export interface RealmInboxData {
     counts: { reviews: number; awaiting_input: number; failed_24h: number; running: number };
     sections: Record<InboxSectionKey, InboxSectionStatusData>;
     partial: boolean;
+    /** Only with `summary: true`. */
+    summary?: RealmSummaryData;
+}
+
+/** The realm page summary: who it is, what it runs, what runs it, who is in it. */
+export interface RealmSummaryData {
+    realm: {
+        description: string | null;
+        created_at: number | null;
+        updated_at: number | null;
+        created_by_username: string | null;
+    };
+    /** Teams on the realm (first page) — null when the read failed. */
+    teams: {
+        total: number;
+        /** Teams whose workflow names an agent the org has not registered. */
+        missing_agents: number;
+        items: Array<{ scope: string | null; slug: string; label: string; version: string | null; missing_agents: string[] }>;
+    } | null;
+    daemons: {
+        online: number;
+        total: number;
+        items: Array<{ id: string; name: string; status: string }>;
+        truncated: boolean;
+    } | null;
+    people: {
+        total: number;
+        by_role: Record<string, number>;
+        items: Array<{ member_id: string; username: string | null; role: string; is_you: boolean }>;
+        /** Pending invites; null when the viewer can't see them. */
+        pending_invites: number | null;
+    } | null;
+    you: { role: string | null; is_admin: boolean };
 }

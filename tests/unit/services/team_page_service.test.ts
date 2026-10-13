@@ -159,6 +159,17 @@ describe('TeamPageService.page', () => {
         expect(data.team).toMatchObject({ id: TEAM_ID, label: '@acme/feature-dev', latest_version: '1.2.0', version: '1.2.0', can_edit: true, can_toggle_listing: false });
         expect(data.counts).toEqual({ phases: 3, versions: 2, runs: 9 });
         expect(data.overview?.agents).toEqual(['claude-code']);
+        expect(Array.isArray(data.overview?.agent_defs)).toBe(true);
+    });
+
+    it('overview: agents the team defines itself (team.yml agents:) with entry and env', async () => {
+        const m = mocks();
+        m.teams.get_by_id.mockResolvedValueOnce(team({ agents: { 'pdf-parser': { entry: 'python parse.py', env: ['OPENAI_API_KEY'] }, bare: {} } }));
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview' }, 'tok');
+        expect(data.overview?.agent_defs).toEqual([
+            { name: 'pdf-parser', entry: 'python parse.py', env: ['OPENAI_API_KEY'] },
+            { name: 'bare', entry: null, env: [] },
+        ]);
         expect(data.overview?.inputs).toEqual([{ name: 'ticket', description: 'Jira key', required: true, default: null }]);
         expect(data.overview?.installs.map((i) => i.realm_slug)).toEqual(['prod', 'stg']);
         expect(m.teams.get).toHaveBeenCalledWith({ realm_id: 'r1', limit: 20, offset: 0, query: 'feature-dev' }, 'tok');

@@ -43,6 +43,7 @@ import { InboxService } from './services/inbox_service.js';
 import { NotificationCenterService } from './services/notification_center_service.js';
 import { OrgPageService } from './services/org_page_service.js';
 import { RealmInboxService } from './services/realm_inbox_service.js';
+import { RealmSummaryService } from './services/realm_summary_service.js';
 import { RunDetailService } from './services/run_detail_service.js';
 import { RealmRunsService } from './services/realm_runs_service.js';
 import { RealmTeamsService } from './services/realm_teams_service.js';
@@ -226,7 +227,12 @@ export function build_container(deps: {
             new NotificationCenterService(orgs_repo, dashboard_repo, control_repo),
         ),
         org_page_controller: new OrgPageController(new OrgPageService(core_reads)),
-        realm_inbox_controller: new RealmInboxController(new RealmInboxService(control_repo)),
+        realm_inbox_controller: new RealmInboxController(new RealmInboxService(control_repo), new RealmSummaryService(
+            control_repo,
+            new RealmTeamsService(control_repo, teams_repo),
+            new RealmDaemonsService(control_repo, teams_repo),
+            new RealmSettingsService(control_repo, tokens_repo, invitations_repo),
+        )),
         run_detail_controller: new RunDetailController(new RunDetailService(
             control_repo,
             // "Why it failed": the review a run stopped at, read like the review page reads it.

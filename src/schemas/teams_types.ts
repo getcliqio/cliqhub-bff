@@ -122,6 +122,11 @@ export const TeamsCreateInput = z.object({
         .describe('Team manifest as YAML text or an object'),
     team_json: z.string().optional()
         .describe('Builder canvas JSON (alternative to manifest)'),
+    forked_from: z.object({
+        team_id: z.string().min(1).describe('Team to copy'),
+        version: z.string().optional().describe('Version to copy (default: its latest)'),
+    }).optional()
+        .describe('Fork: copies that version’s team.yml under the new name and records where it came from'),
 });
 export type TeamsCreateInput = z.infer<typeof TeamsCreateInput>;
 

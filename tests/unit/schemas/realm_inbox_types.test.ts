@@ -6,6 +6,9 @@ describe('RealmInboxGetInput', () => {
     it('accepts org_slug + slug and trims', () => {
         expect(RealmInboxGetInput.parse({ org_slug: ' acme ', slug: 'prod' })).toEqual({ org_slug: 'acme', slug: 'prod' });
     });
+    it('takes an optional summary flag', () => {
+        expect(RealmInboxGetInput.parse({ org_slug: 'acme', slug: 'prod', summary: true })).toEqual({ org_slug: 'acme', slug: 'prod', summary: true });
+    });
     it.each([{}, { org_slug: 'acme' }, { slug: 'prod' }, { org_slug: '', slug: 'prod' }, { org_slug: 'a', slug: 'b', realm_id: 'x' }])('rejects %j', (b) => {
         expect(RealmInboxGetInput.safeParse(b).success).toBe(false);
     });

@@ -221,13 +221,32 @@ export class TeamPageService {
         const runs_total = best_effort(log, 'team_page_runs_total_failed', this._control.runs_for_team({ ...run_scope, limit: 1 }, token).then((r) => r.total), null, { team_id });
 
         const data: TeamPageData = { team: header, counts: { phases: phases.length, versions: versions.length, runs: null }, view, partial: false };
+        /** team.yml, README and role briefs of this version (from get_by_id; no extra Core read). */
+        const files_of = (): Array<{ path: string; kind: 'yaml' | 'md'; content: string }> => {
+            const files: Array<{ path: string; kind: 'yaml' | 'md'; content: string }> = [];
+            const manifest = str(raw.raw_manifest) ?? str(raw.team_json);
+            if (manifest) files.push({ path: 'team.yml', kind: 'yaml', content: manifest });
+            if (str(raw.readme)) files.push({ path: 'README.md', kind: 'md', content: String(raw.readme) });
+            for (const r of raw.roles ?? []) {
+                const n = str(r.name);
+                if (n) files.push({ path: `roles/${n.replace(/\.md$/, '')}.md`, kind: 'md', content: String(r.content_md ?? '') });
+            }
+            return files;
+        };
         const latest_of = () => latest_version;
 
         if (view === 'overview') {
             const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
             const inst = realms ? await this._installs_by_label(token, realms.items.slice(0, TeamPageService.REALM_CAP), latest_of, { name, scope }) : null;
             const agents = [...new Set([...phases, ...support].map((x) => x.agent).filter((x): x is string => Boolean(x)))];
-            data.overview = { phases, support, inputs, agents, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [] };
+            // Agents the team defines itself (team.yml `agents:` → the version's agents map).
+            const agent_defs = Object.entries((raw.agents ?? {}) as Record<string, unknown>).map(([agent, def]) => {
+                const d = (def && typeof def === 'object' ? def : {}) as { entry?: unknown; env?: unknown };
+                return { name: agent, entry: typeof d.entry === 'string' ? d.entry : null, env: Array.isArray(d.env) ? d.env.map(String) : [] };
+            });
+            data.overview = { phases, support, inputs, agents, agent_defs, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [] };
+            // The team page shows the workflow as a diagram or as team.yml, on one page.
+            data.files = { files: files_of() };
             data.partial = !realms || Boolean(inst?.failed);
         } else if (view === 'workflow') {
             const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
@@ -256,15 +275,7 @@ export class TeamPageService {
             data.workflow = { phases, support, recent_runs: (recent?.items ?? []).map((r) => to_team_run_row(r, rmap)), overlay };
             data.partial = !recent;
         } else if (view === 'files') {
-            const files: Array<{ path: string; kind: 'yaml' | 'md'; content: string }> = [];
-            const manifest = str(raw.raw_manifest) ?? str(raw.team_json);
-            if (manifest) files.push({ path: 'team.yml', kind: 'yaml', content: manifest });
-            if (str(raw.readme)) files.push({ path: 'README.md', kind: 'md', content: String(raw.readme) });
-            for (const r of raw.roles ?? []) {
-                const n = str(r.name);
-                if (n) files.push({ path: `roles/${n.replace(/\.md$/, '')}.md`, kind: 'md', content: String(r.content_md ?? '') });
-            }
-            data.files = { files };
+            data.files = { files: files_of() };
         } else if (view === 'runs') {
             const limit = input.limit ?? TeamPageService.DEFAULT_LIMIT;
             const offset = input.offset ?? 0;

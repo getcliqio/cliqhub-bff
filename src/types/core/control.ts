@@ -11,6 +11,11 @@ export interface ControlRealmVO {
     org_slug?: string | null;
     /** The realm's owner (an admin of it); sent by `realms/get_by_id`. */
     owner_user_id?: string | null;
+    /** Sent by `realms/get_by_id` (and list rows). */
+    description?: string | null;
+    created_by_username?: string | null;
+    created_at?: number | null;
+    updated_at?: number | null;
 }
 
 /** One team in an org's library (`orgs/get_teams`). */
