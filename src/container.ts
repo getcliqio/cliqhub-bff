@@ -61,6 +61,8 @@ import { HealthController } from './controllers/health_controller.js';
 import { A2aController } from './controllers/a2a_controller.js';
 import { PassthroughController } from './controllers/passthrough_controller.js';
 import { TeamInstallController } from './controllers/team_install_controller.js';
+import { RealmsListController } from './controllers/realms_list_controller.js';
+import { RealmsListService } from './services/realms_list_service.js';
 import { TeamInstallService } from './services/team_install_service.js';
 import { StreamsController } from './controllers/streams_controller.js';
 import { SessionController } from './controllers/session_controller.js';
@@ -112,6 +114,7 @@ export interface Container {
     a2a_controller: A2aController;
     passthrough_controller: PassthroughController;
     team_install_controller: TeamInstallController;
+    realms_list_controller: RealmsListController;
     streams_controller: StreamsController;
     // Identity
     session_controller: SessionController;
@@ -201,6 +204,7 @@ export function build_container(deps: {
         a2a_controller: new A2aController(proxy_service),
         passthrough_controller: new PassthroughController(proxy_service),
         team_install_controller: new TeamInstallController(new TeamInstallService(orgs_repo, control_repo), proxy_service),
+        realms_list_controller: new RealmsListController(new RealmsListService(proxy_service, teams_repo)),
         streams_controller: new StreamsController(proxy_service),
 
         session_controller: new SessionController(session_service, config),

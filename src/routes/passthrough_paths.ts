@@ -34,7 +34,6 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
 
     // ── Realms ────────────────────────────────────────────────────────────
     '/v1/realms/create': 'token',
-    '/v1/realms/get': 'token',
     '/v1/realms/get_by_id': 'token',
     '/v1/realms/update': 'token',
     '/v1/realms/delete': 'token',
