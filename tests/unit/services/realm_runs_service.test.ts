@@ -23,6 +23,27 @@ describe('RealmRunsService', () => {
         expect(dto).toMatchObject({ total: 40, offset: 20, limit: 10, counts: { all: 1284, running: 3, awaiting_input: 2, failed_7d: 4 }, partial: false });
     });
 
+    it('each row says whether it needs you (input / review) and which daemon ran it; both best-effort', async () => {
+        const c = {
+            ...mocks(),
+            runs: vi.fn().mockImplementation(async (f: { limit: number }) => (f.limit === 1 ? { items: [], total: 1 } : { total: 3, items: [
+                { run_id: 'a', state: 'awaiting_input', daemon_id: 'd1' },
+                { run_id: 'b', state: 'running', daemon_id: 'd2' },
+                { run_id: 'c', state: 'completed', daemon_id: 'gone' },
+            ] })),
+            pending_reviews: vi.fn().mockResolvedValue({ total: 1, items: [{ review_id: 'rv', run_id: 'b' }] }),
+            realm_daemons: vi.fn().mockResolvedValue({ total: 2, items: [{ id: 'd1', name: 'mac-1', hostname: 'h1' }, { id: 'd2', name: null, hostname: 'box' }] }),
+        };
+        const dto = await new RealmRunsService(c as any, () => NOW).get({ org_slug: 'acme', slug: 'prod' }, 'tok');
+        expect(c.pending_reviews).toHaveBeenCalledWith('r1', 'tok', 100);
+        expect(dto.items.map((r) => [r.run_id, r.needs_you, r.daemon_name])).toEqual([['a', 'input', 'mac-1'], ['b', 'review', 'box'], ['c', null, null]]);
+        c.pending_reviews.mockRejectedValue(new Error('down'));
+        c.realm_daemons.mockRejectedValue(new Error('down'));
+        const again = await new RealmRunsService(c as any, () => NOW).get({ org_slug: 'acme', slug: 'prod' }, 'tok');
+        expect(again.items.map((r) => [r.needs_you, r.daemon_name])).toEqual([['input', null], [null, null], [null, null]]);
+        expect(again.partial).toBe(false);
+    });
+
     it('a sub-team row names its main run: from the page, else one read per missing parent', async () => {
         const c = { ...mocks(), run_by_id: vi.fn(async (id: string) => (id === 'main-2' ? { run_id: 'main-2', run_name: 'quiet-amber-heron' } : null)) };
         c.runs.mockImplementation(async (f: { limit: number }) => (f.limit === 1 ? { items: [], total: 0 } : { total: 4, items: [

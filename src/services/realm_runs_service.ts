@@ -3,7 +3,8 @@
  *
  * Composes Core: `/v1/realms/get_by_id { slug, org_slug }` (membership gate)
  * → `/v1/runs/get` (the page) + `/v1/runs/get { limit: 1 }` per count
- * (all, running, awaiting_input, failed+crashed 7d).
+ * (all, running, awaiting_input, failed+crashed 7d), plus `/v1/reviews/get` (pending) and
+ * `/v1/daemons/get { realm_id }` so each row says whether it needs a person and which daemon ran it.
  */
 
 import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
@@ -22,6 +23,10 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 export class RealmRunsService {
     /** Page size when the request sends none. */
     static readonly DEFAULT_LIMIT = 25;
+    /** Pending reviews read to mark rows (a realm has few at once). */
+    static readonly REVIEWS_LIMIT = 100;
+    /** Daemons read to name rows (realms have few). */
+    static readonly DAEMONS_LIMIT = 100;
 
     constructor(
         private readonly _control: ControlRepository,
@@ -46,18 +51,28 @@ export class RealmRunsService {
 
         const count = (f: { state?: ControlRunState | ControlRunState[]; since_ms?: number }) =>
             this._control.runs({ realm_id, limit: 1, ...f }, token).then((x) => x.total);
-        const [page, all, running, awaiting, failed] = await Promise.allSettled([
+        const [page, all, running, awaiting, failed, reviews, daemons] = await Promise.allSettled([
             this._control.runs({ realm_id, limit, offset, ...(state ? { state } : {}), ...core_query(p.q), ...(p.since_ms ? { since_ms: p.since_ms } : {}), ...(p.origin ? { origin: p.origin } : {}), ...core_sort('runs.get', p) }, token),
             count({}),
             count({ state: 'running' }),
             count({ state: 'awaiting_input' }),
             count({ state: ['failed', 'crashed'], since_ms: week }),
+            Promise.resolve().then(() => this._control.pending_reviews(realm_id, token, RealmRunsService.REVIEWS_LIMIT)),
+            Promise.resolve().then(() => this._control.realm_daemons(realm_id, RealmRunsService.DAEMONS_LIMIT, token)),
         ]);
         if (page.status === 'rejected') throw page.reason;
-        warn_rejected(log, 'realm_runs_count_failed', { all, running, awaiting_input: awaiting, failed_7d: failed }, { realm_id });
+        warn_rejected(log, 'realm_runs_count_failed', { all, running, awaiting_input: awaiting, failed_7d: failed, reviews, daemons }, { realm_id });
+        // Best-effort: without them a row just doesn't say "review" or the daemon's name.
+        const reviewed = new Set(reviews.status === 'fulfilled' ? reviews.value.items.map((r) => r.run_id).filter((id): id is string => !!id) : []);
+        const names = new Map(daemons.status === 'fulfilled' ? daemons.value.items.map((d) => [d.id, d.name || d.hostname || null] as const) : []);
         const n = (r: PromiseSettledResult<number>) => (r.status === 'fulfilled' ? r.value : null);
 
-        const items = await this._with_parent_names(page.value.items.map(to_run_row), token);
+        const rows = page.value.items.map(to_run_row).map((r) => ({
+            ...r,
+            needs_you: r.state === 'awaiting_input' ? 'input' as const : reviewed.has(r.run_id) ? 'review' as const : null,
+            daemon_name: r.daemon_id ? names.get(r.daemon_id) ?? null : null,
+        }));
+        const items = await this._with_parent_names(rows, token);
         return {
             realm: to_control_realm_data(realm),
             items,

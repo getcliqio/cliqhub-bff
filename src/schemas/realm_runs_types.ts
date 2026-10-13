@@ -54,6 +54,10 @@ export interface RealmRunRowData {
     error: string | null;
     /** Set on a sub-team run: the main run and the phase that started it (name null when unknown). */
     parent?: RealmRunParentData | null;
+    /** Realm › Runs only: why the run needs a person — waiting for input, or a review pending — else null. */
+    needs_you?: 'input' | 'review' | null;
+    /** Realm › Runs only: the daemon's name (or hostname); null when unknown. */
+    daemon_name?: string | null;
 }
 
 /** The main run a sub-team run belongs to. */
