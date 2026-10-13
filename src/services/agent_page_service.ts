@@ -174,7 +174,12 @@ export class AgentPageService {
         const required_keys = (org_one?.settings.required ?? []).map((d) => d.key);
         const realms_rows: AgentRealmRowData[] | null = view === 'realms' && !realm ? per.map(({ r, s }) => {
             const keys: Record<string, 'org' | 'realm' | 'missing'> = {};
-            for (const k of required_keys) keys[k] = s?.values?.[k] ? (s.source?.[k] === 'realm' ? 'realm' : 'org') : 'missing';
+            for (const k of required_keys) {
+                if (s?.values?.[k]) { keys[k] = s.source?.[k] === 'realm' ? 'realm' : 'org'; continue; }
+                // Newer Core says which keys are really missing: a key whose `when` doesn't apply here
+                // (git's bitbucket.* on GitHub) or that has a default isn't listed at all.
+                if (!s?.missing_required || s.missing_required.includes(k)) keys[k] = 'missing';
+            }
             return {
                 realm: r,
                 ready: s ? s.all_required_configured : false,

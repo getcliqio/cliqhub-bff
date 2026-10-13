@@ -31,6 +31,8 @@ export interface AgentSettingsVO {
     required_total: number;
     required_configured: number;
     all_required_configured: boolean;
+    /** Required keys that apply (their `when` matches) and are neither set nor defaulted (newer Core). */
+    missing_required?: string[];
     /** The manifest's MCP block, when the agent can use MCP servers. */
     mcp?: AgentMcpData;
 }

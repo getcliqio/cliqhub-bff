@@ -159,6 +159,22 @@ describe('AgentPageService.page', () => {
 		expect(d.realms![0].keys).toEqual({ base_url: 'org', email: 'missing', api_token: 'missing' });
 	});
 
+	it('realms view: a key Core says doesn’t apply (or is defaulted) isn’t listed as missing', async () => {
+		const f = fake();
+		const base = f.core.post_body.getMockImplementation()!;
+		f.core.post_body.mockImplementation(async (path: string, body: Record<string, unknown>) => {
+			const res = await base(path, body) as { ok: boolean; data: unknown };
+			if (path !== '/v1/agents/get_settings' || !body.id) return res;
+			const d = res.data as Record<string, unknown>;
+			// A git-like key that only applies for another provider: Core leaves it out of missing_required.
+			const defs = { required: [...JIRA_DEFS.required, { key: 'bitbucket.email', when: { provider: 'bitbucket' } }], optional: [] };
+			return { ok: true, data: { ...d, settings: defs, missing_required: body.realm_id === 'r-prod' ? [] : ['email', 'api_token'] } };
+		});
+		const d = await f.svc.page({ org_id: ORG, id: JIRA, view: 'realms' }, 'tok');
+		expect(d.realms![0].keys).toEqual({ base_url: 'org', email: 'missing', api_token: 'missing' });
+		expect(d.realms![1].keys).toEqual({ base_url: 'org', email: 'realm', api_token: 'realm' });
+	});
+
 	it('manifest view includes the manifest', async () => {
 		const { svc, calls } = fake();
 		const d = await svc.page({ org_id: ORG, id: JIRA, view: 'manifest' }, 'tok');
