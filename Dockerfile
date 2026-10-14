@@ -4,7 +4,7 @@ ARG FRONTEND_REPO=https://github.com/getcliqio/cliqhub-frontend.git
 ARG FRONTEND_REF=main
 # Bump FRONTEND_SHA whenever SPA main must be re-cloned (Docker otherwise
 # caches the git clone layer and ships a stale SPA after frontend-only pushes).
-ARG FRONTEND_SHA=586f12227e1edbbda75107923788aface8d3fb34
+ARG FRONTEND_SHA=c0ee320b5dadafc99eecd14017f7f43cd1876696
 ARG GH_TOKEN=
 
 FROM node:20-alpine AS frontend-build
