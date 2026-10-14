@@ -5,7 +5,8 @@
  * Routes (controllers/notification_center_controller.ts):
  *   POST /v1/notification_center/get        — rules + channels by org and realm
  *   POST /v1/notification_center/check      — who is told for each event in a realm
- *   POST /v1/notification_center/set_rules  — one rule per event at one level, one channel
+ *   POST /v1/notification_center/set_rules  — rule writes at one level: one channel for many events,
+ *                                             listed rules (event + channel + on/off), and removals
  *
  * BFF composition over Core: `/v1/orgs/get { mine }` → per org `/v1/orgs/get_notification_rules`
  * + `/v1/notification_channels/get`; a page of `/v1/realms/get` → per realm rules + channels;
@@ -49,12 +50,24 @@ export const NotificationCenterSetRulesInput = z.object({
         .describe('Org-wide rules (omit when realm_id is set)'),
     realm_id: RealmIdField.optional()
         .describe('Realm rules'),
-    events: z.array(z.string().trim().min(1).max(200)).min(1).max(60)
-        .describe('Event selectors: exact, family wildcard (run.*) or *'),
-    channel_id: z.string().trim().min(1).max(200)
-        .describe('Channel every rule sends to'),
+    events: z.array(z.string().trim().min(1).max(200)).min(1).max(60).optional()
+        .describe('Event selectors (exact, family wildcard run.* or *), each sent to `channel_id`'),
+    channel_id: z.string().trim().min(1).max(200).optional()
+        .describe('Channel every rule in `events` sends to'),
+    enabled: z.boolean().optional()
+        .describe('On/off for the `events` rules (new rules are on; omitted keeps an existing rule\'s state)'),
+    items: z.array(z.object({
+        event: z.string().trim().min(1).max(200),
+        channel_id: z.string().trim().min(1).max(200),
+        enabled: z.boolean().optional(),
+    }).strict()).min(1).max(60).optional()
+        .describe('Rules to create or update, each with its own channel and on/off (Replace, Turn off, a switch)'),
+    remove: z.array(z.string().uuid()).min(1).max(60).optional()
+        .describe('Rule ids to delete first (Reset, Remove)'),
 }).strict().superRefine((b, ctx) => {
     if (!b.realm_id && !b.org_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['org_id'], message: 'org_id or realm_id is required' });
+    if (b.events && !b.channel_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['channel_id'], message: 'channel_id is required with events' });
+    if (!b.events && !b.items && !b.remove) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['items'], message: 'Nothing to do: give events, items or remove' });
 });
 export type NotificationCenterSetRulesInput = z.infer<typeof NotificationCenterSetRulesInput>;
 
@@ -129,6 +142,46 @@ export interface NotifRuleData {
     /** Cannot be changed or removed; the UI shows `lock_reason`. */
     locked: boolean;
     lock_reason: string | null;
+    /** Switched on. A rule sends only when it and its channel are on. */
+    enabled: boolean;
+}
+
+/** One rule behind a realm event row. */
+export interface NotifEventRuleData {
+    rule_id: string;
+    /** The rule's event selector (exact, `family.*` or `*`). */
+    selector: string;
+    tier: NotifScopeKind;
+    channel_id: string;
+    channel_name: string | null;
+    /** The channel itself is on (both must be on for the rule to send). */
+    channel_enabled: boolean;
+    enabled: boolean;
+    locked: boolean;
+    lock_reason: string | null;
+}
+
+/**
+ * Where a realm event's rule comes from:
+ * `default` the org's · `paused` the org's, all switched off by the org · `replaced` this realm's
+ * (the org also covers the event) · `realm_only` this realm's, the org doesn't cover it ·
+ * `off` this realm's rules for it are all switched off (nothing sends here).
+ */
+export type NotifRealmEventStatus = 'default' | 'paused' | 'replaced' | 'realm_only' | 'off';
+
+/** One event (or selector) as it stands in a realm. */
+export interface NotifRealmEventData {
+    /** An exact event or a selector (`run.*`, `*`) some rule names. */
+    event: string;
+    status: NotifRealmEventStatus;
+    /** The org's rule for it is locked: the realm can't replace or turn it off. */
+    locked: boolean;
+    /** A broader realm selector that replaces it (e.g. `run.*`), else null. */
+    via: string | null;
+    /** The org's rules covering it (what Default means here). */
+    org: NotifEventRuleData[];
+    /** This realm's rules for it (empty when `default` / `paused`). */
+    realm: NotifEventRuleData[];
 }
 
 /** An org the center read, and whether the viewer may edit its org-wide rules and channels. */
@@ -173,6 +226,8 @@ export interface NotificationCenterData {
     channels: NotifChannelData[];
     rules: NotifRuleData[];
     event_types: string[];
+    /** With `realm_id`: each event as it stands in that realm (Default / Replaced / Off / …); else null. */
+    realm_events: NotifRealmEventData[] | null;
     partial: boolean;
 }
 
@@ -223,4 +278,6 @@ export interface NotifSetRuleFailureData {
 export interface NotifSetRulesData {
     saved: Array<{ event: string; rule_id: string }>;
     failed: NotifSetRuleFailureData[];
+    /** Rule ids deleted (from `remove`). */
+    removed: string[];
 }

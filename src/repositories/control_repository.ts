@@ -65,6 +65,8 @@ export interface ControlSetRuleInput {
     team_slug?: string;
     event: string;
     channel_id: string;
+    /** On/off; omitted keeps an existing rule's state (a new rule is on). */
+    enabled?: boolean;
 }
 
 /** Typed control-plane reads (realms, runs, reviews, daemons, notifications) and the notification-rule write. */
@@ -189,6 +191,13 @@ export class ControlRepository {
     async set_rule(body: ControlSetRuleInput, token: string): Promise<NotifRuleVO> {
         const path = body.realm_id ? '/v1/realms/set_notification_rules' : '/v1/orgs/set_notification_rules';
         const res = await this._core.post_body<{ data: NotifRuleVO }>(path, body, token);
+        return res.data;
+    }
+
+    /** `POST /v1/{realms,orgs}/remove_notification_rules { id }` — Core loads the rule and checks its realm/org. */
+    async remove_rule(id: string, realm: boolean, token: string): Promise<boolean> {
+        const path = realm ? '/v1/realms/remove_notification_rules' : '/v1/orgs/remove_notification_rules';
+        const res = await this._core.post_body<{ data: boolean }>(path, { id }, token);
         return res.data;
     }
 

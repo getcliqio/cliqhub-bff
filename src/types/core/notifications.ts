@@ -17,6 +17,8 @@ export interface NotifRuleVO {
     /** A locked rule cannot be changed or removed (409 `locked`). */
     locked: boolean;
     lock_reason: string | null;
+    /** Switched on (Core default true; older Cores omit it). */
+    enabled?: boolean;
     created_at?: number;
     updated_at?: number;
 }

@@ -61,6 +61,7 @@ export function to_notif_rule_data(
         system_key: r.system_key ?? null,
         locked: r.locked === true,
         lock_reason: r.lock_reason ?? null,
+        enabled: r.enabled !== false,
     };
 }
 

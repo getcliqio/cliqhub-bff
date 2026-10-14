@@ -192,6 +192,7 @@ describe('notification center routes', () => {
 
         expect(res.status).toBe(200);
         expect(res.body.data).toEqual({
+            removed: [],
             saved: [{ event: 'invite.org.accepted', rule_id: 'r-accepted' }],
             failed: [{ event: 'invite.org.sent', error: 'This rule is locked', code: 'locked', details: { system_key: 'invite.sent.invitee' } }],
         });

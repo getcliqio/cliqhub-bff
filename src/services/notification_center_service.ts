@@ -9,7 +9,8 @@
  *              /v1/realms/get_members (realm-admin check); /v1/events/types/list
  *   check:     /v1/realms/get_by_id, /v1/orgs/get { mine }, org + realm rules and channels,
  *              /v1/teams/get { realm_id } (roster), /v1/events/types/list
- *   set_rules: /v1/{orgs,realms}/set_notification_rules, once per event
+ *   set_rules: /v1/{orgs,realms}/remove_notification_rules per removed rule, then
+ *              /v1/{orgs,realms}/set_notification_rules once per rule
  */
 
 import { get_logger } from '../lib/log.js';
@@ -26,7 +27,7 @@ import type {
     NotifRealmPageData, NotifViewer,
 } from '../schemas/notification_center_types.js';
 import { ApiError } from '../errors/api_error.js';
-import { mark_replaces, resolve_event, sort_rules, type TieredRule } from './notification_rules.js';
+import { mark_replaces, realm_events, resolve_event, sort_rules, type TieredRule } from './notification_rules.js';
 import {
     to_notif_channel_data, to_notif_check_entry_data, to_notif_rule_data,
 } from '../mappers/notification_center_mapper.js';
@@ -229,12 +230,24 @@ export class NotificationCenterService {
         const event_types: string[] = types ?? [];
         const types_failed = types === null;
 
+        // One realm asked for: each event as it stands there (its org's rules vs its own).
+        let events_here: NotificationCenterData['realm_events'] = null;
+        const one = input.realm_id ? per_realm[0] : undefined;
+        if (one && one.rules.status === 'fulfilled') {
+            const org_rules = per_org.find((p) => p.org.id === one.realm.org_id)?.rules;
+            const ch = (id: string) => { const c = channel_map.get(id); return c ? { name: c.name, enabled: c.enabled } : undefined; };
+            // The realm read returns its own rules (plus team-in-realm ones, which have a team and aren't realm-wide).
+            const own = one.rules.value.filter((r) => r.realm_id === one.realm.id);
+            events_here = realm_events(org_rules?.status === 'fulfilled' ? org_rules.value : [], own, ch);
+        }
+
         return {
             orgs,
             realms,
             channels: [...channel_map.values()].sort((a, b) => a.name.localeCompare(b.name)),
             rules: sort_rules(rules),
             event_types,
+            realm_events: events_here,
             realm_page,
             partial: types_failed || realm_page.status === 'error' || orgs.some((o) => o.status === 'error') || realms.some((r) => r.status === 'error'),
         };
@@ -299,26 +312,37 @@ export class NotificationCenterService {
      * @throws ApiError the first write's error when every write failed with an ApiError.
      */
     async set_rules(input: NotificationCenterSetRulesInput, token: string): Promise<NotifSetRulesData> {
-        const events = [...new Set(input.events.map((e) => e.trim()).filter(Boolean))];
         const base = input.realm_id ? { realm_id: input.realm_id } : { org_id: input.org_id! };
-        const results = await map_limited(events, 4, async (event) => {
+        // Removals first (Reset, Remove), so a Replace right after starts clean.
+        const removed: string[] = [];
+        for (const id of input.remove ?? []) {
+            await this._control_repo.remove_rule(id, Boolean(input.realm_id), token);
+            removed.push(id);
+        }
+        // Rules to write: one channel for many events, and/or listed rules each with their own channel.
+        const writes: Array<{ event: string; channel_id: string; enabled?: boolean }> = [
+            ...[...new Set((input.events ?? []).map((e) => e.trim()).filter(Boolean))].map((event) => ({ event, channel_id: input.channel_id!, enabled: input.enabled })),
+            ...(input.items ?? []),
+        ];
+        const results = await map_limited(writes, 4, async (w) => {
             try {
-                const rule = await this._control_repo.set_rule({ ...base, event, channel_id: input.channel_id }, token);
-                return { event, rule_id: rule?.id ?? '', error: null as unknown };
+                const rule = await this._control_repo.set_rule({ ...base, event: w.event, channel_id: w.channel_id, ...(w.enabled === undefined ? {} : { enabled: w.enabled }) }, token);
+                return { event: w.event, rule_id: rule?.id ?? '', error: null as unknown };
             } catch (err) {
-                // One event failing must not stop the others; it is reported in `failed`.
-                log.warn('notif_set_rule_failed', { ...base, channel_id: input.channel_id, event, ...error_fields(err) });
-                return { event, rule_id: '', error: err };
+                // One rule failing must not stop the others; it is reported in `failed`.
+                log.warn('notif_set_rule_failed', { ...base, channel_id: w.channel_id, event: w.event, ...error_fields(err) });
+                return { event: w.event, rule_id: '', error: err };
             }
         });
         const failed = results.filter((r) => r.error);
-        if (failed.length === results.length && failed[0]?.error instanceof ApiError) throw failed[0].error;
+        if (results.length && failed.length === results.length && failed[0]?.error instanceof ApiError) throw failed[0].error;
         log.info('notification_rules_set', {
             level: input.realm_id ? 'realm' : 'org',
-            ...base, channel_id: input.channel_id,
+            ...base, removed: removed.length,
             saved: results.length - failed.length, failed: failed.length,
         });
         return {
+            removed,
             saved: results.filter((r) => !r.error).map((r) => ({ event: r.event, rule_id: r.rule_id })),
             failed: failed.map((r) => ({
                 event: r.event,

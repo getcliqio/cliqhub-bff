@@ -8,7 +8,9 @@
  *     rule wins, and all its matching rules fire ("replace" semantics)
  */
 
-import type { NotifRuleData, NotifScopeKind } from '../schemas/notification_center_types.js';
+import type {
+    NotifEventRuleData, NotifRealmEventData, NotifRealmEventStatus, NotifRuleData, NotifScopeKind,
+} from '../schemas/notification_center_types.js';
 import type { NotifDestinationVO } from '../types/core/notifications.js';
 
 /** A rule reduced to what tier resolution needs. */
@@ -108,4 +110,56 @@ export function destination_label(d: NotifDestinationVO): string {
         case 'cliqhub': return 'In-app (CliqHub)';
         default: return d.type;
     }
+}
+
+/** What `realm_events` needs to know about a rule. */
+export interface EventRuleInput {
+    id: string;
+    event: string;
+    channel_id: string;
+    enabled?: boolean;
+    locked?: boolean;
+    lock_reason?: string | null;
+}
+
+/**
+ * Each event as it stands in one realm — the rows of the realm's Notifications page. One row per
+ * selector any org or realm rule names (exact events and wildcards), matched the way Core delivers:
+ *   - the realm has rules for it → `off` when all are switched off, else `replaced` (the org covers it
+ *     too) or `realm_only`
+ *   - a broader realm selector covers it (realm `run.*` over the org's `run.failed`) → `replaced`, `via` set
+ *   - else the org's covering rules → `default`, or `paused` when the org switched them all off
+ * Sorted by event.
+ */
+export function realm_events(
+    org_rules: EventRuleInput[],
+    realm_rules: EventRuleInput[],
+    channel: (id: string) => { name: string; enabled: boolean } | undefined,
+): NotifRealmEventData[] {
+    const entry = (r: EventRuleInput, tier: NotifScopeKind): NotifEventRuleData => ({
+        rule_id: r.id, selector: r.event, tier, channel_id: r.channel_id,
+        channel_name: channel(r.channel_id)?.name ?? null,
+        channel_enabled: channel(r.channel_id)?.enabled ?? true,
+        enabled: r.enabled !== false, locked: r.locked === true, lock_reason: r.lock_reason ?? null,
+    });
+    // A rule with selector `s` covers row `e` when `s` is one of e's matching selectors.
+    const covering = (rules: EventRuleInput[], e: string) => rules.filter((r) => matching_selectors(e).includes(r.event));
+    const selectors = [...new Set([...org_rules, ...realm_rules].map((r) => r.event))].sort();
+    return selectors.map((e) => {
+        const org = covering(org_rules, e);
+        const own = realm_rules.filter((r) => r.event === e);
+        const broader = own.length ? [] : covering(realm_rules, e);
+        const realm = own.length ? own : broader;
+        let status: NotifRealmEventStatus;
+        if (realm.length) status = realm.every((r) => r.enabled === false) ? 'off' : org.length ? 'replaced' : 'realm_only';
+        else status = org.every((r) => r.enabled === false) ? 'paused' : 'default';
+        return {
+            event: e,
+            status,
+            locked: org.some((r) => r.locked === true),
+            via: broader.length ? broader[0].event : null,
+            org: org.map((r) => entry(r, 'org')),
+            realm: realm.map((r) => entry(r, 'realm')),
+        };
+    });
 }

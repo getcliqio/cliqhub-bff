@@ -170,6 +170,7 @@ describe('NotificationCenterService.set_rules', () => {
         });
         const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
         expect(await svc.set_rules({ org_id: 'o1', events: ['run.failed', 'bad'], channel_id: 'c1' }, 'tok')).toEqual({
+            removed: [],
             saved: [{ event: 'run.failed', rule_id: 'ok' }],
             failed: [{ event: 'bad', error: 'Nope', code: 'bad_request', details: null }],
         });
@@ -189,9 +190,85 @@ describe('NotificationCenterService.set_rules', () => {
         await expect(svc.set_rules({ org_id: 'o1', events: ['invite.org.sent'], channel_id: 'c1' }, 'tok')).rejects.toBe(locked);
 
         expect(await svc.set_rules({ org_id: 'o1', events: ['invite.org.sent', 'invite.org.accepted'], channel_id: 'c1' }, 'tok')).toEqual({
+            removed: [],
             saved: [{ event: 'invite.org.accepted', rule_id: 'ok' }],
             failed: [{ event: 'invite.org.sent', error: 'This rule is locked', code: 'locked', details: { system_key: 'invite.sent.invitee' } }],
         });
+    });
+});
+
+describe('NotificationCenterService.set_rules — items, on/off and removals (Replace, Turn off, Reset)', () => {
+    it('removes first, then writes each listed rule with its own channel and on/off', async () => {
+        const m = mocks();
+        const order: string[] = [];
+        (m.control as any).remove_rule = vi.fn().mockImplementation(async (id: string) => { order.push(`rm:${id}`); return true; });
+        (m.control as any).set_rule = vi.fn().mockImplementation(async (b: { event: string; channel_id: string }) => { order.push(`set:${b.channel_id}`); return { id: `id-${b.channel_id}` }; });
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
+        const out = await svc.set_rules({
+            realm_id: 'r1',
+            remove: ['00000000-0000-4000-8000-000000000001'],
+            items: [{ event: 'run.failed', channel_id: 'c1', enabled: false }, { event: 'run.failed', channel_id: 'c2' }],
+        }, 'tok');
+        expect(order[0]).toBe('rm:00000000-0000-4000-8000-000000000001');
+        expect((m.control as any).remove_rule).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000001', true, 'tok');
+        expect((m.control as any).set_rule).toHaveBeenCalledWith({ realm_id: 'r1', event: 'run.failed', channel_id: 'c1', enabled: false }, 'tok');
+        expect((m.control as any).set_rule).toHaveBeenCalledWith({ realm_id: 'r1', event: 'run.failed', channel_id: 'c2' }, 'tok');
+        expect(out).toEqual({ removed: ['00000000-0000-4000-8000-000000000001'], saved: [{ event: 'run.failed', rule_id: 'id-c1' }, { event: 'run.failed', rule_id: 'id-c2' }], failed: [] });
+    });
+
+    it('a removal only (Reset) writes nothing; `enabled` with events switches them all', async () => {
+        const m = mocks();
+        (m.control as any).remove_rule = vi.fn().mockResolvedValue(true);
+        (m.control as any).set_rule = vi.fn().mockResolvedValue({ id: 'x' });
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
+        expect(await svc.set_rules({ org_id: 'o1', remove: ['00000000-0000-4000-8000-000000000002'] }, 'tok')).toEqual({ removed: ['00000000-0000-4000-8000-000000000002'], saved: [], failed: [] });
+        expect((m.control as any).remove_rule).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000002', false, 'tok');
+        expect((m.control as any).set_rule).not.toHaveBeenCalled();
+        await svc.set_rules({ org_id: 'o1', events: ['run.failed'], channel_id: 'c1', enabled: false }, 'tok');
+        expect((m.control as any).set_rule).toHaveBeenCalledWith({ org_id: 'o1', event: 'run.failed', channel_id: 'c1', enabled: false }, 'tok');
+    });
+});
+
+describe('NotificationCenterService.get — realm_events (each event as it stands in the realm)', () => {
+    it('with realm_id: Default from the org, Replaced by the realm (wildcard too), Realm only, Off, Paused; locked and channel state carried', async () => {
+        const m = mocks();
+        m.control.org_notification_rules.mockResolvedValue([
+            rule('o-run', 'run.failed'),
+            rule('o-hug', 'hug.review_requested', { locked: true, lock_reason: 'Reviewers must hear' }),
+            rule('o-done', 'run.completed', { enabled: false }),
+            rule('o-dmn', 'daemon.offline'),
+            rule('o-inv', 'invite.sent', { channel_id: 'c9' }),
+        ]);
+        m.control.realm_notification_rules.mockResolvedValue([
+            rule('r-run', 'run.*', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
+            rule('r-dmn', 'daemon.offline', { realm_id: 'r1', org_id: null, channel_id: 'c1', enabled: false }),
+            rule('r-lld', 'custom.lld_approved', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
+        ]);
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
+        const dto = await svc.get({ realm_id: 'r1' }, 'tok', VIEWER);
+        const by = Object.fromEntries(dto.realm_events!.map((e) => [e.event, e]));
+        expect(by['run.failed']).toMatchObject({ status: 'replaced', via: 'run.*' });
+        expect(by['run.completed']).toMatchObject({ status: 'replaced', via: 'run.*' });
+        expect(by['run.*']).toMatchObject({ status: 'realm_only', via: null });
+        expect(by['custom.lld_approved']).toMatchObject({ status: 'realm_only' });
+        expect(by['daemon.offline']).toMatchObject({ status: 'off' });
+        expect(by['hug.review_requested']).toMatchObject({ status: 'default', locked: true });
+        expect(by['hug.review_requested'].org[0]).toMatchObject({ rule_id: 'o-hug', tier: 'org', channel_name: '#eng', channel_enabled: true, locked: true });
+        // The org's personal-channel rule on a switched-off channel: still Default, the channel says it's off.
+        expect(by['invite.sent']).toMatchObject({ status: 'default' });
+        expect(by['invite.sent'].org[0]).toMatchObject({ channel_name: 'Mine', channel_enabled: false });
+        // Without realm_id there are no realm rows.
+        expect((await svc.get({}, 'tok', VIEWER)).realm_events).toBeNull();
+    });
+
+    it('the org paused every rule for an event → Paused', async () => {
+        const m = mocks();
+        m.control.org_notification_rules.mockResolvedValue([rule('o-done', 'run.completed', { enabled: false })]);
+        m.control.realm_notification_rules.mockResolvedValue([]);
+        const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
+        const dto = await svc.get({ realm_id: 'r1' }, 'tok', VIEWER);
+        expect(dto.realm_events).toEqual([expect.objectContaining({ event: 'run.completed', status: 'paused', realm: [] })]);
+        expect(dto.rules.find((r) => r.id === 'o-done')).toMatchObject({ enabled: false });
     });
 });
 
