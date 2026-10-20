@@ -122,8 +122,23 @@ export class TeamPageService {
     }
 
     /**
-     * The caller's teams: status counts, phase shape and "installed in" per row.
-     * Filters and pages in the BFF over the full "mine" list.
+     * Teams installed in the realms read that aren't the caller's own (another scope's, e.g. `@cliq/…`), so
+     * the list shows everything the view can run. Their details come from the catalog; a failed read keeps
+     * the row with what the install says (name and scope).
+     */
+    private async _installed_elsewhere(token: string, labels: string[], mine: TeamVO[]): Promise<TeamVO[]> {
+        const own = new Set(mine.map((t) => label_of(str(t.scope), String(t.name))));
+        const extra = labels.filter((l) => !own.has(l));
+        return map_limited(extra, 6, async (label) => {
+            const { scope, slug } = parse_label(label, label);
+            const t = await best_effort(log, 'team_list_installed_read_failed', this._teams.get_by_id({ name: slug, ...(scope ? { scope } : {}) }, token), null, { label });
+            return t ? { ...t } as TeamVO : { name: slug, scope, status: 'published', description: '' } as TeamVO;
+        });
+    }
+
+    /**
+     * The view's teams: the caller's own (+ drafts) and every team installed in the view's realms, with
+     * status counts, phase shape and "installed in" per row. Filters and pages in the BFF over the whole list.
      *
      * @param input - scope / status / q filters, org for "installed in", paging, sort (name | status)
      * @param token - The caller's Core token
@@ -132,7 +147,13 @@ export class TeamPageService {
         const limit = input.limit ?? TeamPageService.DEFAULT_LIMIT;
         const offset = input.offset ?? 0;
         const status = input.status ?? 'all';
-        const all = (await this._mine(token))
+        // Where teams are installed first: a team installed here is listed even when it isn't the caller's.
+        const realms_res = await best_effort(log, 'team_list_realms_failed', this._realms(token, input.org_id), null, { org_id: input.org_id });
+        const realms = realms_res?.items.slice(0, TeamPageService.REALM_CAP) ?? [];
+        const installs = await this._installs_by_label(token, realms, () => null);
+        const mine = await this._mine(token);
+        const elsewhere = await this._installed_elsewhere(token, [...installs.map.keys()], mine);
+        const all = [...mine, ...elsewhere]
             .filter((t) => !input.scope || t.scope === input.scope)
             .filter((t) => {
                 if (!input.q) return true;
@@ -152,11 +173,11 @@ export class TeamPageService {
         }
         const page = filtered.slice(offset, offset + limit);
 
-        const realms_res = await best_effort(log, 'team_list_realms_failed', this._realms(token, input.org_id), null, { org_id: input.org_id });
-        const realms = realms_res?.items.slice(0, TeamPageService.REALM_CAP) ?? [];
         const latest = new Map(page.map((t) => [label_of(str(t.scope), String(t.name)), str(t.latest_version) && t.latest_version !== '0.0.0' ? String(t.latest_version) : null]));
+        // "Behind" needs the latest version, known only now.
+        for (const [label, rows] of installs.map) for (const r of rows) r.behind = is_newer(latest.get(label) ?? null, r.version);
 
-        const [phases, installs] = await Promise.all([
+        const [phases] = await Promise.all([
             map_limited(page, 6, async (t) => {
                 if (!str(t.id)) return null;
                 return best_effort(log, 'team_list_phases_failed', this._teams.get_phases({ team_id: String(t.id) }, token).then((r) => {
@@ -164,7 +185,6 @@ export class TeamPageService {
                     return { types: ps.map((x) => x.type), kinds: ps.map((x) => kind_of_phase(x.type, x.agent)), names: ps.map((x) => x.name) };
                 }), null, { team_id: t.id });
             }),
-            this._installs_by_label(token, realms, (l) => latest.get(l) ?? null),
         ]);
 
         const items: TeamListRowData[] = page.map((t, i) => {

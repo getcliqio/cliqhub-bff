@@ -142,6 +142,34 @@ describe('TeamPageService.list', () => {
         expect((await svc(m).list({}, 'tok')).items.map((i) => i.name)).toEqual(['b', 'a', 'd', 'c']);
     });
 
+    it('a team installed in the view\'s realms is listed even when it isn\'t the caller\'s (e.g. @cliq/hello-world)', async () => {
+        const m = mocks();
+        const get = m.teams.get.getMockImplementation()!;
+        m.teams.get.mockImplementation(async (f: { mine?: boolean; realm_id?: string }) => (f.realm_id === 'r2'
+            ? { items: [{ slug: 'hello-world', label: '@cliq/hello-world', version: '1.0.0', in_team_list: true, installed_count: 1, online_daemon_count: 1 }], total: 1 }
+            : get(f)));
+        m.teams.get_by_id.mockImplementation(async (p: { name: string; scope?: string }) => (p.name === 'hello-world'
+            ? { id: 'hw', name: 'hello-world', scope: 'cliq', description: 'Say hello', status: 'published', latest_version: '1.1.0', author: 'cliq' }
+            : team()));
+        const data = await svc(m).list({ org_id: '22222222-2222-4222-8222-222222222222' }, 'tok');
+        const hw = data.items.find((i) => i.name === 'hello-world')!;
+        expect(m.teams.get_by_id).toHaveBeenCalledWith({ name: 'hello-world', scope: 'cliq' }, 'tok');
+        expect(hw).toMatchObject({ scope: 'cliq', description: 'Say hello', status: 'published', latest_version: '1.1.0' });
+        expect(hw.installs.map((i) => [i.realm_slug, i.version, i.behind])).toEqual([['stg', '1.0.0', true]]);
+        expect(data.counts.all).toBe(4);
+    });
+
+    it('a team installed elsewhere whose details can\'t be read still shows (name and scope from the install)', async () => {
+        const m = mocks();
+        const get = m.teams.get.getMockImplementation()!;
+        m.teams.get.mockImplementation(async (f: { mine?: boolean; realm_id?: string }) => (f.realm_id === 'r2'
+            ? { items: [{ slug: 'secret', label: '@other/secret', version: '2.0.0', in_team_list: true, installed_count: 1 }], total: 1 }
+            : get(f)));
+        m.teams.get_by_id.mockImplementation(async (p: { name: string }) => { if (p.name === 'secret') throw new Error('404'); return team(); });
+        const data = await svc(m).list({}, 'tok');
+        expect(data.items.find((i) => i.name === 'secret')).toMatchObject({ scope: 'other', status: 'published' });
+    });
+
     it('realm lookup failing marks partial but still lists', async () => {
         const m = mocks();
         m.control.realms_page.mockRejectedValue(new Error('down'));
