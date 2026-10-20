@@ -102,7 +102,7 @@ function host_of(url: unknown): string {
 export function destination_label(d: NotifDestinationVO): string {
     switch (d.type) {
         case 'slack': return `Slack webhook ${mask(String(d.webhook_url ?? ''))}`;
-        case 'email': return d.account === true ? 'Account email' : String(d.address ?? d.to ?? 'email');
+        case 'email': return d.members === true ? "Email · each member's own address" : d.account === true ? 'Account email' : String(d.address ?? d.to ?? 'email');
         case 'webhook': return `Webhook · ${host_of(d.url)}`;
         case 'http': return `${String(d.method ?? 'POST')} · ${host_of(d.url)}`;
         case 'jira': return `Jira · ${String(d.project_key ?? '')} (${host_of(d.url)})`;
