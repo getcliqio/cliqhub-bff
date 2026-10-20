@@ -167,7 +167,7 @@ export interface NotifEventRuleData {
  * (the org also covers the event) · `realm_only` this realm's, the org doesn't cover it ·
  * `off` this realm's rules for it are all switched off (nothing sends here).
  */
-export type NotifRealmEventStatus = 'default' | 'paused' | 'replaced' | 'realm_only' | 'off';
+export type NotifRealmEventStatus = 'default' | 'paused' | 'both' | 'realm_only' | 'off';
 
 /** One event (or selector) as it stands in a realm. */
 export interface NotifRealmEventData {

@@ -4,8 +4,8 @@
  * so what the console shows matches what actually fires:
  *
  *   - a rule's `event` is a selector: exact type, family wildcard (`run.*`) or `*`
- *   - tiers: realm → org; the first tier with ANY matching
- *     rule wins, and all its matching rules fire ("replace" semantics)
+ *   - the org's rules and a realm's own rules both apply: a realm's rule adds to the org's for that
+ *     realm, never replaces it (PLAN-notifications-v2 B1)
  */
 
 import type {
@@ -51,28 +51,14 @@ export function selectors_overlap(a: string, b: string): boolean {
     return false;
 }
 
-/** Resolve one event for a realm from the rules in play there (realm rules, else org rules). */
+/** Resolve one event for a realm: every matching rule, the org's and the realm's — both apply (none is replaced). */
 export function resolve_event<T extends TieredRule>(event: string, rules: T[]): { winners: T[]; replaced: T[] } {
-    const matching = rules.filter((r) => selector_matches(r.event, event));
-    if (matching.length === 0) return { winners: [], replaced: [] };
-    const top = Math.max(...matching.map((r) => TIER_RANK[r.tier]));
-    return {
-        winners: matching.filter((r) => TIER_RANK[r.tier] === top),
-        replaced: matching.filter((r) => TIER_RANK[r.tier] < top),
-    };
+    return { winners: rules.filter((r) => selector_matches(r.event, event)), replaced: [] };
 }
 
-/** For each rule, list broader-tier rules in the same context whose selectors overlap (sets `replaces` in place). */
+/** No rule replaces another (org and realm rules both apply): `replaces` is always empty. */
 export function mark_replaces(rules: NotifRuleData[]): void {
-    for (const r of rules) {
-        if (r.scope.kind === 'org') continue;
-        r.replaces = rules
-            .filter((b) => TIER_RANK[b.scope.kind] < TIER_RANK[r.scope.kind])
-            .filter((b) => b.scope.org_id === r.scope.org_id)
-            .filter((b) => b.scope.kind === 'org' || b.scope.realm_id === r.scope.realm_id)
-            .filter((b) => selectors_overlap(b.event, r.event))
-            .map((b) => b.id);
-    }
+    for (const r of rules) r.replaces = [];
 }
 
 /** Group by event, then broad → specific so overrides read top-down. */
@@ -124,11 +110,13 @@ export interface EventRuleInput {
 
 /**
  * Each event as it stands in one realm — the rows of the realm's Notifications page. One row per
- * selector any org or realm rule names (exact events and wildcards), matched the way Core delivers:
- *   - the realm has rules for it → `off` when all are switched off, else `replaced` (the org covers it
- *     too) or `realm_only`
- *   - a broader realm selector covers it (realm `run.*` over the org's `run.failed`) → `replaced`, `via` set
- *   - else the org's covering rules → `default`, or `paused` when the org switched them all off
+ * selector any org or realm rule names (exact events and wildcards), matched the way Core delivers —
+ * the org's rules and the realm's own both apply:
+ *   - org and realm rules → `both` while a realm rule is on; with the realm's off, `default` (the org's
+ *     still send) or `off` (the org's are paused too)
+ *   - only realm rules → `realm_only`, or `off` when they're all switched off
+ *   - only the org's → `default`, or `paused` when the org switched them all off
+ *   - a broader realm selector covers it (realm `run.*` with the org's `run.failed`) → `via` set
  * Sorted by event.
  */
 export function realm_events(
@@ -150,9 +138,12 @@ export function realm_events(
         const own = realm_rules.filter((r) => r.event === e);
         const broader = own.length ? [] : covering(realm_rules, e);
         const realm = own.length ? own : broader;
+        const org_on = org.some((r) => r.enabled !== false);
+        const realm_on = realm.some((r) => r.enabled !== false);
         let status: NotifRealmEventStatus;
-        if (realm.length) status = realm.every((r) => r.enabled === false) ? 'off' : org.length ? 'replaced' : 'realm_only';
-        else status = org.every((r) => r.enabled === false) ? 'paused' : 'default';
+        if (realm.length && org.length) status = realm_on ? 'both' : org_on ? 'default' : 'off';
+        else if (realm.length) status = realm_on ? 'realm_only' : 'off';
+        else status = org_on ? 'default' : 'paused';
         return {
             event: e,
             status,

@@ -33,13 +33,13 @@ describe('NotificationCenterService.get', () => {
     let svc: NotificationCenterService;
     beforeEach(() => { m = mocks(); svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any); });
 
-    it('composes rules across org + realm with scope, channel names and replaces', async () => {
+    it('composes rules across org + realm with scope and channel names; no rule replaces another', async () => {
         const dto = await svc.get({}, 'tok', VIEWER);
         expect(dto.rules.map((r) => [r.id, r.scope.kind, r.channel_name])).toEqual([
             // Sorted by selector ('run.*' < 'run.failed'), then broad → specific.
             ['realm-hug', 'realm', '#prod-oncall'], ['realm-run', 'realm', '#prod-oncall'], ['org-run', 'org', '#eng'],
         ]);
-        expect(dto.rules.find((r) => r.id === 'realm-run')!.replaces).toEqual(['org-run']);
+        expect(dto.rules.find((r) => r.id === 'realm-run')!.replaces).toEqual([]);
         expect(dto.rules.find((r) => r.id === 'realm-hug')!.scope).toEqual({ kind: 'realm', org_id: 'o1', org_slug: 'acme', realm_id: 'r1', realm_slug: 'prod' });
         expect(dto.channels.map((c) => [c.name, c.owner.kind, c.enabled])).toEqual([['#eng', 'org', true], ['#prod-oncall', 'realm', true], ['Mine', 'personal', false]]);
         expect(dto.channels[0].destinations[0].label).toBe('Slack webhook ••••1234');
@@ -66,11 +66,11 @@ describe('NotificationCenterService.check', () => {
     let svc: NotificationCenterService;
     beforeEach(() => { m = mocks(); svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any); });
 
-    it('resolves every event for the realm; realm wildcard replaces the org rule; gaps are empty', async () => {
+    it('resolves every event for the realm; the org\'s rule and the realm\'s wildcard both apply; gaps are empty', async () => {
         const dto = await svc.check({ realm_id: 'r1' }, 'tok');
         const row = (e: string) => dto.rows.find((r) => r.event === e)!;
-        expect(row('run.failed').winners.map((w) => w.rule_id)).toEqual(['realm-run']);
-        expect(row('run.failed').replaced.map((w) => w.rule_id)).toEqual(['org-run']);
+        expect(row('run.failed').winners.map((w) => w.rule_id)).toEqual(['org-run', 'realm-run']);
+        expect(row('run.failed').replaced).toEqual([]);
         expect(row('run.completed').winners.map((w) => w.selector)).toEqual(['run.*']);
         expect(row('hug.review_requested').winners.map((w) => [w.rule_id, w.tier])).toEqual([['realm-hug', 'realm']]);
         // No team level: nothing about teams in the answer.
@@ -230,7 +230,7 @@ describe('NotificationCenterService.set_rules — items, on/off and removals (Re
 });
 
 describe('NotificationCenterService.get — realm_events (each event as it stands in the realm)', () => {
-    it('with realm_id: Default from the org, Replaced by the realm (wildcard too), Realm only, Off, Paused; locked and channel state carried', async () => {
+    it('with realm_id: Default from the org, Both (the realm adds its own, wildcard too), Realm only, the realm\'s own off, Paused; locked and channel state carried', async () => {
         const m = mocks();
         m.control.org_notification_rules.mockResolvedValue([
             rule('o-run', 'run.failed'),
@@ -247,11 +247,12 @@ describe('NotificationCenterService.get — realm_events (each event as it stand
         const svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
         const dto = await svc.get({ realm_id: 'r1' }, 'tok', VIEWER);
         const by = Object.fromEntries(dto.realm_events!.map((e) => [e.event, e]));
-        expect(by['run.failed']).toMatchObject({ status: 'replaced', via: 'run.*' });
-        expect(by['run.completed']).toMatchObject({ status: 'replaced', via: 'run.*' });
+        expect(by['run.failed']).toMatchObject({ status: 'both', via: 'run.*' });
+        expect(by['run.completed']).toMatchObject({ status: 'both', via: 'run.*' });
         expect(by['run.*']).toMatchObject({ status: 'realm_only', via: null });
         expect(by['custom.lld_approved']).toMatchObject({ status: 'realm_only' });
-        expect(by['daemon.offline']).toMatchObject({ status: 'off' });
+        // The realm switched its own rule off; the org's still sends.
+        expect(by['daemon.offline']).toMatchObject({ status: 'default' });
         expect(by['hug.review_requested']).toMatchObject({ status: 'default', locked: true });
         expect(by['hug.review_requested'].org[0]).toMatchObject({ rule_id: 'o-hug', tier: 'org', channel_name: '#eng', channel_enabled: true, locked: true });
         // The org's personal-channel rule on a switched-off channel: still Default, the channel says it's off.
