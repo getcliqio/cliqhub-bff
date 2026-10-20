@@ -184,6 +184,27 @@ export interface NotifRealmEventData {
     realm: NotifEventRuleData[];
 }
 
+/** One event on the Events page (C2): every event, whether or not a rule sends it. */
+export interface NotifEventRowData {
+    event: string;
+    /** Some rule that reaches it is on (and its channel is on): it is sent somewhere. */
+    sent: boolean;
+    /** A locked rule reaches it — CliqHub fixes it (e.g. Unknown channel → All realm members). */
+    fixed: boolean;
+    /** A built-in rule (one every org / realm is seeded with) reaches it. */
+    built_in: boolean;
+    /** The org's rules that reach it (exact or a wildcard such as `run.*`). */
+    org: NotifEventRuleData[];
+    /** In a realm view, the realm's own rules that reach it; else empty. */
+    realm: NotifEventRuleData[];
+}
+
+/** The events of one family (`run`, `phase`, `hug`, …), in catalog order. */
+export interface NotifEventGroupData {
+    family: string;
+    events: NotifEventRowData[];
+}
+
 /** An org the center read, and whether the viewer may edit its org-wide rules and channels. */
 export interface NotifOrgData {
     id: string;
@@ -228,6 +249,8 @@ export interface NotificationCenterData {
     event_types: string[];
     /** With `realm_id`: each event as it stands in that realm (Default / Replaced / Off / …); else null. */
     realm_events: NotifRealmEventData[] | null;
+    /** With `org_id` or `realm_id`: every event, grouped, with the channels that get it (C2); else null. */
+    events: NotifEventGroupData[] | null;
     partial: boolean;
 }
 

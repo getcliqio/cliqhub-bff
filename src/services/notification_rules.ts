@@ -9,7 +9,7 @@
  */
 
 import type {
-    NotifEventRuleData, NotifRealmEventData, NotifRealmEventStatus, NotifRuleData, NotifScopeKind,
+    NotifEventGroupData, NotifEventRowData, NotifEventRuleData, NotifRealmEventData, NotifRealmEventStatus, NotifRuleData, NotifScopeKind,
 } from '../schemas/notification_center_types.js';
 import type { NotifDestinationVO } from '../types/core/notifications.js';
 
@@ -153,4 +153,51 @@ export function realm_events(
             realm: realm.map((r) => entry(r, 'realm')),
         };
     });
+}
+
+/** A rule as the Events read sees it. */
+export interface EventsRuleInput extends EventRuleInput {
+    system_key?: string | null;
+}
+
+/**
+ * Every event — whether or not a rule sends it — grouped by family (`run`, `phase`, …, in the order the
+ * catalog lists them), each with the org's rules and (in a realm view) the realm's own rules that reach it,
+ * matched the way Core delivers (exact, `family.*`, `*`): the rows of the Events page (C2).
+ *
+ * @param realm_rules - The realm's own rules in a realm view; null in an org view.
+ */
+export function event_groups(
+    event_types: string[],
+    org_rules: EventsRuleInput[],
+    realm_rules: EventsRuleInput[] | null,
+    channel: (id: string) => { name: string; enabled: boolean } | undefined,
+): NotifEventGroupData[] {
+    const entry = (r: EventsRuleInput, tier: NotifScopeKind): NotifEventRuleData => ({
+        rule_id: r.id, selector: r.event, tier, channel_id: r.channel_id,
+        channel_name: channel(r.channel_id)?.name ?? null,
+        channel_enabled: channel(r.channel_id)?.enabled ?? true,
+        enabled: r.enabled !== false, locked: r.locked === true, lock_reason: r.lock_reason ?? null,
+    });
+    const covering = (rules: EventsRuleInput[], e: string) => rules.filter((r) => matching_selectors(e).includes(r.event));
+    const groups = new Map<string, NotifEventRowData[]>();
+    for (const e of event_types) {
+        const dot = e.indexOf('.');
+        const family = dot > 0 ? e.slice(0, dot) : e;
+        const org = covering(org_rules, e);
+        const realm = realm_rules ? covering(realm_rules, e) : [];
+        const all = [...org, ...realm];
+        const row: NotifEventRowData = {
+            event: e,
+            sent: all.some((r) => r.enabled !== false && (channel(r.channel_id)?.enabled ?? true)),
+            fixed: all.some((r) => r.locked === true),
+            built_in: all.some((r) => Boolean(r.system_key)),
+            org: org.map((r) => entry(r, 'org')),
+            realm: realm.map((r) => entry(r, 'realm')),
+        };
+        const list = groups.get(family) ?? [];
+        list.push(row);
+        groups.set(family, list);
+    }
+    return [...groups.entries()].map(([family, events]) => ({ family, events }));
 }

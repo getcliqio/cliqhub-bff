@@ -27,7 +27,7 @@ import type {
     NotifRealmPageData, NotifViewer,
 } from '../schemas/notification_center_types.js';
 import { ApiError } from '../errors/api_error.js';
-import { mark_replaces, realm_events, resolve_event, sort_rules, type TieredRule } from './notification_rules.js';
+import { event_groups, mark_replaces, realm_events, resolve_event, sort_rules, type TieredRule } from './notification_rules.js';
 import {
     to_notif_channel_data, to_notif_check_entry_data, to_notif_rule_data,
 } from '../mappers/notification_center_mapper.js';
@@ -295,9 +295,20 @@ export class NotificationCenterService {
             events_here = realm_events(org_rules?.status === 'fulfilled' ? org_rules.value : [], own, ch);
         }
 
+        // One org or one realm: every event, grouped, with the channels that get it (C2).
+        let events: NotificationCenterData['events'] = null;
+        const scope_org_id = input.realm_id ? one?.realm.org_id : input.org_id;
+        if (scope_org_id && !types_failed) {
+            const ch = (id: string) => { const c = channel_map.get(id); return c ? { name: c.name, enabled: c.enabled } : undefined; };
+            const org_rules = per_org.find((p) => p.org.id === scope_org_id)?.rules;
+            const own = input.realm_id && one?.rules.status === 'fulfilled' ? one.rules.value.filter((r) => r.realm_id === one.realm.id) : null;
+            events = event_groups(event_types, org_rules?.status === 'fulfilled' ? org_rules.value : [], own, ch);
+        }
+
         return {
             orgs,
             realms,
+            events,
             channels: [...channel_map.values()].sort((a, b) => a.name.localeCompare(b.name)),
             rules: sort_rules(rules),
             event_types,

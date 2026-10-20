@@ -104,6 +104,45 @@ describe('NotificationCenterService.get — the org view lists every channel (C1
     });
 });
 
+describe('NotificationCenterService.get — the Events read (C2)', () => {
+    let m: ReturnType<typeof mocks>;
+    let svc: NotificationCenterService;
+    beforeEach(() => {
+        m = mocks();
+        m.control.event_types.mockResolvedValue(['run.failed', 'run.completed', 'hug.review_reminded', 'notification.unknown_channel']);
+        m.control.org_notification_rules.mockResolvedValue([rule('org-run', 'run.failed', { system_key: 'org.run.failed' })]);
+        m.control.realm_notification_rules.mockResolvedValue([
+            rule('realm-hug', 'hug.*', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
+            rule('realm-uc', 'notification.unknown_channel', { realm_id: 'r1', org_id: null, channel_id: 'c2', locked: true, lock_reason: 'Built in' }),
+        ]);
+        svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
+    });
+    const row = (dto: Awaited<ReturnType<NotificationCenterService['get']>>, e: string) =>
+        dto.events!.flatMap((g) => g.events).find((r) => r.event === e)!;
+
+    it('org view: every event, grouped by family in catalog order; one with no rule is not sent', async () => {
+        const dto = await svc.get({ org_id: 'o1' }, 'tok', VIEWER);
+        expect(dto.events!.map((g) => [g.family, g.events.map((r) => r.event)])).toEqual([
+            ['run', ['run.failed', 'run.completed']], ['hug', ['hug.review_reminded']], ['notification', ['notification.unknown_channel']],
+        ]);
+        expect(row(dto, 'run.failed')).toMatchObject({ sent: true, built_in: true, fixed: false, realm: [] });
+        expect(row(dto, 'run.failed').org.map((r) => r.channel_name)).toEqual(['#eng']);
+        expect(row(dto, 'run.completed')).toMatchObject({ sent: false, org: [], realm: [] });
+    });
+
+    it('realm view: the realm\'s own rules too (a wildcard reaches its family); the fixed rule is flagged', async () => {
+        const dto = await svc.get({ realm_id: 'r1' }, 'tok', VIEWER);
+        expect(row(dto, 'hug.review_reminded')).toMatchObject({ sent: true, fixed: false });
+        expect(row(dto, 'hug.review_reminded').realm.map((r) => [r.selector, r.channel_name])).toEqual([['hug.*', '#prod-oncall']]);
+        expect(row(dto, 'notification.unknown_channel')).toMatchObject({ sent: true, fixed: true });
+        expect(row(dto, 'run.failed').org.map((r) => r.rule_id)).toEqual(['org-run']);
+    });
+
+    it('no single org or realm in view → null', async () => {
+        expect((await svc.get({}, 'tok', VIEWER)).events).toBeNull();
+    });
+});
+
 describe('NotificationCenterService.check', () => {
     let m: ReturnType<typeof mocks>;
     let svc: NotificationCenterService;
