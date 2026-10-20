@@ -71,6 +71,10 @@ export class NotificationCenterService {
     static readonly REALM_CONCURRENCY = 6;
     /** Realms per page (their rules + channels are fetched); org-wide data always loads. */
     static readonly REALM_PAGE = 10;
+    /** Org view: at most this many of the org's realms have their channels listed (C1). */
+    static readonly ALL_REALMS_CAP = 500;
+    /** Core's largest realm page. */
+    static readonly CORE_REALM_PAGE = 100;
 
     constructor(
         private readonly _orgs_repo: OrgsRepository,
@@ -134,6 +138,48 @@ export class NotificationCenterService {
             log.warn('notif_realm_page_failed', { org_id: params.org_id, realm_id: params.realm_id, ...error_fields(err) });
             return { realm_ctx: [], realm_page: { offset, limit, total: 0, q, status: 'error', error: reason(err, 'Could not load realms') } };
         }
+    }
+
+    /**
+     * Every realm of the org the viewer can see (Core's realm search, page by page), at most
+     * {@link ALL_REALMS_CAP}; `complete` is false when there are more.
+     */
+    private async all_realms(org: OrgListItemVO, token: string): Promise<{ refs: NotifRealmRefData[]; complete: boolean }> {
+        const refs: NotifRealmRefData[] = [];
+        const step = NotificationCenterService.CORE_REALM_PAGE;
+        for (let offset = 0; offset < NotificationCenterService.ALL_REALMS_CAP; offset += step) {
+            const page = await this._control_repo.realms_page({ org_id: org.id, limit: step, offset }, token);
+            for (const r of page.items) {
+                if (r.org_slug && r.org_slug !== org.slug) continue;
+                refs.push({ id: r.id, slug: r.slug, name: r.name || r.slug, org_id: org.id, org_slug: org.slug });
+            }
+            if (offset + step >= page.total) return { refs, complete: true };
+        }
+        return { refs, complete: false };
+    }
+
+    /**
+     * Org view (C1): the channels of the org's other realms — every realm the viewer can see, not only the
+     * page shown — each with its owning realm, so the org lists every channel that exists. Core's channel
+     * list is per realm, so this reads each one. Failures and a cut-off list report back as `partial`.
+     */
+    private async other_realm_channels(
+        org: OrgListItemVO,
+        shown: NotifRealmRefData[],
+        token: string,
+    ): Promise<{ reads: { realm: NotifRealmRefData; channels: NotifChannelVO[] }[]; partial: boolean }> {
+        const all = await best_effort(log, 'notif_all_realms_failed', this.all_realms(org, token), null, { org_id: org.id });
+        if (all === null) return { reads: [], partial: true };
+        const seen = new Set(shown.map((r) => r.id));
+        const rest = all.refs.filter((r) => !seen.has(r.id));
+        const reads = await map_limited(rest, NotificationCenterService.REALM_CONCURRENCY, async (realm) => ({
+            realm,
+            channels: await best_effort(log, 'notif_realm_channels_failed', this._control_repo.realm_channels(realm.id, token), null, { realm_id: realm.id }),
+        }));
+        return {
+            reads: reads.map((x) => ({ realm: x.realm, channels: x.channels ?? [] })),
+            partial: !all.complete || reads.some((x) => x.channels === null),
+        };
     }
 
     /**
@@ -213,6 +259,14 @@ export class NotificationCenterService {
             const org = org_by_id.get(p.realm.org_id)!;
             for (const c of p.channels.value) add_channel(c, org, p.realm);
         }
+        // Org view: the org's other realms' channels too, each with its realm (C1).
+        let other_channels_partial = false;
+        const viewed_org = input.org_id && !input.realm_id ? org_by_id.get(input.org_id) : undefined;
+        if (viewed_org) {
+            const others = await this.other_realm_channels(viewed_org, realm_ctx, token);
+            other_channels_partial = others.partial;
+            for (const o of others.reads) for (const c of o.channels) add_channel(c, viewed_org, o.realm);
+        }
 
         // Rules with scope.
         const rules: NotifRuleData[] = [];
@@ -249,7 +303,7 @@ export class NotificationCenterService {
             event_types,
             realm_events: events_here,
             realm_page,
-            partial: types_failed || realm_page.status === 'error' || orgs.some((o) => o.status === 'error') || realms.some((r) => r.status === 'error'),
+            partial: types_failed || other_channels_partial || realm_page.status === 'error' || orgs.some((o) => o.status === 'error') || realms.some((r) => r.status === 'error'),
         };
     }
 

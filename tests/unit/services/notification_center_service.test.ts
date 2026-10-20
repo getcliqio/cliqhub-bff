@@ -61,6 +61,49 @@ describe('NotificationCenterService.get', () => {
     });
 });
 
+describe('NotificationCenterService.get — the org view lists every channel (C1)', () => {
+    let m: ReturnType<typeof mocks>;
+    let svc: NotificationCenterService;
+    const R2 = { id: 'r2', slug: 'staging', name: 'Staging', org_slug: 'acme' };
+    beforeEach(() => {
+        m = mocks();
+        // The page shows r1; the whole org (every realm the viewer can see) is r1 + r2.
+        m.control.realms_page.mockImplementation(async (p: { limit: number }) => (p.limit === 100
+            ? { items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }, R2], total: 2 }
+            : { items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }], total: 2 }));
+        m.control.realm_channels.mockImplementation(async (realm_id: string) => (realm_id === 'r2'
+            ? [{ id: 'c3', name: '#staging', realm_id: 'r2', org_id: null, user_id: null, destinations: [{ type: 'cliqhub' }], enabled: 1, rule_count: 0 }]
+            : [{ id: 'c2', name: '#prod-oncall', realm_id: 'r1', org_id: null, user_id: null, destinations: [{ type: 'cliqhub' }], enabled: 1, rule_count: 2 }]));
+        svc = new NotificationCenterService(m.orgs as any, m.dash as any, m.control as any);
+    });
+
+    it('channels of realms beyond the page are listed too, each with the realm it belongs to', async () => {
+        const dto = await svc.get({ org_id: 'o1' }, 'tok', VIEWER);
+        const staging = dto.channels.find((c) => c.name === '#staging')!;
+        expect(staging.owner).toMatchObject({ kind: 'realm' });
+        expect(JSON.stringify(staging)).toContain('staging');
+        expect(dto.channels.map((c) => c.name)).toEqual(['#eng', '#prod-oncall', '#staging', 'Mine']);
+        // Only the page's realms carry rules: r2's channels are listed, its rules are not read.
+        expect(m.control.realm_notification_rules).toHaveBeenCalledTimes(1);
+        expect(dto.partial).toBe(false);
+    });
+
+    it('a realm whose channels fail keeps the rest and flags partial', async () => {
+        m.control.realm_channels.mockImplementation(async (realm_id: string) => {
+            if (realm_id === 'r2') throw new ApiError('forbidden', 'Not a member', 403);
+            return [{ id: 'c2', name: '#prod-oncall', realm_id: 'r1', org_id: null, user_id: null, destinations: [{ type: 'cliqhub' }], enabled: 1, rule_count: 2 }];
+        });
+        const dto = await svc.get({ org_id: 'o1' }, 'tok', VIEWER);
+        expect(dto.channels.map((c) => c.name)).toContain('#prod-oncall');
+        expect(dto.partial).toBe(true);
+    });
+
+    it('a realm view does not read other realms', async () => {
+        await svc.get({ realm_id: 'r1' }, 'tok', VIEWER);
+        expect(m.control.realms_page).not.toHaveBeenCalled();
+    });
+});
+
 describe('NotificationCenterService.check', () => {
     let m: ReturnType<typeof mocks>;
     let svc: NotificationCenterService;
