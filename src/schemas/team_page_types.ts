@@ -30,9 +30,9 @@ export const TeamListGetInput = z.object({
     org_id: z.string().uuid().optional()
         .describe('Only this org\'s realms count for "installed in"'),
     scope: SlugField.optional()
-        .describe('Only teams owned by this scope (the org\'s slug)'),
+        .describe('The view\'s own teams are this scope\'s (the org\'s slug); teams installed in its realms are listed under all'),
     status: z.enum(['all', 'published', 'draft']).optional()
-        .describe('Lifecycle filter (default all)'),
+        .describe('all = own teams + teams installed in the realms; published / draft = own teams only (default all)'),
     q: QField,
     limit: LimitField,
     offset: OffsetField,

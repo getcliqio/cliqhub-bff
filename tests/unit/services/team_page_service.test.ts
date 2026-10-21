@@ -159,6 +159,23 @@ describe('TeamPageService.list', () => {
         expect(data.counts.all).toBe(4);
     });
 
+    it('org view: All has the org\'s teams and teams installed in its realms; Published and Drafts only its own', async () => {
+        const m = mocks();
+        const get = m.teams.get.getMockImplementation()!;
+        m.teams.get.mockImplementation(async (f: { mine?: boolean; realm_id?: string }) => (f.realm_id === 'r2'
+            ? { items: [{ slug: 'hello-world', label: '@cliq/hello-world', version: '1.0.0', in_team_list: true, installed_count: 1 }], total: 1 }
+            : get(f)));
+        m.teams.get_by_id.mockImplementation(async (p: { name: string }) => (p.name === 'hello-world'
+            ? { id: 'hw', name: 'hello-world', scope: 'cliq', description: 'Say hello', status: 'published', latest_version: '1.1.0' }
+            : team()));
+        const view = { scope: 'acme', org_id: '22222222-2222-4222-8222-222222222222' };
+        const all = await svc(m).list({ ...view, status: 'all' }, 'tok');
+        expect(all.items.map((i) => i.name)).toEqual(['feature-dev', 'kyc', 'hello-world']);
+        expect(all.counts).toEqual({ all: 3, published: 1, draft: 1 });
+        expect((await svc(m).list({ ...view, status: 'published' }, 'tok')).items.map((i) => i.name)).toEqual(['feature-dev']);
+        expect((await svc(m).list({ ...view, status: 'draft' }, 'tok')).items.map((i) => i.name)).toEqual(['kyc']);
+    });
+
     it('a team installed elsewhere whose details can\'t be read still shows (name and scope from the install)', async () => {
         const m = mocks();
         const get = m.teams.get.getMockImplementation()!;

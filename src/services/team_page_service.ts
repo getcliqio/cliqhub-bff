@@ -137,8 +137,8 @@ export class TeamPageService {
     }
 
     /**
-     * The view's teams: the caller's own (+ drafts) and every team installed in the view's realms, with
-     * status counts, phase shape and "installed in" per row. Filters and pages in the BFF over the whole list.
+     * The view's teams — All: its own teams (the org's scope, drafts too) and every team installed in its
+     * realms; Published / Drafts: its own teams only. Status counts, phase shape and "installed in" per row. Filters and pages in the BFF over the whole list.
      *
      * @param input - scope / status / q filters, org for "installed in", paging, sort (name | status)
      * @param token - The caller's Core token
@@ -151,18 +151,17 @@ export class TeamPageService {
         const realms_res = await best_effort(log, 'team_list_realms_failed', this._realms(token, input.org_id), null, { org_id: input.org_id });
         const realms = realms_res?.items.slice(0, TeamPageService.REALM_CAP) ?? [];
         const installs = await this._installs_by_label(token, realms, () => null);
-        const mine = await this._mine(token);
-        const elsewhere = await this._installed_elsewhere(token, [...installs.map.keys()], mine);
-        const all = [...mine, ...elsewhere]
-            .filter((t) => !input.scope || t.scope === input.scope)
-            .filter((t) => {
-                if (!input.q) return true;
-                const q = input.q.toLowerCase();
-                return String(t.name ?? '').toLowerCase().includes(q) || String(t.description ?? '').toLowerCase().includes(q);
-            });
+        // Own = the view's own teams (the org's scope; every scope of the caller's in the account view).
+        const own = (await this._mine(token)).filter((t) => !input.scope || t.scope === input.scope);
+        const elsewhere = await this._installed_elsewhere(token, [...installs.map.keys()], own);
+        const q = input.q?.toLowerCase();
+        const matches = (t: TeamVO) => !q || String(t.name ?? '').toLowerCase().includes(q) || String(t.description ?? '').toLowerCase().includes(q);
         const status_of = (t: TeamVO): 'draft' | 'published' => (t.status === 'draft' || t.visibility === 'draft' ? 'draft' : 'published');
-        const counts = { all: all.length, published: all.filter((t) => status_of(t) === 'published').length, draft: all.filter((t) => status_of(t) === 'draft').length };
-        const filtered = status === 'all' ? [...all] : all.filter((t) => status_of(t) === status);
+        // All: own teams and every team installed in the view's realms; Published and Drafts: own teams only.
+        const own_rows = own.filter(matches);
+        const all = [...own_rows, ...elsewhere.filter(matches)];
+        const counts = { all: all.length, published: own_rows.filter((t) => status_of(t) === 'published').length, draft: own_rows.filter((t) => status_of(t) === 'draft').length };
+        const filtered = status === 'all' ? [...all] : own_rows.filter((t) => status_of(t) === status);
         // The BFF holds the whole list, so sorting here is correct across pages.
         if (input.sort_by) {
             const dir = input.sort_dir === 'desc' ? -1 : 1;
