@@ -415,6 +415,13 @@ describe('NotificationCenterService.change_destinations', () => {
         expect(set).toHaveBeenCalledWith('c2', [{ type: 'webhook', url: 'https://pd/hook' }], 'tok');
     });
 
+    it('no org or realm: the caller\'s own personal channel (read with mine)', async () => {
+        (m.control as any).my_channels = vi.fn().mockResolvedValue([{ id: 'me', name: 'ana', realm_id: null, org_id: null, user_id: 'u1', destinations: [{ type: 'cliqhub' }, { type: 'email', account: true }], enabled: 1 }]);
+        await svc.change_destinations({ id: 'me', add_destination: { type: 'slack', webhook_url: 'https://hooks.slack.com/services/T/B/me' } }, 'tok');
+        expect((m.control as any).my_channels).toHaveBeenCalledWith('tok');
+        expect(set).toHaveBeenCalledWith('me', [{ type: 'cliqhub' }, { type: 'email', account: true }, { type: 'slack', webhook_url: 'https://hooks.slack.com/services/T/B/me' }], 'tok');
+    });
+
     it('refuses: the last destination (422), a changed list (409), a channel not in that org or realm (404)', async () => {
         await expect(svc.change_destinations({ id: 'c1', org_id: 'o1', remove_destination: { index: 0, type: 'slack' } }, 'tok')).rejects.toMatchObject({ status: 422 });
         await expect(svc.change_destinations({ id: 'c1', org_id: 'o1', remove_destination: { index: 0, type: 'email' } }, 'tok')).rejects.toMatchObject({ status: 409 });

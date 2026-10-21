@@ -82,7 +82,7 @@ export const NotifChannelDestinationsInput = z.object({
     org_id: z.string().uuid().optional()
         .describe('The org the channel belongs to (an org channel)'),
     realm_id: RealmIdField.optional()
-        .describe('The realm the channel belongs to (a realm channel)'),
+        .describe('The realm the channel belongs to (a realm channel); neither org_id nor realm_id = your own personal channel'),
     add_destination: z.object({
         type: z.enum(['cliqhub', 'email', 'slack', 'webhook']),
     }).passthrough().optional()
@@ -93,7 +93,7 @@ export const NotifChannelDestinationsInput = z.object({
     }).strict().optional()
         .describe('Destination to remove: its place in the list as shown, and its type (a guard against a changed list)'),
 }).strict().superRefine((b, ctx) => {
-    if (Boolean(b.org_id) === Boolean(b.realm_id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['org_id'], message: 'Give org_id or realm_id' });
+    if (b.org_id && b.realm_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['org_id'], message: 'Give org_id or realm_id, not both' });
     if (Boolean(b.add_destination) === Boolean(b.remove_destination)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['add_destination'], message: 'Give add_destination or remove_destination' });
 });
 export type NotifChannelDestinationsInput = z.infer<typeof NotifChannelDestinationsInput>;

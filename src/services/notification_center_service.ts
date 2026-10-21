@@ -420,8 +420,9 @@ export class NotificationCenterService {
         };
     }
     /**
-     * Adds or removes one destination of a channel. The page only has destinations masked, so the full
-     * list is read from Core here, changed, and sent back whole (Core replaces the list).
+     * Adds or removes one destination of a channel — an org's, a realm's, or (neither given) the caller's own
+     * personal channel. The page only has destinations masked, so the full list is read from Core here,
+     * changed, and sent back whole (Core replaces the list).
      *
      * @throws ApiError 404 when the channel isn't the given org's or realm's; 409 when the destination to
      *   remove is no longer at that place (reload); 422 when it is the channel's last destination.
@@ -429,7 +430,9 @@ export class NotificationCenterService {
     async change_destinations(input: NotifChannelDestinationsInput, token: string): Promise<NotifChannelDestinationsData> {
         const channels = input.realm_id
             ? await this._control_repo.realm_channels(input.realm_id, token)
-            : await this._control_repo.org_channels(input.org_id!, token);
+            : input.org_id
+                ? await this._control_repo.org_channels(input.org_id, token)
+                : await this._control_repo.my_channels(token);
         const channel = channels.find((c) => c.id === input.id);
         if (!channel) throw ApiError.not_found('Channel not found');
         const list: NotifDestinationVO[] = [...(channel.destinations ?? [])];

@@ -150,6 +150,12 @@ export class ControlRepository {
         return Array.isArray(res.data) ? res.data : [];
     }
 
+    /** `POST /v1/notification_channels/get { mine: true }` — the caller's own personal channel. */
+    async my_channels(token: string): Promise<NotifChannelVO[]> {
+        const res = await this._core.post_body<{ data: NotifChannelVO[] }>('/v1/notification_channels/get', { mine: true }, token);
+        return Array.isArray(res.data) ? res.data : [];
+    }
+
     /** `POST /v1/notification_channels/get { realm_id }` — a realm's channels. */
     async realm_channels(realm_id: string, token: string): Promise<NotifChannelVO[]> {
         const res = await this._core.post_body<{ data: NotifChannelVO[] }>('/v1/notification_channels/get', { realm_id }, token);
