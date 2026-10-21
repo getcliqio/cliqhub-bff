@@ -53,6 +53,10 @@ export interface HostTeamData {
     scope: string;
     slug: string;
     version: string | null;
+    /** Daemon page: the version the realm runs (null when the team isn't on the realm's list). */
+    realm_version?: string | null;
+    /** Daemon page: the catalog team id — what teams/install takes to put the realm's version on this daemon. */
+    realm_team_id?: string | null;
 }
 
 /** A realm team the daemon doesn't have yet (always has a team id to install). */

@@ -11,7 +11,8 @@ describe('RealmHostPageService.daemon', () => {
             if (p === '/v1/daemons/get_by_id') return { ok: true, daemon: { id: 'd1', name: 'mac-1', status: 'online' } };
             if (p === '/v1/teams/get' && b.daemon_id) return { ok: true, data: { items: [{ id: 't1', scope: 'm1', name: 'feature-dev', slug: 'feature-dev', version: '1.2.0' }], total: 1, offset: 0, limit: 50 } };
             if (p === '/v1/teams/get' && b.realm_id) return { ok: true, data: { items: [
-                { name: 'feature-dev', slug: 'feature-dev', label: '@m1/feature-dev', scope: null, version: '1.2.0', sample_team_id: 't1', installed_daemon_ids: ['d1'] },
+                // The realm runs 1.3.0; this daemon has 1.2.0.
+                { id: 'cat-fd', name: 'feature-dev', slug: 'feature-dev', label: '@m1/feature-dev', scope: null, version: '1.3.0', in_team_list: true, sample_team_id: 't1', installed_daemon_ids: ['d1'] },
                 { name: 'docs', slug: 'docs', label: '@m1/docs', scope: null, version: '0.3.0', sample_team_id: 't2', installed_daemon_ids: ['d2'] },
                 { name: 'lint', slug: 'lint', label: '@m1/lint', scope: null, version: null, sample_team_id: null, installed_daemon_ids: [] },
             ], total: 3, offset: 0, limit: 100 } };
@@ -22,7 +23,7 @@ describe('RealmHostPageService.daemon', () => {
         const dto = await new RealmHostPageService(new CoreReadRepository(core), control).daemon({ org_slug: 'm1', slug: 'prod-us', daemon_id: 'd1' }, 'tok');
         expect(control.realm_by_slug).toHaveBeenCalledWith('m1', 'prod-us', 'tok');
         expect(dto.daemon).toMatchObject({ id: 'd1', name: 'mac-1' });
-        expect(dto.installed).toEqual([{ team_id: 't1', scope: 'm1', slug: 'feature-dev', version: '1.2.0' }]);
+        expect(dto.installed).toEqual([{ team_id: 't1', scope: 'm1', slug: 'feature-dev', version: '1.2.0', realm_version: '1.3.0', realm_team_id: 'cat-fd' }]);
         expect(dto.installable).toEqual([{ team_id: 't2', scope: 'm1', slug: 'docs', version: '0.3.0' }]);
         expect(dto.workspaces).toEqual([{ id: 'w1', name: 'api', path: '/src/api', teams: ['@m1/feature-dev'], active_runs: 1, last_run_state: 'running', last_run_at: 5 }]);
         expect(dto.runs?.[0]).toMatchObject({ run_id: 'run-1', state: 'running', team: '@m1/feature-dev', started_at: 5 });

@@ -76,7 +76,17 @@ export class RealmHostPageService {
             soft('daemon_page_workspaces_failed', this._reads.read('workspaces.get', { daemon_id: input.daemon_id }, token)),
             soft('daemon_page_runs_failed', this._reads.read('runs.get', { daemon_id: input.daemon_id, sort_by: 'last_updated_at', sort_dir: 'desc', limit: RealmHostPageService.RUNS }, token)),
         ]);
-        const inst = installed ? team_items(installed).map(to_host_team_data) : null;
+        // The realm's version of each listed team, to mark a daemon that runs another one.
+        const realm_list = new Map((roster ? team_items(roster) : [])
+            .filter((t) => t.in_team_list === true && typeof t.version === 'string')
+            .map((t) => {
+                const scope = typeof t.scope === 'string' && t.scope ? t.scope : (/^@([^/]+)\//.exec(String(t.label ?? ''))?.[1] ?? '');
+                return [`${scope}/${String(t.slug ?? t.name ?? '')}`, { version: String(t.version), id: typeof t.id === 'string' ? t.id : null }];
+            }));
+        const inst = installed ? team_items(installed).map(to_host_team_data).map((t) => {
+            const r = realm_list.get(`${t.scope}/${t.slug}`);
+            return { ...t, realm_version: r?.version ?? null, realm_team_id: r?.id ?? null };
+        }) : null;
         const have = new Set((inst ?? []).map((t) => `${t.scope}/${t.slug}`));
         const have_slug = new Set((inst ?? []).map((t) => t.slug));
         const installable = roster

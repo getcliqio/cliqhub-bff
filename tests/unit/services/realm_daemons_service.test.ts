@@ -11,9 +11,10 @@ function mocks() {
             runs: vi.fn().mockResolvedValue({ items: [{ run_id: 'a', daemon_id: 'mbp', state: 'running' }, { run_id: 'b', daemon_id: 'mbp', state: 'awaiting_input' }, { run_id: 'c', daemon_id: 'ci-1', state: 'running' }], total: 3 }),
         },
         teams: { get: vi.fn().mockResolvedValue({ items: [
-            { in_team_list: true, installed_daemon_ids: ['mbp', 'ci-1'] },
-            { in_team_list: true, installed_daemon_ids: ['mbp'] },
-            { in_team_list: false, installed_daemon_ids: ['gpu'] },
+            // ci-1 has the first team, but not at the realm's version: not ready.
+            { in_team_list: true, installed_daemon_ids: ['mbp', 'ci-1'], current_daemon_ids: ['mbp'] },
+            { in_team_list: true, installed_daemon_ids: ['mbp', 'ci-1'], current_daemon_ids: ['mbp', 'ci-1'] },
+            { in_team_list: false, installed_daemon_ids: ['gpu'], current_daemon_ids: [] },
         ], total: 3, offset: 0, limit: 100 }) },
     };
 }

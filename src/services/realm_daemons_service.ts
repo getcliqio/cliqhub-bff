@@ -1,10 +1,10 @@
 /**
  * Realm › Daemons — a realm's daemons with status counts, what each is
- * running and how many of the realm's listed teams it has ready.
+ * running and how many of the realm's listed teams it has ready (at the realm's version).
  *
  * Composes Core: `/v1/realms/get_by_id { slug, org_slug }` (membership gate)
  * → `/v1/daemons/get { realm_id }` + `/v1/runs/get { running | awaiting_input }`
- * + `/v1/teams/get { realm_id }` (`{ items, … }`; each item's `installed_daemon_ids`).
+ * + `/v1/teams/get { realm_id }` (`{ items, … }`; each item's `current_daemon_ids` — on the realm's version).
  */
 
 import type { ControlRepository } from '../repositories/control_repository.js';
@@ -53,7 +53,8 @@ export class RealmDaemonsService {
 
         const cov = coverage.status === 'fulfilled' ? (Array.isArray(coverage.value?.items) ? coverage.value.items : []) : null;
         const listed = cov ? cov.filter((t) => t.in_team_list) : [];
-        const ready = (id: string) => listed.filter((t) => (t.installed_daemon_ids ?? []).includes(id)).length;
+        // Ready = the daemon has the realm's version of the team (not just any version).
+        const ready = (id: string) => listed.filter((t) => (t.current_daemon_ids ?? []).includes(id)).length;
 
         const counts = { all: all.length, online: 0, stale: 0, offline: 0 };
         for (const d of all) if (d.status === 'online' || d.status === 'stale' || d.status === 'offline') counts[d.status]++;

@@ -35,6 +35,8 @@ export interface TeamVO {
     coverage_label?: string;
     /** Realm mode: online daemons not on the realm's version; null when the team isn't on the realm's list. */
     online_stale?: number | null;
+    /** Realm mode: daemons that have the realm's version installed. */
+    current_daemon_ids?: string[];
     missing_agents?: string[];
     origin?: 'hub' | 'cli';
     in_team_list?: boolean;
