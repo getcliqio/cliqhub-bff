@@ -8,6 +8,7 @@
  * POST /v1/notification_center/get
  * POST /v1/notification_center/check
  * POST /v1/notification_center/set_rules
+ * POST /v1/notification_channels/update   (one destination added / removed; any other body → Core)
  * POST /v1/org_page/get
  * POST /v1/realm_inbox/get
  * POST /v1/run_detail/get
@@ -39,6 +40,7 @@ export function register_pages_routes(r: RouteRegistrar, c: Container): void {
     r.post('/v1/notification_center/get', notif.wrap(notif.get));
     r.post('/v1/notification_center/check', notif.wrap(notif.check));
     r.post('/v1/notification_center/set_rules', notif.wrap(notif.set_rules));
+    r.post('/v1/notification_channels/update', notif.wrap(notif.update_channel));
 
     r.post('/v1/org_page/get', c.org_page_controller.wrap(c.org_page_controller.get));
     r.post('/v1/realm_inbox/get', c.realm_inbox_controller.wrap(c.realm_inbox_controller.get));

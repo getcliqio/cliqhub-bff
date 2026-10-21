@@ -168,6 +168,34 @@ describe('notification center routes', () => {
         });
     });
 
+    it('channel update with add_destination: the BFF reads the full list from Core and sends it back whole', async () => {
+        const sid = sess();
+        const calls = stub_core({
+            '/v1/notification_channels/get': ok([{ id: 'c1', name: '#eng', realm_id: null, org_id: ORG, user_id: null, destinations: [{ type: 'slack', webhook_url: 'https://hooks.slack.com/services/T0/B0/secret1' }], enabled: 1 }]),
+            '/v1/notification_channels/update': (call) => ok({ id: 'c1', destinations: call.body.destinations }),
+        });
+
+        const res = await request(app).post('/v1/notification_channels/update').set(CSRF).set('Cookie', `test_sid=${sid}`)
+            .send({ id: 'c1', org_id: ORG, add_destination: { type: 'email', address: 'ops@acme.com' } });
+
+        expect(res.status).toBe(200);
+        expect(calls.find((c) => c.path === '/v1/notification_channels/update')!.body).toEqual({
+            id: 'c1', destinations: [{ type: 'slack', webhook_url: 'https://hooks.slack.com/services/T0/B0/secret1' }, { type: 'email', address: 'ops@acme.com' }],
+        });
+        expect(res.body.data.destinations.map((d: { type: string }) => d.type)).toEqual(['slack', 'email']);
+        expect(JSON.stringify(res.body)).not.toContain('secret1');
+    });
+
+    it('channel update without a destination change is forwarded to Core unchanged', async () => {
+        const sid = sess();
+        const calls = stub_core({ '/v1/notification_channels/update': ok({ id: 'c1', enabled: 0 }) });
+
+        const res = await request(app).post('/v1/notification_channels/update').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ id: 'c1', enabled: false });
+
+        expect(res.status).toBe(200);
+        expect(calls.map((c) => [c.path, c.body])).toEqual([['/v1/notification_channels/update', { id: 'c1', enabled: false }]]);
+    });
+
     it('set_rules: Core 409 locked passes through unchanged when every write is locked', async () => {
         const sid = sess();
         stub_core({ '/v1/orgs/set_notification_rules': fail(409, 'locked', 'This rule is locked', { system_key: 'invite.sent.invitee' }) });

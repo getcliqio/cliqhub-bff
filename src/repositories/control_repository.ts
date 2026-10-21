@@ -16,7 +16,7 @@ import type { SortDir } from '../lib/core_list.js';
 import type {
     ControlDaemonVO, ControlPageVO, ControlRealmListItemVO, ControlRealmMemberVO, ControlRealmVO,
     ControlReviewVO, ControlRunPhaseVO, ControlRunVO, ControlArtifactVO, ControlOrgTeamVO } from '../types/core/control.js';
-import type { InAppNotificationPageVO, InAppNotificationVO, NotifChannelVO, NotifRuleVO } from '../types/core/notifications.js';
+import type { InAppNotificationPageVO, InAppNotificationVO, NotifChannelVO, NotifDestinationVO, NotifRuleVO } from '../types/core/notifications.js';
 
 /** Core run states (`runs/get` `state` filter). */
 export type ControlRunState = 'running' | 'awaiting_input' | 'completed' | 'failed' | 'cancelled' | 'crashed';
@@ -154,6 +154,12 @@ export class ControlRepository {
     async realm_channels(realm_id: string, token: string): Promise<NotifChannelVO[]> {
         const res = await this._core.post_body<{ data: NotifChannelVO[] }>('/v1/notification_channels/get', { realm_id }, token);
         return Array.isArray(res.data) ? res.data : [];
+    }
+
+    /** `POST /v1/notification_channels/update { id, destinations }` — replaces a channel's destinations. */
+    async set_channel_destinations(id: string, destinations: NotifDestinationVO[], token: string): Promise<NotifChannelVO | null> {
+        const res = await this._core.post_body<{ data?: NotifChannelVO }>('/v1/notification_channels/update', { id, destinations }, token);
+        return res.data ?? null;
     }
 
     /** `POST /v1/notifications/get { org_id, … }` — one org's slice of the caller's in-app inbox. */

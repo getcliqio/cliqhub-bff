@@ -111,7 +111,6 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     // ── Notifications: channels, rules, in-app ────────────────────────────
     '/v1/notification_channels/get': 'token',
     '/v1/notification_channels/create': 'token',
-    '/v1/notification_channels/update': 'token',
     '/v1/notification_channels/remove': 'token',
     '/v1/notification_channels/test': 'token',
     '/v1/orgs/get_notification_rules': 'token',

@@ -11,6 +11,8 @@
  *              /v1/teams/get { realm_id } (roster), /v1/events/types/list
  *   set_rules: /v1/{orgs,realms}/remove_notification_rules per removed rule, then
  *              /v1/{orgs,realms}/set_notification_rules once per rule
+ *   change_destinations: /v1/notification_channels/get { org_id | realm_id } (full destinations), then
+ *              /v1/notification_channels/update { id, destinations } with one added or removed
  */
 
 import { get_logger } from '../lib/log.js';
@@ -18,16 +20,16 @@ import { best_effort, error_fields, warn_rejected } from '../lib/best_effort.js'
 import type { OrgsRepository } from '../repositories/orgs_repository.js';
 import type { DashboardRepository } from '../repositories/dashboard_repository.js';
 import type { ControlRepository } from '../repositories/control_repository.js';
-import type { NotifChannelVO, NotifRuleVO } from '../types/core/notifications.js';
+import type { NotifChannelVO, NotifDestinationVO, NotifRuleVO } from '../types/core/notifications.js';
 import type { OrgListItemVO } from '../types/core/orgs.js';
 import type {
     NotificationCenterGetInput, NotificationCenterCheckInput, NotificationCenterSetRulesInput,
     NotifChannelData, NotifOrgData, NotifRealmData, NotifRealmRefData, NotifRuleData, NotifScopeKind,
     NotificationCenterData, NotificationCheckData, NotifCheckRowData, NotifSetRulesData,
-    NotifRealmPageData, NotifViewer,
+    NotifRealmPageData, NotifViewer, NotifChannelDestinationsInput, NotifChannelDestinationsData,
 } from '../schemas/notification_center_types.js';
 import { ApiError } from '../errors/api_error.js';
-import { event_groups, mark_replaces, realm_events, resolve_event, sort_rules, type TieredRule } from './notification_rules.js';
+import { destination_label, event_groups, mark_replaces, realm_events, resolve_event, sort_rules, type TieredRule } from './notification_rules.js';
 import {
     to_notif_channel_data, to_notif_check_entry_data, to_notif_rule_data,
 } from '../mappers/notification_center_mapper.js';
@@ -416,5 +418,34 @@ export class NotificationCenterService {
                 details: r.error instanceof ApiError ? r.error.details ?? null : null,
             })),
         };
+    }
+    /**
+     * Adds or removes one destination of a channel. The page only has destinations masked, so the full
+     * list is read from Core here, changed, and sent back whole (Core replaces the list).
+     *
+     * @throws ApiError 404 when the channel isn't the given org's or realm's; 409 when the destination to
+     *   remove is no longer at that place (reload); 422 when it is the channel's last destination.
+     */
+    async change_destinations(input: NotifChannelDestinationsInput, token: string): Promise<NotifChannelDestinationsData> {
+        const channels = input.realm_id
+            ? await this._control_repo.realm_channels(input.realm_id, token)
+            : await this._control_repo.org_channels(input.org_id!, token);
+        const channel = channels.find((c) => c.id === input.id);
+        if (!channel) throw ApiError.not_found('Channel not found');
+        const list: NotifDestinationVO[] = [...(channel.destinations ?? [])];
+        if (input.add_destination) {
+            list.push(input.add_destination as NotifDestinationVO);
+        } else {
+            const { index, type } = input.remove_destination!;
+            if (list[index]?.type !== type) throw new ApiError('conflict', 'This channel changed. Reload and try again.', 409);
+            if (list.length === 1) throw ApiError.invalid_params('A channel needs at least one destination. Add another first, or delete the channel.');
+            list.splice(index, 1);
+        }
+        const saved = await this._control_repo.set_channel_destinations(channel.id, list, token);
+        log.info('notification_channel_destinations_changed', {
+            id: channel.id, change: input.add_destination ? 'add' : 'remove',
+            type: input.add_destination?.type ?? input.remove_destination!.type, count: list.length,
+        });
+        return { id: channel.id, destinations: (saved?.destinations ?? list).map((d) => ({ type: d.type, label: destination_label(d) })) };
     }
 }

@@ -71,6 +71,33 @@ export const NotificationCenterSetRulesInput = z.object({
 });
 export type NotificationCenterSetRulesInput = z.infer<typeof NotificationCenterSetRulesInput>;
 
+/**
+ * `POST /v1/notification_channels/update` with `add_destination` or `remove_destination` — one change to a
+ * channel's destinations. The BFF reads the channel's full destinations from Core (the page only has them
+ * masked), applies the change and sends Core the whole list. Other bodies go to Core unchanged.
+ */
+export const NotifChannelDestinationsInput = z.object({
+    id: z.string().trim().min(1).max(200)
+        .describe('Channel id'),
+    org_id: z.string().uuid().optional()
+        .describe('The org the channel belongs to (an org channel)'),
+    realm_id: RealmIdField.optional()
+        .describe('The realm the channel belongs to (a realm channel)'),
+    add_destination: z.object({
+        type: z.enum(['cliqhub', 'email', 'slack', 'webhook']),
+    }).passthrough().optional()
+        .describe('Destination to add, in Core\'s shape (Core checks its fields)'),
+    remove_destination: z.object({
+        index: z.number().int().min(0).max(100),
+        type: z.string().trim().min(1).max(40),
+    }).strict().optional()
+        .describe('Destination to remove: its place in the list as shown, and its type (a guard against a changed list)'),
+}).strict().superRefine((b, ctx) => {
+    if (Boolean(b.org_id) === Boolean(b.realm_id)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['org_id'], message: 'Give org_id or realm_id' });
+    if (Boolean(b.add_destination) === Boolean(b.remove_destination)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['add_destination'], message: 'Give add_destination or remove_destination' });
+});
+export type NotifChannelDestinationsInput = z.infer<typeof NotifChannelDestinationsInput>;
+
 // ─── Viewer ─────────────────────────────────────────────────────────────────
 
 /** Who is looking — the effective user (take-over aware); decides what is editable. */
@@ -298,6 +325,12 @@ export interface NotifSetRuleFailureData {
 }
 
 /** POST /v1/notification_center/set_rules */
+/** A channel's destinations after one was added or removed (masked, as listed). */
+export interface NotifChannelDestinationsData {
+    id: string;
+    destinations: NotifDestinationData[];
+}
+
 export interface NotifSetRulesData {
     saved: Array<{ event: string; rule_id: string }>;
     failed: NotifSetRuleFailureData[];

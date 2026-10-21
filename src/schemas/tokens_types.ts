@@ -37,7 +37,7 @@ const GrantAccess = z.object({
 
 const TokenPermissions = z.object({
     domains: z.object({
-        orgs: z.union([z.literal('*'), z.array(z.union([z.number().int(), z.literal('*')]))]).optional(),
+        orgs: z.union([z.literal('*'), z.array(z.union([z.string().min(1), z.literal('*')]))]).optional(),
         scopes: z.union([z.literal('*'), z.array(z.union([z.string(), z.literal('*')]))]).optional(),
         realms: z.union([z.literal('*'), z.array(z.union([z.string(), z.literal('*')]))]).optional(),
     }).optional().describe('Which orgs / scopes / realms the token reaches ("*" = all)'),

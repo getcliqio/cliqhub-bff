@@ -6,18 +6,23 @@
  *   POST /v1/notification_center/get        — rules + channels by org and realm
  *   POST /v1/notification_center/check      — who is told for each event in a realm (or team)
  *   POST /v1/notification_center/set_rules  — one rule per event at one level, one channel
+ *   POST /v1/notification_channels/update   — with `add_destination` / `remove_destination`: one change to
+ *                                            a channel's destinations (signed-in user). Any other body:
+ *                                            forwarded to Core unchanged (token route, like the passthrough).
  *
- * Every route needs a session; Core re-checks every read and write.
- * Single-rule writes and channel CRUD stay on Core passthrough routes.
+ * Every page route needs a session; Core re-checks every read and write.
+ * Single-rule writes and the rest of channel CRUD stay on Core passthrough routes.
  * Response envelope: `{ ok: true, data: T }` via `this.ok()`.
  * Inbound SoT: Zod `NotificationCenter*Input` in `schemas/notification_center_types.ts`.
  */
 
+import type { Request, Response } from 'express';
 import { BaseController } from './base_controller.js';
+import type { ProxyService } from '../services/proxy_service.js';
 import type { NotificationCenterService } from '../services/notification_center_service.js';
 import type { ApiOkResponse, ApiRequest } from '../types/api_response.js';
 import {
-    NotificationCenterGetInput, NotificationCenterCheckInput, NotificationCenterSetRulesInput,
+    NotificationCenterGetInput, NotificationCenterCheckInput, NotificationCenterSetRulesInput, NotifChannelDestinationsInput,
 } from '../schemas/notification_center_types.js';
 import type {
     NotificationCenterData, NotificationCheckData, NotifSetRulesData,
@@ -26,7 +31,10 @@ import { to_notif_viewer } from '../mappers/notification_center_mapper.js';
 
 /** Notification center page and bulk rule writes. */
 export class NotificationCenterController extends BaseController {
-    constructor(private readonly _notification_center_service: NotificationCenterService) {
+    constructor(
+        private readonly _notification_center_service: NotificationCenterService,
+        private readonly _proxy_service: ProxyService,
+    ) {
         super();
     }
 
@@ -72,5 +80,23 @@ export class NotificationCenterController extends BaseController {
     ): Promise<void> {
         const body = this.parse_body(NotificationCenterSetRulesInput, req);
         this.ok(res, await this._notification_center_service.set_rules(body, this.session(req).target_token));
+    }
+
+    /**
+     * Adds or removes one destination of a channel (signed-in user), or forwards any other update to Core.
+     *
+     * @param req - Body: {@link NotifChannelDestinationsInput} when it has `add_destination` / `remove_destination`
+     * @param res - `{ ok: true, data: NotifChannelDestinationsData }`, or Core's answer for a forwarded body
+     */
+    async update_channel(req: Request, res: Response): Promise<void> {
+        const body = req.body as Record<string, unknown> | undefined;
+        if (!body || !('add_destination' in body || 'remove_destination' in body)) {
+            const org_header = req.headers['x-org-id'];
+            const org_id = Array.isArray(org_header) ? org_header[0] : org_header;
+            res.json(await this._proxy_service.forward(req.path, req.body, this.bearer(req), org_id));
+            return;
+        }
+        const input = this.parse_body(NotifChannelDestinationsInput, req);
+        this.ok(res, await this._notification_center_service.change_destinations(input, this.session(req).target_token));
     }
 }

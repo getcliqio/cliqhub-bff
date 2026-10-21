@@ -118,6 +118,8 @@ const OWN_ROUTES: Record<string, RouteAuth> = {
     'POST /v1/notification_center/get': 'session',
     'POST /v1/notification_center/check': 'session',
     'POST /v1/notification_center/set_rules': 'session',
+    // Any body → Core (CLI tokens too); `add_destination` / `remove_destination` → a signed-in user (controller).
+    'POST /v1/notification_channels/update': 'token',
     'POST /v1/org_page/get': 'session',
     'POST /v1/realm_inbox/get': 'session',
     'POST /v1/realm_runs/get': 'session',

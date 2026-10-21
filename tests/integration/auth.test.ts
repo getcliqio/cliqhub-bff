@@ -283,6 +283,22 @@ describe('Auth / session integration', () => {
             expect(res.body.data.token).toBe('cliq_tok_new123');
         });
 
+        it('a token limited to some orgs: org ids are UUIDs and reach Core as sent', async () => {
+            seed_session(session_store, 'token-orgs-sid');
+            const post = vi.spyOn(CoreClient.prototype, 'post')
+                .mockResolvedValueOnce({ token: 'cliq_tok_orgs', name: 'jira', id: 10, realm_ids: [] });
+            const org = '22222222-2222-4222-8222-222222222222';
+
+            const res = await request(app)
+                .post('/v1/auth/generate_token')
+                .set(CSRF)
+                .set('Cookie', 'test_sid=token-orgs-sid')
+                .send({ type: 'user', name: 'jira', permissions: { domains: { orgs: [org] } } });
+
+            expect(res.status).toBe(201);
+            expect(post.mock.calls.at(-1)![1]).toMatchObject({ permissions: { domains: { orgs: [org] } } });
+        });
+
         it('creates token with Authorization Bearer (CLI PAT, no cookie)', async () => {
             const user_uuid = '11111111-1111-4111-8111-111111111111';
             // session_auth hydrates Bearer before the handler (validate → user → scopes).
