@@ -37,6 +37,7 @@ export function to_realm_team_row(r: TeamVO, scope: string | null, slug: string,
         in_team_list: Boolean(r.in_team_list),
         installed_count: r.installed_count ?? 0,
         online_daemon_count: r.online_daemon_count ?? 0,
+        online_stale: r.online_stale ?? null,
         last_run_at: r.last_run_at ?? null,
         missing_agents: r.missing_agents ?? [],
     };

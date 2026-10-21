@@ -217,7 +217,7 @@ export class ControlRepository {
      * `POST /v1/realms/add_team { realm_id, scope, slug }` — adds a published team to one realm
      * (Core also adds it to the realm's org when allowed, and sends install to online daemons).
      */
-    async add_team(body: { realm_id: string; scope: string; slug: string }, token: string): Promise<Record<string, unknown>> {
+    async add_team(body: { realm_id: string; scope: string; slug: string; version?: string }, token: string): Promise<Record<string, unknown>> {
         return this._core.post_body<Record<string, unknown>>('/v1/realms/add_team', body, token);
     }
 

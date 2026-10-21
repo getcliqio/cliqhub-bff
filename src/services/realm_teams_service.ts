@@ -1,6 +1,6 @@
 /**
- * Realm › Teams — a realm's teams with daemon coverage, the coverage-chip
- * counts and whether a newer published version exists.
+ * Realm › Teams — a realm's teams: the version the realm runs, the online daemons not on it, and whether a
+ * newer published version exists.
  *
  * Composes Core: `/v1/realms/get_by_id { slug, org_slug }` (membership gate)
  * → `/v1/teams/get { realm_id }` (the page + one `limit: 1` read per chip count;
@@ -10,13 +10,12 @@
 
 import type { ControlRepository } from '../repositories/control_repository.js';
 import type { TeamsRepository } from '../repositories/teams_repository.js';
-import type { TeamsGetInput } from '../schemas/teams_types.js';
 import type { TeamsGetVO } from '../types/core/teams.js';
 import type { RealmTeamsData, RealmTeamsGetInput } from '../schemas/realm_teams_types.js';
 import { to_control_realm_data } from '../mappers/realm_inbox_mapper.js';
 import { parse_label, to_realm_team_row } from '../mappers/realm_teams_mapper.js';
 import { get_logger } from '../lib/log.js';
-import { best_effort, warn_rejected } from '../lib/best_effort.js';
+import { best_effort } from '../lib/best_effort.js';
 import { core_query, core_sort, sortable_keys } from '../lib/core_list.js';
 
 const log = get_logger('svc.realm_teams');
@@ -47,11 +46,10 @@ export class RealmTeamsService {
     ) {}
 
     /**
-     * One page of the realm's teams (with coverage), chip counts and latest
-     * published versions. The page failing fails the call; a count failing is
-     * `null` and flags `partial`; a version lookup failing is ignored.
+     * One page of the realm's teams and their latest published versions. The page failing fails the call;
+     * a version lookup failing is ignored.
      *
-     * @param p - Realm ref + filters (`q`, `coverage`, `limit`, `offset`, `sort_by`, `sort_dir`).
+     * @param p - Realm ref + filters (`q`, `limit`, `offset`, `sort_by`, `sort_dir`).
      * @param token - Caller's Core token (session target_token).
      */
     async get(p: RealmTeamsGetInput, token: string): Promise<RealmTeamsData> {
@@ -60,21 +58,9 @@ export class RealmTeamsService {
         const realm_id = realm.id;
         const limit = p.limit ?? RealmTeamsService.DEFAULT_LIMIT;
         const offset = p.offset ?? 0;
-        const list = (f: Partial<TeamsGetInput>) =>
-            this._teams.get({ realm_id, sort_by: 'team', sort_dir: 'asc', ...f }, token).then(page_of);
+        const page = await this._teams.get({ realm_id, sort_by: 'team', sort_dir: 'asc', limit, offset, ...core_query(p.q), ...core_sort('teams.get:realm', p) }, token).then(page_of);
 
-        const [page, all, full, partial, none] = await Promise.allSettled([
-            list({ limit, offset, ...core_query(p.q), ...(p.coverage ? { coverage: p.coverage } : {}), ...core_sort('teams.get:realm', p) }),
-            list({ limit: 1 }),
-            list({ limit: 1, coverage: 'full' }),
-            list({ limit: 1, coverage: 'partial' }),
-            list({ limit: 1, coverage: 'none' }),
-        ]);
-        if (page.status === 'rejected') throw page.reason;
-        warn_rejected(log, 'realm_teams_count_failed', { all, full, partial, none }, { realm_id });
-        const n = (r: PromiseSettledResult<{ total: number }>) => (r.status === 'fulfilled' ? r.value.total : null);
-
-        const base = page.value.items.map((r) => {
+        const base = page.items.map((r) => {
             const parsed = parse_label(r.label, r.slug ?? r.name ?? '');
             return { r, scope: parsed.scope ?? r.scope ?? null, slug: parsed.slug };
         });
@@ -92,11 +78,9 @@ export class RealmTeamsService {
         return {
             realm: to_control_realm_data(realm),
             items: base.map(({ r, scope, slug }, i) => to_realm_team_row(r, scope, slug, latest[i])),
-            total: page.value.total,
+            total: page.total,
             offset,
             limit,
-            counts: { all: n(all), full: n(full), partial: n(partial), none: n(none) },
-            partial: [all, full, partial, none].some((r) => r.status === 'rejected'),
             sortable: sortable_keys('teams.get:realm'),
         };
     }

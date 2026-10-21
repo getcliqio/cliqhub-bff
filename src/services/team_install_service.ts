@@ -30,6 +30,8 @@ export interface TeamInstallInput {
     scope: string;
     slug: string;
     realm_ids: string[];
+    /** The version the realms run (default: the latest published). */
+    version?: string;
 }
 
 export interface TeamInstallViewer {
@@ -132,7 +134,7 @@ export class TeamInstallService {
         for (const c of checked) {
             const realm_slug = c.realm?.slug ?? c.realm_id;
             try {
-                await this._control_repo.add_team({ realm_id: c.realm_id, scope: input.scope, slug: input.slug }, token);
+                await this._control_repo.add_team({ realm_id: c.realm_id, scope: input.scope, slug: input.slug, ...(input.version ? { version: input.version } : {}) }, token);
                 installed.push({ realm_id: c.realm_id, realm_slug });
             } catch (err) {
                 log.warn('team_install_failed', { realm_id: c.realm_id, scope: input.scope, slug: input.slug, ...error_fields(err) });

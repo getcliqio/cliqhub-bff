@@ -33,6 +33,8 @@ export interface TeamVO {
     installed_count?: number;
     online_daemon_count?: number;
     coverage_label?: string;
+    /** Realm mode: online daemons not on the realm's version; null when the team isn't on the realm's list. */
+    online_stale?: number | null;
     missing_agents?: string[];
     origin?: 'hub' | 'cli';
     in_team_list?: boolean;

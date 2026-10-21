@@ -1,6 +1,6 @@
 /**
- * Realm › Teams — a realm's teams with daemon coverage, the coverage-chip
- * counts and each team's latest published version (request schema + response data).
+ * Realm › Teams — a realm's teams: the version the realm runs, the online daemons not on it, and each
+ * team's latest published version (request schema + response data).
  *
  * Routes (controllers/realm_teams_controller.ts):
  *   POST /v1/realm_teams/get
@@ -21,8 +21,6 @@ export const RealmTeamsGetInput = z.object({
     ...RealmRefFields,
     q: z.string().trim().min(1).max(200).optional()
         .describe('Match on team name'),
-    coverage: z.enum(['full', 'partial', 'none']).optional()
-        .describe('Installed on every / some / no online daemon'),
     limit: z.number().int().min(1).max(100).optional()
         .describe('Page size (max 100)'),
     offset: z.number().int().min(0).optional()
@@ -38,6 +36,7 @@ export interface RealmTeamRowData {
     scope: string | null;
     slug: string;
     label: string;
+    /** The version this realm runs (on its team list); for a team only daemons report, what they report. */
     version: string | null;
     latest_version: string | null;
     update_available: boolean;
@@ -47,19 +46,19 @@ export interface RealmTeamRowData {
     /** Online realm daemons with this team installed / online daemons. */
     installed_count: number;
     online_daemon_count: number;
+    /** Online daemons not on the realm's version (older, or not installed); null when not on the realm's list. */
+    online_stale: number | null;
     last_run_at: number | null;
     missing_agents: string[];
 }
 
-/** `realm_teams/get` — one page of teams plus coverage-chip counts. */
+/** `realm_teams/get` — one page of a realm's teams. */
 export interface RealmTeamsData {
     realm: ControlRealmData;
     items: RealmTeamRowData[];
     total: number;
     offset: number;
     limit: number;
-    counts: { all: number | null; full: number | null; partial: number | null; none: number | null };
-    partial: boolean;
     /** `sort_by` keys Core applies (lib/core_list.ts). */
     sortable: string[];
 }

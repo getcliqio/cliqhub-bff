@@ -62,6 +62,14 @@ describe('TeamInstallService.install', () => {
         ]);
     });
 
+    it('a version given is what every realm records', async () => {
+        const { svc, control } = setup();
+        await svc.install({ scope: 'acme', slug: 'kyc', realm_ids: ['r1', 'r2'], version: '1.4.0' }, 'tok', viewer);
+        expect(control.add_team.mock.calls.map((c) => c[0])).toEqual([
+            { realm_id: 'r1', scope: 'acme', slug: 'kyc', version: '1.4.0' }, { realm_id: 'r2', scope: 'acme', slug: 'kyc', version: '1.4.0' },
+        ]);
+    });
+
     it('one realm where the viewer only views: nothing installed, that realm named with the reason', async () => {
         const { svc, control } = setup({ realm_roles: { r2: 'member' } });
         const err = await caught(svc.install({ scope: 'acme', slug: 'kyc', realm_ids: ['r1', 'r2'] }, 'tok', viewer));
