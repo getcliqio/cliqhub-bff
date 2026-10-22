@@ -106,6 +106,14 @@ export interface EventRuleInput {
     enabled?: boolean;
     locked?: boolean;
     lock_reason?: string | null;
+    /** A rule to a person (their personal channel): who. */
+    person?: { user_id: string; username: string; display_name: string | null } | null;
+}
+
+/** What a rule's chip shows: the channel's name, or the person's. */
+function target_of(r: EventRuleInput, channel: (id: string) => { name: string; enabled: boolean } | undefined): { channel_name: string | null; channel_enabled: boolean; person: boolean } {
+    if (r.person) return { channel_name: r.person.display_name || r.person.username, channel_enabled: true, person: true };
+    return { channel_name: channel(r.channel_id)?.name ?? null, channel_enabled: channel(r.channel_id)?.enabled ?? true, person: false };
 }
 
 /**
@@ -126,8 +134,7 @@ export function realm_events(
 ): NotifRealmEventData[] {
     const entry = (r: EventRuleInput, tier: NotifScopeKind): NotifEventRuleData => ({
         rule_id: r.id, selector: r.event, tier, channel_id: r.channel_id,
-        channel_name: channel(r.channel_id)?.name ?? null,
-        channel_enabled: channel(r.channel_id)?.enabled ?? true,
+        ...target_of(r, channel),
         enabled: r.enabled !== false, locked: r.locked === true, lock_reason: r.lock_reason ?? null,
     });
     // A rule with selector `s` covers row `e` when `s` is one of e's matching selectors.
@@ -175,8 +182,7 @@ export function event_groups(
 ): NotifEventGroupData[] {
     const entry = (r: EventsRuleInput, tier: NotifScopeKind): NotifEventRuleData => ({
         rule_id: r.id, selector: r.event, tier, channel_id: r.channel_id,
-        channel_name: channel(r.channel_id)?.name ?? null,
-        channel_enabled: channel(r.channel_id)?.enabled ?? true,
+        ...target_of(r, channel),
         enabled: r.enabled !== false, locked: r.locked === true, lock_reason: r.lock_reason ?? null,
     });
     const covering = (rules: EventsRuleInput[], e: string) => rules.filter((r) => matching_selectors(e).includes(r.event));
@@ -189,7 +195,7 @@ export function event_groups(
         const all = [...org, ...realm];
         const row: NotifEventRowData = {
             event: e,
-            sent: all.some((r) => r.enabled !== false && (channel(r.channel_id)?.enabled ?? true)),
+            sent: all.some((r) => r.enabled !== false && target_of(r, channel).channel_enabled),
             fixed: all.some((r) => r.locked === true),
             built_in: all.some((r) => Boolean(r.system_key)),
             org: org.map((r) => entry(r, 'org')),

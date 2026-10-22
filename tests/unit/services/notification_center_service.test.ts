@@ -141,6 +141,13 @@ describe('NotificationCenterService.get — the Events read (C2)', () => {
         expect(dto.events!.find((g) => g.family === 'run')!.family_rules).toEqual({ org: [], realm: [] });
     });
 
+    it('a rule to a person shows their name (never their channel or addresses) and counts as sent', async () => {
+        m.control.org_notification_rules.mockResolvedValue([rule('org-elan', 'run.completed', { channel_id: 'pc-elan', person: { user_id: 'u-elan', username: 'elan', display_name: 'Elan Rao' } })]);
+        const dto = await svc.get({ org_id: 'o1' }, 'tok', VIEWER);
+        expect(row(dto, 'run.completed')).toMatchObject({ sent: true });
+        expect(row(dto, 'run.completed').org).toEqual([expect.objectContaining({ rule_id: 'org-elan', channel_name: 'Elan Rao', person: true, channel_enabled: true })]);
+    });
+
     it('no single org or realm in view → null', async () => {
         expect((await svc.get({}, 'tok', VIEWER)).events).toBeNull();
     });

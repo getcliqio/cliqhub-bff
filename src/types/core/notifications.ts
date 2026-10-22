@@ -19,6 +19,8 @@ export interface NotifRuleVO {
     lock_reason: string | null;
     /** Switched on (Core default true; older Cores omit it). */
     enabled?: boolean;
+    /** Set when the rule goes to a person (their personal channel): who — never their addresses. */
+    person?: { user_id: string; username: string; display_name: string | null } | null;
     created_at?: number;
     updated_at?: number;
 }

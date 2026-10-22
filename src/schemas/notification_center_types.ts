@@ -180,9 +180,12 @@ export interface NotifEventRuleData {
     selector: string;
     tier: NotifScopeKind;
     channel_id: string;
+    /** The channel's name, or the person's (a rule to a person). */
     channel_name: string | null;
     /** The channel itself is on (both must be on for the rule to send). */
     channel_enabled: boolean;
+    /** The rule goes to a person — they get it their way. */
+    person: boolean;
     enabled: boolean;
     locked: boolean;
     lock_reason: string | null;
