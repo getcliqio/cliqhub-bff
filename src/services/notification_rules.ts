@@ -191,14 +191,22 @@ export function event_groups(
         const dot = e.indexOf('.');
         const family = dot > 0 ? e.slice(0, dot) : e;
         const org = covering(org_rules, e);
-        const realm = realm_rules ? covering(realm_rules, e) : [];
+        const realm_all = realm_rules ? covering(realm_rules, e) : [];
+        // A realm rule switched off for one of the org's channels is the realm switching that org default off here.
+        const override_of = (o: EventsRuleInput) => realm_all.find((r) => r.enabled === false && r.channel_id === o.channel_id);
+        const overrides = new Set(org.map(override_of).filter((r): r is EventsRuleInput => Boolean(r)).map((r) => r.id));
+        const realm = realm_all.filter((r) => !overrides.has(r.id));
+        const live = [...org.filter((o) => !override_of(o)), ...realm];
         const all = [...org, ...realm];
         const row: NotifEventRowData = {
             event: e,
-            sent: all.some((r) => r.enabled !== false && target_of(r, channel).channel_enabled),
+            sent: live.some((r) => r.enabled !== false && target_of(r, channel).channel_enabled),
             fixed: all.some((r) => r.locked === true),
             built_in: all.some((r) => Boolean(r.system_key)),
-            org: org.map((r) => entry(r, 'org')),
+            org: org.map((r) => {
+                const ov = override_of(r);
+                return { ...entry(r, 'org'), off_here: Boolean(ov), override_rule_id: ov?.id ?? null };
+            }),
             realm: realm.map((r) => entry(r, 'realm')),
         };
         const list = groups.get(family) ?? [];

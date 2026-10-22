@@ -186,6 +186,9 @@ export interface NotifEventRuleData {
     channel_enabled: boolean;
     /** The rule goes to a person — they get it their way. */
     person: boolean;
+    /** An org rule in a realm view: the realm switched it off for itself (its override rule's id to undo it). */
+    off_here?: boolean;
+    override_rule_id?: string | null;
     enabled: boolean;
     locked: boolean;
     lock_reason: string | null;

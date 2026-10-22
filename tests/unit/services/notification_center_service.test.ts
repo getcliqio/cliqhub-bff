@@ -148,6 +148,14 @@ describe('NotificationCenterService.get — the Events read (C2)', () => {
         expect(row(dto, 'run.completed').org).toEqual([expect.objectContaining({ rule_id: 'org-elan', channel_name: 'Elan Rao', person: true, channel_enabled: true })]);
     });
 
+    it('realm view: an org default the realm switched off shows on the org entry (off_here + the override to undo); not sent', async () => {
+        m.control.realm_notification_rules.mockResolvedValue([rule('realm-ov', 'run.failed', { realm_id: 'r1', org_id: null, channel_id: 'c1', enabled: false })]);
+        const dto = await svc.get({ realm_id: 'r1' }, 'tok', VIEWER);
+        expect(row(dto, 'run.failed').org).toEqual([expect.objectContaining({ rule_id: 'org-run', off_here: true, override_rule_id: 'realm-ov' })]);
+        expect(row(dto, 'run.failed').realm).toEqual([]);
+        expect(row(dto, 'run.failed').sent).toBe(false);
+    });
+
     it('no single org or realm in view → null', async () => {
         expect((await svc.get({}, 'tok', VIEWER)).events).toBeNull();
     });
