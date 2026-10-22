@@ -72,8 +72,8 @@ export const NotificationCenterSetRulesInput = z.object({
 export type NotificationCenterSetRulesInput = z.infer<typeof NotificationCenterSetRulesInput>;
 
 /**
- * `POST /v1/notification_channels/update` with `add_destination` or `remove_destination` — one change to a
- * channel's destinations. The BFF reads the channel's full destinations from Core (the page only has them
+ * `POST /v1/notification_channels/update` with `add_destinations` or `remove_destination` — one change to a
+ * channel's destinations (several added at once, e.g. channels and people picked together). The BFF reads the channel's full destinations from Core (the page only has them
  * masked), applies the change and sends Core the whole list. Other bodies go to Core unchanged.
  */
 export const NotifChannelDestinationsInput = z.object({
@@ -83,10 +83,10 @@ export const NotifChannelDestinationsInput = z.object({
         .describe('The org the channel belongs to (an org channel)'),
     realm_id: RealmIdField.optional()
         .describe('The realm the channel belongs to (a realm channel); neither org_id nor realm_id = your own personal channel'),
-    add_destination: z.object({
-        type: z.enum(['cliqhub', 'email', 'slack', 'webhook']),
-    }).passthrough().optional()
-        .describe('Destination to add, in Core\'s shape (Core checks its fields)'),
+    add_destinations: z.array(z.object({
+        type: z.enum(['cliqhub', 'email', 'slack', 'webhook', 'channel_ref']),
+    }).passthrough()).min(1).max(50).optional()
+        .describe('Destinations to add, in Core\'s shape (Core checks their fields); `channel_ref {name}` = a channel or a person by name. One already there is skipped'),
     remove_destination: z.object({
         index: z.number().int().min(0).max(100),
         type: z.string().trim().min(1).max(40),
@@ -94,7 +94,7 @@ export const NotifChannelDestinationsInput = z.object({
         .describe('Destination to remove: its place in the list as shown, and its type (a guard against a changed list)'),
 }).strict().superRefine((b, ctx) => {
     if (b.org_id && b.realm_id) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['org_id'], message: 'Give org_id or realm_id, not both' });
-    if (Boolean(b.add_destination) === Boolean(b.remove_destination)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['add_destination'], message: 'Give add_destination or remove_destination' });
+    if (Boolean(b.add_destinations) === Boolean(b.remove_destination)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['add_destinations'], message: 'Give add_destinations or remove_destination' });
 });
 export type NotifChannelDestinationsInput = z.infer<typeof NotifChannelDestinationsInput>;
 
@@ -229,6 +229,8 @@ export interface NotifEventRowData {
 /** The events of one family (`run`, `phase`, `hug`, …), in catalog order. */
 export interface NotifEventGroupData {
     family: string;
+    /** Rules for the whole family (`run.*`): the org's, and (in a realm view) the realm's own — shown, and removable, once. */
+    family_rules: { org: NotifEventRuleData[]; realm: NotifEventRuleData[] };
     events: NotifEventRowData[];
 }
 

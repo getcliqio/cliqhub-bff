@@ -92,7 +92,7 @@ export function destination_label(d: NotifDestinationVO): string {
         case 'webhook': return `Webhook · ${host_of(d.url)}`;
         case 'http': return `${String(d.method ?? 'POST')} · ${host_of(d.url)}`;
         case 'jira': return `Jira · ${String(d.project_key ?? '')} (${host_of(d.url)})`;
-        case 'channel_ref': return `→ channel ${String(d.name ?? '')}`;
+        case 'channel_ref': return String(d.name ?? '');
         case 'cliqhub': return 'In-app (CliqHub)';
         default: return d.type;
     }
@@ -199,5 +199,11 @@ export function event_groups(
         list.push(row);
         groups.set(family, list);
     }
-    return [...groups.entries()].map(([family, events]) => ({ family, events }));
+    const whole = (rules: EventsRuleInput[] | null, family: string, tier: NotifScopeKind) =>
+        (rules ?? []).filter((r) => r.event === `${family}.*`).map((r) => entry(r, tier));
+    return [...groups.entries()].map(([family, events]) => ({
+        family,
+        family_rules: { org: whole(org_rules, family, 'org'), realm: whole(realm_rules, family, 'realm') },
+        events,
+    }));
 }

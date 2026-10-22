@@ -6,7 +6,7 @@
  *   POST /v1/notification_center/get        — rules + channels by org and realm
  *   POST /v1/notification_center/check      — who is told for each event in a realm (or team)
  *   POST /v1/notification_center/set_rules  — one rule per event at one level, one channel
- *   POST /v1/notification_channels/update   — with `add_destination` / `remove_destination`: one change to
+ *   POST /v1/notification_channels/update   — with `add_destinations` / `remove_destination`: one change to
  *                                            a channel's destinations (signed-in user). Any other body:
  *                                            forwarded to Core unchanged (token route, like the passthrough).
  *
@@ -85,12 +85,12 @@ export class NotificationCenterController extends BaseController {
     /**
      * Adds or removes one destination of a channel (signed-in user), or forwards any other update to Core.
      *
-     * @param req - Body: {@link NotifChannelDestinationsInput} when it has `add_destination` / `remove_destination`
+     * @param req - Body: {@link NotifChannelDestinationsInput} when it has `add_destinations` / `remove_destination`
      * @param res - `{ ok: true, data: NotifChannelDestinationsData }`, or Core's answer for a forwarded body
      */
     async update_channel(req: Request, res: Response): Promise<void> {
         const body = req.body as Record<string, unknown> | undefined;
-        if (!body || !('add_destination' in body || 'remove_destination' in body)) {
+        if (!body || !('add_destinations' in body || 'remove_destination' in body)) {
             const org_header = req.headers['x-org-id'];
             const org_id = Array.isArray(org_header) ? org_header[0] : org_header;
             res.json(await this._proxy_service.forward(req.path, req.body, this.bearer(req), org_id));

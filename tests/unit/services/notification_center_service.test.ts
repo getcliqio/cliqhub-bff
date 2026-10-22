@@ -136,6 +136,9 @@ describe('NotificationCenterService.get — the Events read (C2)', () => {
         expect(row(dto, 'hug.review_reminded').realm.map((r) => [r.selector, r.channel_name])).toEqual([['hug.*', '#prod-oncall']]);
         expect(row(dto, 'notification.unknown_channel')).toMatchObject({ sent: true, fixed: true });
         expect(row(dto, 'run.failed').org.map((r) => r.rule_id)).toEqual(['org-run']);
+        // The whole-family rule shows once, on its group, where it can be removed.
+        expect(dto.events!.find((g) => g.family === 'hug')!.family_rules).toMatchObject({ org: [], realm: [{ rule_id: 'realm-hug', selector: 'hug.*' }] });
+        expect(dto.events!.find((g) => g.family === 'run')!.family_rules).toEqual({ org: [], realm: [] });
     });
 
     it('no single org or realm in view → null', async () => {
@@ -402,7 +405,7 @@ describe('NotificationCenterService.change_destinations', () => {
     });
 
     it('adding sends Core the full list (unmasked from Core) plus the new one; returns it masked', async () => {
-        const out = await svc.change_destinations({ id: 'c1', org_id: 'o1', add_destination: { type: 'email', address: 'ops@a.com' } }, 'tok');
+        const out = await svc.change_destinations({ id: 'c1', org_id: 'o1', add_destinations: [{ type: 'email', address: 'ops@a.com' }] }, 'tok');
         expect(m.control.org_channels).toHaveBeenCalledWith('o1', 'tok');
         expect(set).toHaveBeenCalledWith('c1', [{ type: 'slack', webhook_url: 'https://h/x/1234' }, { type: 'email', address: 'ops@a.com' }], 'tok');
         expect(out.destinations.map((d) => d.type)).toEqual(['slack', 'email']);
@@ -417,15 +420,29 @@ describe('NotificationCenterService.change_destinations', () => {
 
     it('no org or realm: the caller\'s own personal channel (read with mine)', async () => {
         (m.control as any).my_channels = vi.fn().mockResolvedValue([{ id: 'me', name: 'ana', realm_id: null, org_id: null, user_id: 'u1', destinations: [{ type: 'cliqhub' }, { type: 'email', account: true }], enabled: 1 }]);
-        await svc.change_destinations({ id: 'me', add_destination: { type: 'slack', webhook_url: 'https://hooks.slack.com/services/T/B/me' } }, 'tok');
+        await svc.change_destinations({ id: 'me', add_destinations: [{ type: 'slack', webhook_url: 'https://hooks.slack.com/services/T/B/me' }] }, 'tok');
         expect((m.control as any).my_channels).toHaveBeenCalledWith('tok');
         expect(set).toHaveBeenCalledWith('me', [{ type: 'cliqhub' }, { type: 'email', account: true }, { type: 'slack', webhook_url: 'https://hooks.slack.com/services/T/B/me' }], 'tok');
+    });
+
+    it('adds several at once — channels and people by name — and skips one already there', async () => {
+        await svc.change_destinations({ id: 'c1', org_id: 'o1', add_destinations: [
+            { type: 'channel_ref', name: 'oncall' }, { type: 'channel_ref', name: 'elan' },
+            { type: 'slack', webhook_url: 'https://h/x/1234' }, { type: 'channel_ref', name: 'oncall' },
+        ] }, 'tok');
+        expect(set).toHaveBeenCalledWith('c1', [{ type: 'slack', webhook_url: 'https://h/x/1234' }, { type: 'channel_ref', name: 'oncall' }, { type: 'channel_ref', name: 'elan' }], 'tok');
+    });
+
+    it('your own channel can\'t send on to channels or people (422)', async () => {
+        (m.control as any).my_channels = vi.fn().mockResolvedValue([{ id: 'me', name: 'ana', realm_id: null, org_id: null, user_id: 'u1', destinations: [{ type: 'cliqhub' }], enabled: 1 }]);
+        await expect(svc.change_destinations({ id: 'me', add_destinations: [{ type: 'channel_ref', name: 'oncall' }] }, 'tok')).rejects.toMatchObject({ status: 422 });
+        expect(set).not.toHaveBeenCalled();
     });
 
     it('refuses: the last destination (422), a changed list (409), a channel not in that org or realm (404)', async () => {
         await expect(svc.change_destinations({ id: 'c1', org_id: 'o1', remove_destination: { index: 0, type: 'slack' } }, 'tok')).rejects.toMatchObject({ status: 422 });
         await expect(svc.change_destinations({ id: 'c1', org_id: 'o1', remove_destination: { index: 0, type: 'email' } }, 'tok')).rejects.toMatchObject({ status: 409 });
-        await expect(svc.change_destinations({ id: 'c2', org_id: 'o1', add_destination: { type: 'cliqhub' } }, 'tok')).rejects.toMatchObject({ status: 404 });
+        await expect(svc.change_destinations({ id: 'c2', org_id: 'o1', add_destinations: [{ type: 'cliqhub' }] }, 'tok')).rejects.toMatchObject({ status: 404 });
         expect(set).not.toHaveBeenCalled();
     });
 });

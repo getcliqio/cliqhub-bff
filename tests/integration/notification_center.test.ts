@@ -168,7 +168,7 @@ describe('notification center routes', () => {
         });
     });
 
-    it('channel update with add_destination: the BFF reads the full list from Core and sends it back whole', async () => {
+    it('channel update with add_destinations: the BFF reads the full list from Core and sends it back whole', async () => {
         const sid = sess();
         const calls = stub_core({
             '/v1/notification_channels/get': ok([{ id: 'c1', name: '#eng', realm_id: null, org_id: ORG, user_id: null, destinations: [{ type: 'slack', webhook_url: 'https://hooks.slack.com/services/T0/B0/secret1' }], enabled: 1 }]),
@@ -176,7 +176,7 @@ describe('notification center routes', () => {
         });
 
         const res = await request(app).post('/v1/notification_channels/update').set(CSRF).set('Cookie', `test_sid=${sid}`)
-            .send({ id: 'c1', org_id: ORG, add_destination: { type: 'email', address: 'ops@acme.com' } });
+            .send({ id: 'c1', org_id: ORG, add_destinations: [{ type: 'email', address: 'ops@acme.com' }] });
 
         expect(res.status).toBe(200);
         expect(calls.find((c) => c.path === '/v1/notification_channels/update')!.body).toEqual({

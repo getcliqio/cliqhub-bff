@@ -420,12 +420,14 @@ export class NotificationCenterService {
         };
     }
     /**
-     * Adds or removes one destination of a channel — an org's, a realm's, or (neither given) the caller's own
-     * personal channel. The page only has destinations masked, so the full list is read from Core here,
+     * Adds destinations to a channel, or removes one — an org's, a realm's, or (neither given) the caller's own
+     * personal channel. A destination already on the channel isn't added twice; a channel or person by name
+     * (`channel_ref`) only goes on an org's or realm's channel. The page only has destinations masked, so the full list is read from Core here,
      * changed, and sent back whole (Core replaces the list).
      *
      * @throws ApiError 404 when the channel isn't the given org's or realm's; 409 when the destination to
-     *   remove is no longer at that place (reload); 422 when it is the channel's last destination.
+     *   remove is no longer at that place (reload); 422 when it is the channel's last destination, or a
+     *   `channel_ref` on a personal channel.
      */
     async change_destinations(input: NotifChannelDestinationsInput, token: string): Promise<NotifChannelDestinationsData> {
         const channels = input.realm_id
@@ -436,8 +438,17 @@ export class NotificationCenterService {
         const channel = channels.find((c) => c.id === input.id);
         if (!channel) throw ApiError.not_found('Channel not found');
         const list: NotifDestinationVO[] = [...(channel.destinations ?? [])];
-        if (input.add_destination) {
-            list.push(input.add_destination as NotifDestinationVO);
+        if (input.add_destinations) {
+            if (!input.org_id && !input.realm_id && input.add_destinations.some((d) => d.type === 'channel_ref')) {
+                throw ApiError.invalid_params('Your own channel reaches you — it can\'t send on to other channels or people.');
+            }
+            const key = (d: NotifDestinationVO) => JSON.stringify(Object.entries(d).sort(([a], [b]) => a.localeCompare(b)));
+            const have = new Set(list.map(key));
+            for (const d of input.add_destinations as NotifDestinationVO[]) {
+                if (have.has(key(d))) continue;
+                have.add(key(d));
+                list.push(d);
+            }
         } else {
             const { index, type } = input.remove_destination!;
             if (list[index]?.type !== type) throw new ApiError('conflict', 'This channel changed. Reload and try again.', 409);
@@ -446,8 +457,8 @@ export class NotificationCenterService {
         }
         const saved = await this._control_repo.set_channel_destinations(channel.id, list, token);
         log.info('notification_channel_destinations_changed', {
-            id: channel.id, change: input.add_destination ? 'add' : 'remove',
-            type: input.add_destination?.type ?? input.remove_destination!.type, count: list.length,
+            id: channel.id, change: input.add_destinations ? 'add' : 'remove',
+            types: input.add_destinations?.map((d) => d.type) ?? [input.remove_destination!.type], count: list.length,
         });
         return { id: channel.id, destinations: (saved?.destinations ?? list).map((d) => ({ type: d.type, label: destination_label(d) })) };
     }
