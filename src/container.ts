@@ -182,7 +182,8 @@ export function build_container(deps: {
     const invitations_repo = new InvitationsRepository(core_client);
     const teams_repo = new TeamsRepository(core_client);
     const control_repo = new ControlRepository(core_client);
-    const hug_page_service = new HugPageService(core_reads);
+    const run_telemetry_service = new RunTelemetryService(core_reads, control_repo);
+    const hug_page_service = new HugPageService(core_reads, (run_id, token) => run_telemetry_service.workflow_summary(run_id, token));
     const dashboard_repo = new DashboardRepository(core_client);
 
     // Services shared by several controllers
@@ -245,7 +246,7 @@ export function build_container(deps: {
         run_detail_controller: new RunDetailController(new RunDetailService(
             control_repo,
             // "Why it failed": the Hug a gate stopped at, read like the Hug page reads it.
-            async (hug_id, token) => (await hug_page_service.get({ hug_id }, token)).hug,
+            async (hug_id, token) => hug_page_service.hug({ hug_id }, token),
         )),
         realm_runs_controller: new RealmRunsController(new RealmRunsService(control_repo)),
         realm_teams_controller: new RealmTeamsController(new RealmTeamsService(control_repo, teams_repo)),
@@ -253,7 +254,7 @@ export function build_container(deps: {
         realm_settings_controller: new RealmSettingsController(
             new RealmSettingsService(control_repo, tokens_repo, invitations_repo),
         ),
-        run_telemetry_controller: new RunTelemetryController(new RunTelemetryService(core_reads, control_repo)),
+        run_telemetry_controller: new RunTelemetryController(run_telemetry_service),
         daemon_page_controller: new DaemonPageController(host_page_service),
         workspace_page_controller: new WorkspacePageController(host_page_service),
         team_list_controller: new TeamListController(team_page_service),

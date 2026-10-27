@@ -39,6 +39,32 @@ function make(opts: { spans?: unknown; usage?: unknown; fail?: string[]; realm_f
     return { svc: new RunTelemetryService(new CoreReadRepository(core), control), core, control };
 }
 
+describe('RunTelemetryService.workflow_summary (the Hug page graph)', () => {
+    it("the run's team, version and every workflow phase with its status — no spans or usage read", async () => {
+        const { svc, core, control } = make();
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', run_name: 'quiet-amber-heron', state: 'awaiting_input', realm_id: 'realm1', team_id: 't1', team_label: '@measureone/qa', team_version: '1.2.0', team_version_id: 'v1' });
+        control.run_phases.mockResolvedValue([
+            { phase: 'plan', status: 'completed', sequence: 1, agent: 'architect' },
+            { phase: 'review', status: 'awaiting_input', sequence: 2, agent: 'hug' },
+        ]);
+        const base = core.post_body.getMockImplementation();
+        core.post_body.mockImplementation(async (p: string, b: any) => (p === '/v1/teams/get_by_id' ? { ok: true, data: { id: 'catalog-qa' } } : base!(p, b)));
+        const out = await svc.workflow_summary('r1', 'tok');
+        expect(out).toMatchObject({ run_id: 'r1', run_name: 'quiet-amber-heron', state: 'awaiting_input', team_label: '@measureone/qa', team_version: '1.2.0' });
+        expect(out.phases.map((p) => [p.name, p.status, p.agent])).toEqual([['plan', 'completed', 'architect'], ['review', 'awaiting_input', 'hug'], ['check', 'pending', null], ['pr', 'pending', null]]);
+        expect(out.phases.find((p) => p.name === 'check')).toMatchObject({ type: 'gate', depends_on: ['plan', 'review'] });
+        expect(core.post_body.mock.calls.some((c: any[]) => c[0] === '/v1/runs/get_telemetry')).toBe(false);
+        expect(control.child_runs).not.toHaveBeenCalled();
+    });
+
+    it('without the workflow, the status rows alone (in order); the realm gate still applies', async () => {
+        const { svc } = make({ fail: ['/v1/teams/get_phases'] });
+        const out = await svc.workflow_summary('r1', 'tok');
+        expect(out.phases.map((p) => p.name)).toEqual(['plan', 'review', 'check', 'pr']);
+        await expect(make({ realm_fail: true }).svc.workflow_summary('r1', 'tok')).rejects.toMatchObject({ status: 403 });
+    });
+});
+
 describe('union_ms', () => {
     it('merges overlaps', () => { expect(union_ms([[0, 10], [5, 15], [20, 25], [30, 30]])).toBe(20); });
 });

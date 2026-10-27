@@ -13,6 +13,7 @@ import type { CoreReadRepository } from '../repositories/core_read_repository.js
 import type { ControlRepository } from '../repositories/control_repository.js';
 import type { ControlRunPhaseVO, ControlRunVO } from '../types/core/control.js';
 import type { RunUsageSnapshotVO } from '../types/core/telemetry.js';
+import type { HugPageRunData } from '../schemas/hug_page_types.js';
 import type {
     AgentKind, RunTelemetryData, RunTelemetryGetInput, TelemetryAgentData, TelemetryBarData, TelemetryModelData, TelemetryPhaseData,
     TelemetrySubRunData, TelemetrySubRunUsageData,
@@ -249,6 +250,47 @@ export class RunTelemetryService {
             }
         };
         return (await Promise.all(children.map(read))).filter((r): r is SubRun => r !== null);
+    }
+
+    /**
+     * A run's team and workflow with each phase's status — the light read behind the Hug page's
+     * graph (no spans, usage or sub-teams). The workflow is best-effort: without it the phases
+     * come from the status rows alone, with no dependencies.
+     *
+     * @param run_id - The run.
+     * @param token - Caller's Core token
+     * @throws ApiError 404 when the run can't be read; the realm gate's error when it isn't visible
+     */
+    async workflow_summary(run_id: string, token: string): Promise<HugPageRunData> {
+        const run: ControlRunVO | null = await this._control.run_by_id(run_id, token);
+        if (!run) throw ApiError.not_found('Run not found');
+        // Gate: Core's run reads don't check realm membership; the realm read does.
+        if (run.realm_id) await this._control.realm_by_id(run.realm_id, token);
+        const team_id = str(run.team_id);
+        const [phases, workflow] = await Promise.allSettled([
+            this._control.run_phases(run_id, token),
+            team_id ? this._workflow(run, team_id, str((run as Obj).team_version_id), token) : Promise.resolve(null),
+        ]);
+        warn_rejected(log, 'run_workflow_summary_section_failed', { phases, workflow }, { run_id });
+        const rows: ControlRunPhaseVO[] = phases.status === 'fulfilled' ? phases.value : [];
+        const wf: Obj[] = workflow.status === 'fulfilled' && workflow.value ? ((d) => (Array.isArray(d.phases) ? d.phases.map(obj) : []))(obj(data_of(workflow.value))) : [];
+        // Every workflow phase shows, the ones not started yet as pending.
+        const names = [...new Set([...phase_names(rows, [], []), ...wf.map((w) => str(w.name) ?? '').filter(Boolean)])];
+        const wf_by = new Map(wf.map((w) => [str(w.name) ?? '', w]));
+        return {
+            run_id: run.run_id,
+            run_name: str(run.run_name),
+            state: run.state,
+            team_label: str(run.team_label),
+            team_version: str((run as Obj).team_version),
+            phases: to_phases(names, rows, [], [], wf, {}).map((p) => ({
+                name: p.name,
+                type: p.type,
+                agent: str(rows.find((r) => r.phase === p.name)?.agent) ?? str(wf_by.get(p.name)?.agent),
+                status: p.status,
+                depends_on: p.depends_on,
+            })),
+        };
     }
 
     /**
