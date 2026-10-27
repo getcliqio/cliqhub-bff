@@ -1,10 +1,10 @@
-/** Run detail — Core run phases, reviews, artifacts, phase outputs, lifecycle events and related runs → run detail rows. */
+/** Run detail — Core run phases, Hugs, artifacts, phase outputs, lifecycle events and related runs → run detail rows. */
 
-import type { ControlArtifactVO, ControlPhaseAttemptVO, ControlRunPhaseVO, ControlRunHistoryVO, ControlRunVO, ControlReviewVO } from '../types/core/control.js';
+import type { ControlArtifactVO, ControlPhaseAttemptVO, ControlRunPhaseVO, ControlRunHistoryVO, ControlRunVO, ControlHugVO } from '../types/core/control.js';
 import type { InAppNotificationVO } from '../types/core/notifications.js';
 import type {
     RunAttemptState, RunDetailArtifactData, RunDetailAttemptData, RunDetailChildData, RunDetailParentData,
-    RunDetailPhaseAttemptData, RunDetailPhaseData, RunDetailPhaseOutputData, RunDetailReviewData,
+    RunDetailPhaseAttemptData, RunDetailPhaseData, RunDetailPhaseOutputData, RunDetailHugData,
 } from '../schemas/run_detail_types.js';
 import { num_or_null } from './realm_inbox_mapper.js';
 import { to_phase_output_view } from '../lib/phase_output_view.js';
@@ -265,14 +265,15 @@ export function to_run_detail_child_data(r: ControlRunVO): RunDetailChildData {
     };
 }
 
-/** Pending review on the run. */
-export function to_run_detail_review_data(r: ControlReviewVO): RunDetailReviewData {
+/** Open Hug on the run. */
+export function to_run_detail_hug_data(h: ControlHugVO): RunDetailHugData {
     return {
-        id: r.review_id,
-        title: r.title || 'Review requested',
-        phase: r.phase ?? null,
-        requested_at: num_or_null(r.requested_at),
-        message: r.message ?? null,
+        id: h.hug_id,
+        title: h.title || 'Input requested',
+        phase: h.phase ?? null,
+        created_at: num_or_null(h.created_at),
+        expires_at: num_or_null(h.expires_at),
+        responded: h.responded === true,
     };
 }
 

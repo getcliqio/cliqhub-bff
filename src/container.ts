@@ -53,7 +53,7 @@ import { RunTelemetryService } from './services/run_telemetry_service.js';
 import { RealmHostPageService } from './services/realm_host_page_service.js';
 import { TeamPageService } from './services/team_page_service.js';
 import { AgentPageService } from './services/agent_page_service.js';
-import { ReviewPageService } from './services/review_page_service.js';
+import { HugPageService } from './services/hug_page_service.js';
 import { AdminPageService } from './services/admin_page_service.js';
 
 // ── Controllers ─────────────────────────────────────────────────────
@@ -65,6 +65,7 @@ import { RealmsListController } from './controllers/realms_list_controller.js';
 import { RealmsListService } from './services/realms_list_service.js';
 import { TeamInstallService } from './services/team_install_service.js';
 import { StreamsController } from './controllers/streams_controller.js';
+import { ArtifactFilesController } from './controllers/artifact_files_controller.js';
 import { SessionController } from './controllers/session_controller.js';
 import { AuthController } from './controllers/auth_controller.js';
 import { TokensController } from './controllers/tokens_controller.js';
@@ -92,7 +93,7 @@ import { TeamListController } from './controllers/team_list_controller.js';
 import { TeamPageController } from './controllers/team_page_controller.js';
 import { AgentListController } from './controllers/agent_list_controller.js';
 import { AgentPageController } from './controllers/agent_page_controller.js';
-import { ReviewPageController } from './controllers/review_page_controller.js';
+import { HugPageController } from './controllers/hug_page_controller.js';
 import { AdminHomeController } from './controllers/admin_home_controller.js';
 import { AdminListController } from './controllers/admin_list_controller.js';
 import { SlidingWindowLimiter } from './lib/sliding_window_limiter.js';
@@ -116,6 +117,7 @@ export interface Container {
     team_install_controller: TeamInstallController;
     realms_list_controller: RealmsListController;
     streams_controller: StreamsController;
+    artifact_files_controller: ArtifactFilesController;
     // Identity
     session_controller: SessionController;
     auth_controller: AuthController;
@@ -147,7 +149,7 @@ export interface Container {
     team_page_controller: TeamPageController;
     agent_list_controller: AgentListController;
     agent_page_controller: AgentPageController;
-    review_page_controller: ReviewPageController;
+    hug_page_controller: HugPageController;
     admin_home_controller: AdminHomeController;
     admin_list_controller: AdminListController;
 }
@@ -180,11 +182,11 @@ export function build_container(deps: {
     const invitations_repo = new InvitationsRepository(core_client);
     const teams_repo = new TeamsRepository(core_client);
     const control_repo = new ControlRepository(core_client);
-    const review_page_service = new ReviewPageService(core_reads, orgs_repo);
+    const hug_page_service = new HugPageService(core_reads);
     const dashboard_repo = new DashboardRepository(core_client);
 
     // Services shared by several controllers
-    const proxy_service = new ProxyService(new CoreProxyRepository(core_client));
+    const proxy_service = new ProxyService(new CoreProxyRepository(core_client), config.artifact_max_mb);
     const session_service = new SessionService(new IdentityRepository(core_client), session_store, config);
     const inbox_service = new InboxService(orgs_repo, control_repo);
     const team_page_service = new TeamPageService(control_repo, teams_repo);
@@ -206,6 +208,7 @@ export function build_container(deps: {
         team_install_controller: new TeamInstallController(new TeamInstallService(orgs_repo, control_repo), proxy_service),
         realms_list_controller: new RealmsListController(new RealmsListService(proxy_service, teams_repo)),
         streams_controller: new StreamsController(proxy_service),
+        artifact_files_controller: new ArtifactFilesController(proxy_service),
 
         session_controller: new SessionController(session_service, config),
         auth_controller: new AuthController(session_service, config),
@@ -241,8 +244,8 @@ export function build_container(deps: {
         )),
         run_detail_controller: new RunDetailController(new RunDetailService(
             control_repo,
-            // "Why it failed": the review a run stopped at, read like the review page reads it.
-            async (review_id, token) => (await review_page_service.get({ review_id }, token)).review,
+            // "Why it failed": the Hug a gate stopped at, read like the Hug page reads it.
+            async (hug_id, token) => (await hug_page_service.get({ hug_id }, token)).hug,
         )),
         realm_runs_controller: new RealmRunsController(new RealmRunsService(control_repo)),
         realm_teams_controller: new RealmTeamsController(new RealmTeamsService(control_repo, teams_repo)),
@@ -257,7 +260,7 @@ export function build_container(deps: {
         team_page_controller: new TeamPageController(team_page_service),
         agent_list_controller: new AgentListController(agent_page_service),
         agent_page_controller: new AgentPageController(agent_page_service),
-        review_page_controller: new ReviewPageController(review_page_service),
+        hug_page_controller: new HugPageController(hug_page_service),
         admin_home_controller: new AdminHomeController(admin_page_service),
         admin_list_controller: new AdminListController(admin_page_service),
     };

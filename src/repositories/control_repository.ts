@@ -1,6 +1,6 @@
 /**
  * Control plane — typed reads (and the one rule write) over Core's realm, run,
- * review, daemon and notification routes: the same paths the SPA reaches
+ * Hug, daemon and notification routes: the same paths the SPA reaches
  * through the hub passthrough. BFF composition services use it so the browser
  * makes one call instead of fanning out. Every call is made as the bearer
  * (the session's `target_token`).
@@ -15,7 +15,7 @@ import type { CoreClient } from './core_client.js';
 import type { SortDir } from '../lib/core_list.js';
 import type {
     ControlDaemonVO, ControlPageVO, ControlRealmListItemVO, ControlRealmMemberVO, ControlRealmVO,
-    ControlReviewVO, ControlRunPhaseVO, ControlRunVO, ControlArtifactVO, ControlOrgTeamVO } from '../types/core/control.js';
+    ControlHugVO, ControlRunPhaseVO, ControlRunVO, ControlArtifactVO, ControlOrgTeamVO } from '../types/core/control.js';
 import type { InAppNotificationPageVO, InAppNotificationVO, NotifChannelVO, NotifDestinationVO, NotifRuleVO } from '../types/core/notifications.js';
 
 /** Core run states (`runs/get` `state` filter). */
@@ -69,7 +69,7 @@ export interface ControlSetRuleInput {
     enabled?: boolean;
 }
 
-/** Typed control-plane reads (realms, runs, reviews, daemons, notifications) and the notification-rule write. */
+/** Typed control-plane reads (realms, runs, Hugs, daemons, notifications) and the notification-rule write. */
 export class ControlRepository {
     constructor(private readonly _core: CoreClient) {}
 
@@ -85,12 +85,12 @@ export class ControlRepository {
         return res.realm;
     }
 
-    /** `POST /v1/reviews/get { realm_id, statuses: [pending] }` — one page of a realm's pending reviews. */
-    async pending_reviews(realm_id: string, token: string, limit = 50): Promise<ControlPageVO<ControlReviewVO>> {
-        const res = await this._core.post_body<{ data: ControlPageVO<ControlReviewVO> }>(
-            '/v1/reviews/get', { realm_id, statuses: ['pending'], limit }, token,
+    /** `POST /v1/hugs/get { realm_id, statuses: [open] }` — one page of a realm's open Hugs (those that reached the caller). */
+    async open_hugs(realm_id: string, token: string, limit = 50): Promise<ControlPageVO<ControlHugVO>> {
+        const res = await this._core.post_body<{ data: ControlPageVO<ControlHugVO> }>(
+            '/v1/hugs/get', { realm_id, statuses: ['open'], limit }, token,
         );
-        return page(res.data);
+        return res.data;
     }
 
     /** `POST /v1/runs/get { realm_id, … }` — one page of a realm's runs, newest-updated first. */

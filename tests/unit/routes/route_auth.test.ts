@@ -153,7 +153,7 @@ describe('Core contract (needs the sibling cliqhub-core checkout)', () => {
 
     it.skipIf(!has_core)('the new passthrough paths exist in Core, settings writes as site_admin', () => {
         const src = fs.readFileSync(table, 'utf8');
-        for (const p of ['/v1/runs/create_rdr', '/v1/artifacts/submit', '/v1/artifacts/delete', '/v1/auth/validate_token', '/v1/settings/set', '/v1/settings/remove']) {
+        for (const p of ['/v1/runs/create_rdr', '/v1/artifacts/delete', '/v1/hugs/respond', '/v1/hugs/get_events', '/v1/auth/validate_token', '/v1/settings/set', '/v1/settings/remove']) {
             expect(core.has(p), p).toBe(true);
         }
         expect(src).toMatch(/'POST \/v1\/settings\/set':\s*site_admin\(/);

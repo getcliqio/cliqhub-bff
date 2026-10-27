@@ -11,7 +11,7 @@ function repo() {
     return {
         realm_by_slug: vi.fn().mockResolvedValue(realm),
         realm_by_id: vi.fn().mockResolvedValue(realm),
-        pending_reviews: vi.fn().mockResolvedValue({ items: [], total: 0 }),
+        open_hugs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
         runs: vi.fn().mockResolvedValue({ items: [], total: 0 }),
         run_by_id: vi.fn(),
         run_phases: vi.fn().mockResolvedValue([]),
@@ -34,7 +34,7 @@ describe('RealmInboxService', () => {
     it('resolves the realm by org + slug with the caller token, then reads four sections for that realm id', async () => {
         await service.get({ org_slug: 'acme', slug: 'prod' }, 'tok');
         expect(control.realm_by_slug).toHaveBeenCalledWith('acme', 'prod', 'tok');
-        expect(control.pending_reviews).toHaveBeenCalledWith('realm-1', 'tok');
+        expect(control.open_hugs).toHaveBeenCalledWith('realm-1', 'tok');
         const filters = control.runs.mock.calls.map((c) => c[0]);
         expect(filters).toEqual([
             { realm_id: 'realm-1', state: 'awaiting_input', limit: 50 },
@@ -48,37 +48,37 @@ describe('RealmInboxService', () => {
         control.realm_by_slug.mockRejectedValue(new ApiError('forbidden', 'Not a realm member', 403));
         await expect(service.get({ org_slug: 'acme', slug: 'prod' }, 'tok')).rejects.toMatchObject({ status: 403 });
         expect(control.runs).not.toHaveBeenCalled();
-        expect(control.pending_reviews).not.toHaveBeenCalled();
+        expect(control.open_hugs).not.toHaveBeenCalled();
     });
 
-    it('merges reviews, awaiting input and failures newest first; running goes to live', async () => {
-        control.pending_reviews.mockResolvedValue({ items: [{ review_id: 'rev-1', title: 'Approve', run_id: 'r1', phase: 'gate', requested_at: 5000, status: 'pending', artifact_count: 2 }], total: 1 });
+    it('merges Hugs, awaiting input and failures newest first; running goes to live', async () => {
+        control.open_hugs.mockResolvedValue({ items: [{ hug_id: 'hug-1', title: 'Approve', run_id: 'r1', phase: 'gate', created_at: 5000, expires_at: 9000, status: 'open', responded: false }], total: 1 });
         control.runs.mockImplementation(async (f: any) => {
             if (f.state === 'awaiting_input') return { items: [run('r-wait', 'awaiting_input', { last_updated_at: 7000, current_phase: 'intake' })], total: 3 };
             if (Array.isArray(f.state)) return { items: [run('r-fail', 'crashed', { completed_at: 6000, error: 'boom' })], total: 1 };
             return { items: [run('r-live', 'running')], total: 1 };
         });
         const dto = await service.get({ org_slug: 'acme', slug: 'prod' }, 'tok');
-        expect(dto.items.map((i) => [i.kind, i.id])).toEqual([['input', 'r-wait'], ['failed', 'r-fail'], ['review', 'rev-1']]);
+        expect(dto.items.map((i) => [i.kind, i.id])).toEqual([['input', 'r-wait'], ['failed', 'r-fail'], ['hug', 'hug-1']]);
         expect(dto.items[0].phase).toBe('intake');
         expect(dto.items[1]).toMatchObject({ state: 'crashed', error: 'boom', at: 6000 });
-        expect(dto.items[2]).toMatchObject({ run_id: 'r1', artifact_count: 2, title: 'Approve' });
+        expect(dto.items[2]).toMatchObject({ run_id: 'r1', expires_at: 9000, responded: false, title: 'Approve' });
         expect(dto.live.map((i) => i.id)).toEqual(['r-live']);
         // Counts use Core totals, not page length.
-        expect(dto.counts).toEqual({ reviews: 1, awaiting_input: 3, failed_24h: 1, running: 1 });
+        expect(dto.counts).toEqual({ hugs: 1, awaiting_input: 3, failed_24h: 1, running: 1 });
         expect(dto.realm).toEqual(realm);
         expect(dto.partial).toBe(false);
     });
 
     it('keeps the other sections when one Core read fails, and flags partial', async () => {
-        control.pending_reviews.mockRejectedValue(new ApiError('upstream', 'reviews down', 502));
+        control.open_hugs.mockRejectedValue(new ApiError('upstream', 'hugs down', 502));
         control.runs.mockImplementation(async (f: any) => (f.state === 'running' ? { items: [run('r-live', 'running')], total: 1 } : { items: [], total: 0 }));
         const dto = await service.get({ org_slug: 'acme', slug: 'prod' }, 'tok');
         expect(dto.partial).toBe(true);
-        expect(dto.sections.reviews).toEqual({ status: 'error', error: 'reviews down' });
+        expect(dto.sections.hugs).toEqual({ status: 'error', error: 'hugs down' });
         expect(dto.sections.running.status).toBe('ok');
         expect(dto.live).toHaveLength(1);
-        expect(dto.counts.reviews).toBe(0);
+        expect(dto.counts.hugs).toBe(0);
     });
 
     it('hides non-API error internals', async () => {
@@ -144,13 +144,13 @@ describe('RunDetailService', () => {
         expect(control.run_phases).not.toHaveBeenCalled();
     });
 
-    it('composes run, phases, labels, realm and this run\'s pending reviews with the caller token', async () => {
+    it('composes run, phases, labels, realm and this run\'s open Hugs with the caller token', async () => {
         control.run_by_id.mockResolvedValue({ run_id: 'r1', realm_id: 'realm-1', state: 'awaiting_input', pending_control: null, state_lost_at: null });
         control.run_phases.mockResolvedValue([{ phase: 'plan', status: 'completed', sequence: 0, started_at: 1, completed_at: 2 }, { phase: 'gate', status: 'awaiting_input', sequence: 1 }]);
         control.runs.mockResolvedValue({ items: [{ run_id: 'r10', state: 'running', team_label: 'wrong' }, { run_id: 'r1', state: 'awaiting_input', team_label: '@cliq/dev', workspace_name: 'api' }], total: 2 });
-        control.pending_reviews.mockResolvedValue({ items: [
-            { review_id: 'rev-1', run_id: 'r1', title: 'Approve plan', phase: 'gate', requested_at: 9 },
-            { review_id: 'rev-2', run_id: 'other', title: 'Not mine' },
+        control.open_hugs.mockResolvedValue({ items: [
+            { hug_id: 'hug-1', run_id: 'r1', title: 'Approve plan', phase: 'gate', created_at: 9, expires_at: 99 },
+            { hug_id: 'hug-2', run_id: 'other', title: 'Not mine' },
         ], total: 2 });
         const dto = await service.get({ run_id: 'r1' }, 'tok');
         expect(control.run_by_id).toHaveBeenCalledWith('r1', 'tok', { with_history: true });
@@ -161,7 +161,7 @@ describe('RunDetailService', () => {
         expect(dto.phases.map((p) => p.phase)).toEqual(['plan', 'gate']);
         expect(dto.phases[1]).toMatchObject({ started_at: null, error: null, agent: null });
         expect(dto.realm).toEqual(realm);
-        expect(dto.reviews).toEqual([{ id: 'rev-1', title: 'Approve plan', phase: 'gate', requested_at: 9, message: null }]);
+        expect(dto.hugs).toEqual([{ id: 'hug-1', title: 'Approve plan', phase: 'gate', created_at: 9, expires_at: 99, responded: false }]);
         expect(control.run_artifacts).toHaveBeenCalledWith('r1', 'tok');
         expect(dto.artifacts).toEqual([]);
         expect(dto.sections.artifacts.status).toBe('ok');

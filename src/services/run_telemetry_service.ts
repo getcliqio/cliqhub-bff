@@ -184,22 +184,25 @@ export class RunTelemetryService {
     constructor(private readonly _reads: CoreReadRepository, private readonly _control: ControlRepository) {}
 
     /**
-     * The run's team workflow. `run.team_id` is the team's install on a daemon,
-     * not the published team `teams/get_phases` reads — so the published team is
-     * found by the run's `@scope/name` label (`teams/get_by_id { scope, name }`).
-     * `team_id` is tried first for runs that do carry a published id.
+     * The run's team workflow. `run.team_id` is the team's install on a daemon, which
+     * `teams/get_phases` (published teams) never knows — so the published team is found by the
+     * run's `@scope/name` label (`teams/get_by_id { scope, name }`) first, and `team_id` is used
+     * only for a run without a label, or whose label isn't a published team. (Trying `team_id`
+     * first cost a guaranteed 404 — and a Core access warning — on every poll of the run page.)
      */
     private async _workflow(run: ControlRunVO, team_id: string, version_id: string | null, token: string): Promise<unknown> {
+        const version = version_id ? { version_id } : {};
         const label = /^@?([^/\s]+)\/([^/\s]+)$/.exec(str(run.team_label) ?? '');
-        try {
-            return await this._reads.read('teams.get_phases', { team_id, ...(version_id ? { version_id } : {}) }, token);
-        } catch (err) {
-            if (!label || !(err instanceof ApiError) || err.status !== 404) throw err;
+        if (label) {
+            try {
+                const team = data_of(await this._reads.read('teams.get_by_id', { scope: label[1], name: label[2] }, token)) as { id?: string };
+                // version_id names a published version of that team, so it still applies.
+                if (team?.id) return await this._reads.read('teams.get_phases', { team_id: team.id, ...version }, token);
+            } catch (err) {
+                if (!(err instanceof ApiError) || err.status !== 404) throw err;
+            }
         }
-        const team = data_of(await this._reads.read('teams.get_by_id', { scope: label[1], name: label[2] }, token)) as { id?: string };
-        if (!team?.id) return null;
-        // version_id names a published version of that team, so it still applies.
-        return this._reads.read('teams.get_phases', { team_id: team.id, ...(version_id ? { version_id } : {}) }, token);
+        return this._reads.read('teams.get_phases', { team_id, ...version }, token);
     }
 
     /**

@@ -11,7 +11,7 @@ import type { DashboardOrgInput, DashboardRealmsVO, DashboardSummaryVO } from '.
 export class DashboardRepository {
     constructor(private readonly _client: CoreClient) {}
 
-    /** `POST /internal/dashboard/summary` — one org's counts, live runs and pending reviews. */
+    /** `POST /internal/dashboard/summary` — one org's counts, live runs and open Hugs. */
     async summary(input: DashboardOrgInput, token: string): Promise<DashboardSummaryVO> {
         return this._client.post_body<DashboardSummaryVO & Record<string, unknown>>('/internal/dashboard/summary', input, token);
     }

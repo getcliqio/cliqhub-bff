@@ -1,6 +1,6 @@
 /**
  * Control-plane reads composed by BFF pages — realms, runs, run phases,
- * reviews as Core sends them (`/v1/realms/*`, `/v1/runs/*`, `/v1/reviews/*`).
+ * Hugs as Core sends them (`/v1/realms/*`, `/v1/runs/*`, `/v1/hugs/*`).
  */
 
 /** A realm header as the control-plane realm reads return it. */
@@ -92,21 +92,25 @@ export interface ControlPhaseAttemptVO {
     error?: string | null;
 }
 
-/** A pending review request. */
-export interface ControlReviewVO {
-    review_id: string;
+/** One Hug in Core's `hugs/get` list (a request for input that reached the caller). */
+export interface ControlHugVO {
+    hug_id: string;
+    title?: string | null;
     realm_id?: string | null;
+    realm_name?: string | null;
+    realm_slug?: string | null;
+    org_slug?: string | null;
     run_id?: string | null;
     run_name?: string | null;
-    phase?: string | null;
     team?: string | null;
-    title?: string | null;
-    message?: string | null;
-    review_url?: string | null;
-    requested_at?: number | null;
-    notification_id?: string | null;
+    phase?: string | null;
     status?: string | null;
-    artifact_count?: number | null;
+    /** The caller has already answered it. */
+    responded?: boolean;
+    created_at?: number | null;
+    expires_at?: number | null;
+    closed_at?: number | null;
+    last_reminded_at?: number | null;
 }
 
 /** A paged control-plane list. */

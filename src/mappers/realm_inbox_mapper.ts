@@ -1,6 +1,6 @@
-/** Realm inbox — Core realms, runs and reviews → inbox items. */
+/** Realm inbox — Core realms, runs and Hugs → inbox items. */
 
-import type { ControlRealmVO, ControlRunVO, ControlReviewVO } from '../types/core/control.js';
+import type { ControlHugVO, ControlRealmVO, ControlRunVO } from '../types/core/control.js';
 import { ApiError } from '../errors/api_error.js';
 import type { ControlRealmData, InboxItemData, InboxSectionStatusData } from '../schemas/realm_inbox_types.js';
 
@@ -12,20 +12,20 @@ export function to_control_realm_data(r: ControlRealmVO): ControlRealmData {
     return { id: r.id, slug: r.slug, name: r.name || r.slug, org_slug: r.org_slug ?? null };
 }
 
-/** Review → inbox item (title falls back to the run name). */
-export function to_inbox_review_item(r: ControlReviewVO): InboxItemData {
+/** Hug → inbox item (title falls back to the run name). */
+export function to_inbox_hug_item(h: ControlHugVO): InboxItemData {
     return {
-        kind: 'review',
-        id: r.review_id,
-        run_id: r.run_id ?? null,
-        title: r.title || r.run_name || 'Review requested',
-        team: r.team ?? null,
-        phase: r.phase ?? null,
-        state: r.status ?? 'pending',
-        at: num_or_null(r.requested_at),
+        kind: 'hug',
+        id: h.hug_id,
+        run_id: h.run_id ?? null,
+        title: h.title || h.run_name || 'Input requested',
+        team: h.team ?? null,
+        phase: h.phase ?? null,
+        state: h.status ?? 'open',
+        at: num_or_null(h.created_at),
         error: null,
-        message: r.message ?? null,
-        artifact_count: num_or_null(r.artifact_count),
+        expires_at: num_or_null(h.expires_at),
+        responded: typeof h.responded === 'boolean' ? h.responded : null,
         origin: null,
     };
 }
@@ -46,8 +46,8 @@ export function to_inbox_run_item(r: ControlRunVO, kind: 'input' | 'failed' | 'r
         state: r.state,
         at,
         error: r.error ?? null,
-        message: null,
-        artifact_count: null,
+        expires_at: null,
+        responded: null,
         origin: typeof r.origin === 'string' ? r.origin : null,
     };
 }

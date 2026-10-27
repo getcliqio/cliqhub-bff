@@ -22,9 +22,9 @@ function mocks() {
 }
 
 describe('inbox mapper', () => {
-    it('promotes review/channel ids from payload and leaves account rows unowned', () => {
-        const hug = to_inbox_item_data(row('h', 1, { event: 'hug.review_requested', payload: { review_id: 'rev-9' } }) as any, A as any);
-        expect(hug).toMatchObject({ review_id: 'rev-9', org_slug: 'acme', at: 1 });
+    it('promotes Hug/channel ids from payload and leaves account rows unowned', () => {
+        const hug = to_inbox_item_data(row('h', 1, { event: 'hug.reminded', payload: { hug_id: 'hug-9' } }) as any, A as any);
+        expect(hug).toMatchObject({ hug_id: 'hug-9', org_slug: 'acme', at: 1 });
         const fail = to_inbox_item_data(row('f', 1, { event: 'notification.failed', payload: { channel_id: 'c1', original_event_type: 'run.failed' } }) as any, A as any);
         expect(fail).toMatchObject({ channel_id: 'c1', original_event: 'run.failed' });
         expect(to_inbox_item_data(row('x', 1, { realm_id: null }) as any, A as any).org_id).toBeNull();

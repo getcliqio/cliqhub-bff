@@ -43,7 +43,9 @@ export function create_app(container: Container): express.Express {
         }));
     }
 
-    app.use(express.json({ limit: '2mb' }));
+    // A streamed upload's body is the file itself: leave it unread for the controller to pipe.
+    const json = express.json({ limit: '2mb' });
+    app.use((req, res, next) => (req.path === '/v1/artifacts/upload' ? next() : json(req, res, next)));
     app.use(cookieParser());
     app.use(request_logging_middleware);
     app.use(csrf_guard);

@@ -2,10 +2,10 @@
  * Realm inbox — everything in one realm that needs a person (request schema + response data).
  *
  * Routes (controllers/realm_inbox_controller.ts):
- *   POST /v1/realm_inbox/get — pending reviews, runs awaiting input, recent failures, running runs;
+ *   POST /v1/realm_inbox/get — open Hugs, runs awaiting input, recent failures, running runs;
  *     with `summary: true` also the realm page summary (header, teams, daemons, people)
  *
- * BFF composition over Core: `/v1/realms/get_by_id { slug, org_slug }` → `/v1/reviews/get` (pending)
+ * BFF composition over Core: `/v1/realms/get_by_id { slug, org_slug }` → `/v1/hugs/get` (open)
  * + `/v1/runs/get` (awaiting_input | failed+crashed 24h | running).
  */
 
@@ -36,12 +36,12 @@ export interface ControlRealmData {
 }
 
 /** The independent reads behind the inbox. */
-export type InboxSectionKey = 'reviews' | 'awaiting_input' | 'failed' | 'running';
+export type InboxSectionKey = 'hugs' | 'awaiting_input' | 'failed' | 'running';
 
-/** One row of the inbox (a review or a run). */
+/** One row of the inbox (a Hug or a run). */
 export interface InboxItemData {
-    kind: 'review' | 'input' | 'failed' | 'run';
-    /** review_id for reviews, run_id otherwise. */
+    kind: 'hug' | 'input' | 'failed' | 'run';
+    /** hug_id for Hugs, run_id otherwise. */
     id: string;
     run_id: string | null;
     title: string;
@@ -51,10 +51,10 @@ export interface InboxItemData {
     /** Epoch ms used for ordering (requested / last updated / started). */
     at: number | null;
     error: string | null;
-    /** Review-only extras. */
-    message: string | null;
-    artifact_count: number | null;
-    /** Who initiated the run: `'hub'` (dispatched) or `'cli'` (local), or null for reviews / pre-refactor runs. */
+    /** Hug-only: when it expires (ms), and whether the caller has answered it. */
+    expires_at: number | null;
+    responded: boolean | null;
+    /** Who initiated the run: `'hub'` (dispatched) or `'cli'` (local), or null for Hugs / pre-refactor runs. */
     origin: string | null;
 }
 
@@ -67,11 +67,11 @@ export interface InboxSectionStatusData {
 /** `realm_inbox/get` */
 export interface RealmInboxData {
     realm: ControlRealmData;
-    /** Everything that needs a person: pending reviews, awaiting input, failures (24h). Newest first. */
+    /** Everything that needs a person: open Hugs, awaiting input, failures (24h). Newest first. */
     items: InboxItemData[];
     /** Running now. Newest first. */
     live: InboxItemData[];
-    counts: { reviews: number; awaiting_input: number; failed_24h: number; running: number };
+    counts: { hugs: number; awaiting_input: number; failed_24h: number; running: number };
     sections: Record<InboxSectionKey, InboxSectionStatusData>;
     partial: boolean;
     /** Only with `summary: true`. */

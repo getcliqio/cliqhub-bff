@@ -68,7 +68,6 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     '/v1/runs/complete': 'token',
     '/v1/runs/resume': 'token',
     '/v1/runs/cancel': 'token',
-    '/v1/runs/supply_inputs': 'token',
     '/v1/runs/enqueue': 'token',
     '/v1/runs/claim': 'token',
     '/v1/runs/append_logs': 'token',
@@ -83,7 +82,6 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     // ── Run artifacts ─────────────────────────────────────────────────────
     '/v1/artifacts/get': 'token',
     '/v1/artifacts/get_by_id': 'token',
-    '/v1/artifacts/submit': 'token',
     '/v1/artifacts/delete': 'token',
 
     // ── Hub settings (reads; writes are site_admin below) ─────────────────
@@ -98,15 +96,14 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     '/v1/events/custom/create': 'token',
     '/v1/events/custom/remove': 'token',
 
-    // ── Reviews (HUG) ─────────────────────────────────────────────────────
-    '/v1/reviews/get': 'token',
-    '/v1/reviews/get_by_id': 'token',
-    '/v1/reviews/create': 'token',
-    '/v1/reviews/remind': 'token',
-    '/v1/reviews/verdict': 'token',
-    '/v1/reviews/ack': 'token',
-    '/v1/reviews/get_messages': 'token',
-    '/v1/reviews/send_message': 'token',
+    // ── Hugs ──────────────────────────────────────────────────────────────
+    // create / close / get_events are daemon-only; Core enforces that.
+    '/v1/hugs/get': 'token',
+    '/v1/hugs/get_by_id': 'token',
+    '/v1/hugs/respond': 'token',
+    '/v1/hugs/create': 'token',
+    '/v1/hugs/close': 'token',
+    '/v1/hugs/get_events': 'token',
 
     // ── Notifications: channels, rules, in-app ────────────────────────────
     '/v1/notification_channels/get': 'token',

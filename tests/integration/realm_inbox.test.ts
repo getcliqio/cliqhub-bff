@@ -43,7 +43,7 @@ describe('BFF realm composition routes', () => {
         });
         return vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string, body: any) => {
             if (path === '/v1/realms/get_by_id') return { ok: true, realm: { id: 'realm-1', slug: 'prod', name: 'Prod', org_slug: 'acme' } } as any;
-            if (path === '/v1/reviews/get') return { ok: true, data: { items: [{ review_id: 'rev-1', run_id: 'r1', title: 'Approve', requested_at: 3, status: 'pending' }], total: 1 } } as any;
+            if (path === '/v1/hugs/get') return { ok: true, data: { items: [{ hug_id: 'hug-1', run_id: 'r1', title: 'Approve', created_at: 3, status: 'open', responded: false }], total: 1 } } as any;
             if (path === '/v1/notifications/get') return { ok: true, data: { items: [{ id: 'n1', event: 'run.started', run_id: 'r1', created_at: 1, payload: {} }], total: 1 } } as any;
             if (path === '/v1/runs/get') {
                 if (body.parent_run_id) return { ok: true, data: { items: [{ run_id: 'c1', state: 'failed', parent_run_id: 'r1', parent_phase: 'plan', team_label: '@cliq/sub' }], total: 1 } } as any;
@@ -97,9 +97,9 @@ describe('BFF realm composition routes', () => {
         expect(res.status).toBe(200);
         expect(res.body.ok).toBe(true);
         expect(res.body.data.realm).toEqual({ id: 'realm-1', slug: 'prod', name: 'Prod', org_slug: 'acme' });
-        expect(res.body.data.items.map((i: any) => i.kind)).toEqual(['input', 'review']);
-        expect(res.body.data.counts).toEqual({ reviews: 1, awaiting_input: 1, failed_24h: 0, running: 0 });
-        expect(core.mock.calls.map((c) => c[0]).sort()).toEqual(['/v1/realms/get_by_id', '/v1/reviews/get', '/v1/runs/get', '/v1/runs/get', '/v1/runs/get']);
+        expect(res.body.data.items.map((i: any) => i.kind)).toEqual(['input', 'hug']);
+        expect(res.body.data.counts).toEqual({ hugs: 1, awaiting_input: 1, failed_24h: 0, running: 0 });
+        expect(core.mock.calls.map((c) => c[0]).sort()).toEqual(['/v1/hugs/get', '/v1/realms/get_by_id', '/v1/runs/get', '/v1/runs/get', '/v1/runs/get']);
     });
 
     it('realm inbox passes a Core 403 through as an error envelope', async () => {
@@ -110,7 +110,7 @@ describe('BFF realm composition routes', () => {
         expect(res.body).toMatchObject({ ok: false, error: { code: 'forbidden' } });
     });
 
-    it('run detail composes run + phases + labels + realm + reviews + artifacts', async () => {
+    it('run detail composes run + phases + labels + realm + Hugs + artifacts', async () => {
         const sid = make_session();
         mock_core();
         const res = await request(app).post('/v1/run_detail/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ run_id: 'r1' });
@@ -118,7 +118,7 @@ describe('BFF realm composition routes', () => {
         expect(res.body.data.run).toMatchObject({ run_id: 'r1', team_label: '@cliq/dev' });
         expect(res.body.data.phases).toHaveLength(1);
         expect(res.body.data.realm.slug).toBe('prod');
-        expect(res.body.data.reviews.map((r: any) => r.id)).toEqual(['rev-1']);
+        expect(res.body.data.hugs.map((h: any) => h.id)).toEqual(['hug-1']);
         expect(res.body.data.artifacts).toEqual([{ artifact_id: 'a1', source: 'file', kind: 'file', content_preview: null, phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, created_at: 4 }]);
         expect(res.body.data.sections.artifacts.status).toBe('ok');
         expect(res.body.data.attempts).toEqual([{ n: 1, started_at: 1, from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null, resumed_by: null }]);

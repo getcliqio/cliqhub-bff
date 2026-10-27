@@ -1,8 +1,8 @@
 /**
- * Run detail — one run with its phases, realm and pending reviews (BFF composition).
+ * Run detail — one run with its phases, realm and open Hugs (BFF composition).
  *
  * Routes (1:1 with this controller, mounted in routes/):
- *   POST /v1/run_detail/get — the run, phases, labels, realm and pending reviews
+ *   POST /v1/run_detail/get — the run, phases, labels, realm and open Hugs
  *
  * Session route (routes/route_auth.ts); Core gates the run by realm membership.
  * Response envelope: `{ ok: true, data: T }` via `this.ok()`.

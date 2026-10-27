@@ -25,7 +25,7 @@ export function to_inbox_item_data(row: InAppNotificationVO, org: OrgListItemVO 
         team: row.team ?? null,
         run_id: row.run_id ?? null,
         phase: row.phase ?? null,
-        review_id: str(payload.review_id),
+        hug_id: str(payload.hug_id),
         channel_id: str(payload.channel_id),
         original_event: str(payload.original_event_type),
         at: row.created_at,

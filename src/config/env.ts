@@ -25,6 +25,8 @@ export interface EnvConfig {
      * proxy every client shares the proxy's address in per-address limits.
      */
     trust_proxy: TrustProxy;
+    /** Largest artifact upload the BFF forwards, in MB (CLIQ_ARTIFACT_MAX_MB, as Core). */
+    artifact_max_mb: number;
 }
 
 /** Express `trust proxy` value: off/on, a hop count, or addresses / subnets / presets. */
@@ -118,5 +120,6 @@ export function load_env(): EnvConfig {
             process.env.RATE_LIMIT_WINDOW_MS || '60000', 10),
         static_dir: process.env.STATIC_DIR || '',
         trust_proxy: parse_trust_proxy(process.env.TRUST_PROXY),
+        artifact_max_mb: parseInt(process.env.CLIQ_ARTIFACT_MAX_MB || '50', 10),
     };
 }

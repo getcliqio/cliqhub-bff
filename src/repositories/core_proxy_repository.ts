@@ -1,7 +1,7 @@
 /**
  * Core pass-through — calls whose answer the BFF hands back unchanged:
- * control-plane routes (flat or `{ ok, data }` bodies), SSE streams and the
- * public A2A surface.
+ * control-plane routes (flat or `{ ok, data }` bodies), SSE streams, artifact
+ * file streams and the public A2A surface.
  */
 
 import type { CoreClient } from './core_client.js';
@@ -27,6 +27,21 @@ export class CoreProxyRepository {
             accept: 'text/event-stream',
             ...(token ? { authorization: `Bearer ${token}` } : {}),
         });
+    }
+
+    /** `POST /v1/artifacts/upload?{query}` with the file streamed as the body; Core's response unread. */
+    async upload_artifact(query: string, body: AsyncIterable<Uint8Array>, headers: Record<string, string>): Promise<Response> {
+        return this._client.raw_stream('POST', `/v1/artifacts/upload${query}`, headers, body);
+    }
+
+    /** `GET ?{query}` or `POST {body}` `/v1/artifacts/download`; the file unread. */
+    async download_artifact(
+        request: { method: 'GET'; query: string } | { method: 'POST'; body: unknown },
+        headers: Record<string, string>,
+    ): Promise<Response> {
+        return request.method === 'GET'
+            ? this._client.raw_stream('GET', `/v1/artifacts/download${request.query}`, headers)
+            : this._client.raw_stream('POST', '/v1/artifacts/download', { ...headers, 'Content-Type': 'application/json' }, JSON.stringify(request.body ?? {}));
     }
 
     /** `GET /a2a/o/{org}/r/{slug}/.well-known/agent-card.json` — public; Core's status + body. */

@@ -23,7 +23,7 @@
  * POST /v1/team_page/get
  * POST /v1/agent_list/get
  * POST /v1/agent_page/get
- * POST /v1/review_page/get
+ * POST /v1/hug_page/get
  * POST /v1/admin_home/get
  * POST /v1/admin_list/get
  */
@@ -56,7 +56,7 @@ export function register_pages_routes(r: RouteRegistrar, c: Container): void {
     r.post('/v1/team_page/get', c.team_page_controller.wrap(c.team_page_controller.get));
     r.post('/v1/agent_list/get', c.agent_list_controller.wrap(c.agent_list_controller.get));
     r.post('/v1/agent_page/get', c.agent_page_controller.wrap(c.agent_page_controller.get));
-    r.post('/v1/review_page/get', c.review_page_controller.wrap(c.review_page_controller.get));
+    r.post('/v1/hug_page/get', c.hug_page_controller.wrap(c.hug_page_controller.get));
     r.post('/v1/admin_home/get', c.admin_home_controller.wrap(c.admin_home_controller.get));
     r.post('/v1/admin_list/get', c.admin_list_controller.wrap(c.admin_list_controller.get));
 }

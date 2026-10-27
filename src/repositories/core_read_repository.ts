@@ -25,7 +25,7 @@ export const CORE_READS = {
     'permissions.list': '/v1/permissions/list',
     'realms.get': '/v1/realms/get',
     'reports.audit': '/internal/reports/audit',
-    'reviews.get_by_id': '/v1/reviews/get_by_id',
+    'hugs.get_by_id': '/v1/hugs/get_by_id',
     'runs.get': '/v1/runs/get',
     'runs.get_logs': '/v1/runs/get_logs',
     'runs.get_telemetry': '/v1/runs/get_telemetry',

@@ -134,13 +134,17 @@ const OWN_ROUTES: Record<string, RouteAuth> = {
     'POST /v1/team_page/get': 'session',
     'POST /v1/agent_list/get': 'session',
     'POST /v1/agent_page/get': 'session',
-    'POST /v1/review_page/get': 'session',
+    'POST /v1/hug_page/get': 'session',
     'POST /v1/admin_home/get': 'site_admin',
     'POST /v1/admin_list/get': 'site_admin',
 
     // ── Streams (SSE passthrough) ───────────────────────────────────
     'GET /v1/runs/stream': 'token',
-    'GET /v1/reviews/stream_messages': 'token',
+
+    // ── Artifact files (streamed passthrough; Core checks access) ──
+    'POST /v1/artifacts/upload': 'token',
+    'GET /v1/artifacts/download': 'token',
+    'POST /v1/artifacts/download': 'token',
 };
 
 /** Own routes + Core pass-through (routes/passthrough_paths.ts). */

@@ -106,6 +106,11 @@ describe('BFF route surface audit', () => {
 			expect(PASSTHROUGH).toContain(route);
 		}
 		for (const dropped of [
+			// Replaced by Hugs (PLAN-hug-requests): answered through /v1/hugs/respond.
+			'/v1/runs/supply_inputs',
+			'/v1/reviews/get',
+			'/v1/reviews/verdict',
+			'/v1/artifacts/submit',
 			'/v1/workspaces/upsert_by_path',
 			'/v1/workspaces/add_team',
 			'/v1/workspaces/remove_team',
@@ -206,8 +211,10 @@ describe('BFF route surface audit', () => {
 	it('passthrough covers the Core run/artifact/token-check routes the daemon and CLI use', () => {
 		for (const route of [
 			'/v1/runs/create_rdr',
-			'/v1/artifacts/submit',
 			'/v1/artifacts/delete',
+			'/v1/hugs/create',
+			'/v1/hugs/close',
+			'/v1/hugs/get_events',
 			'/v1/auth/validate_token',
 		]) {
 			expect(PASSTHROUGH_PATHS[route], route).toBe('token');

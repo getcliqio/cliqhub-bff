@@ -54,11 +54,11 @@ describe('ProxyService streams', () => {
         const stream = vi.fn().mockResolvedValue(new Response(sse_body(''), { status: 200 }));
         const svc = service_with(stream);
 
-        await svc.stream_review_messages({ review_id: 'rv-1', after_id: undefined }, null);
+        await svc.stream_run({ run_id: 'run-1', after_id: undefined }, null);
 
         const [path, params, token] = stream.mock.calls[0];
-        expect(path).toBe('/v1/reviews/stream_messages');
-        expect((params as URLSearchParams).toString()).toBe('review_id=rv-1');
+        expect(path).toBe('/v1/runs/stream');
+        expect((params as URLSearchParams).toString()).toBe('run_id=run-1');
         expect(token).toBeNull();
     });
 
@@ -77,7 +77,7 @@ describe('ProxyService streams', () => {
         const stream = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
         const svc = service_with(stream);
 
-        const err = await svc.stream_review_messages({ review_id: 'rv' }, 'tok').catch((e) => e);
+        const err = await svc.stream_run({ run_id: 'r' }, 'tok').catch((e) => e);
         expect(err).toBeInstanceOf(ApiError);
         expect(err.status).toBe(502);
     });
@@ -105,10 +105,10 @@ describe('CoreProxyRepository.stream', () => {
         vi.stubGlobal('fetch', fetch_mock);
         const repo = new CoreProxyRepository(new CoreClient('http://core.test'));
 
-        await repo.stream('/v1/reviews/stream_messages', new URLSearchParams(), null);
+        await repo.stream('/v1/runs/stream', new URLSearchParams(), null);
 
         const [url, init] = fetch_mock.mock.calls[0];
-        expect(url).toBe('http://core.test/v1/reviews/stream_messages');
+        expect(url).toBe('http://core.test/v1/runs/stream');
         expect(init.headers.Authorization).toBeUndefined();
     });
 });
@@ -118,7 +118,6 @@ describe('StreamsController over ProxyService', () => {
         const c = new StreamsController(service_with(stream));
         const app = express();
         app.get('/v1/runs/stream', c.wrap(c.runs));
-        app.get('/v1/reviews/stream_messages', c.wrap(c.review_messages));
         app.use(error_handler);
         return app;
     }
@@ -146,7 +145,7 @@ describe('StreamsController over ProxyService', () => {
     it('pipes the event stream with SSE headers and the bearer', async () => {
         const stream = vi.fn().mockResolvedValue(new Response(sse_body('data: hello\n\n'), { status: 200 }));
         const res = await request(app_with(stream))
-            .get('/v1/reviews/stream_messages?review_id=rv1')
+            .get('/v1/runs/stream?run_id=r1')
             .set('Authorization', 'Bearer pat');
         expect(res.status).toBe(200);
         expect(res.headers['content-type']).toContain('text/event-stream');

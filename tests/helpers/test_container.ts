@@ -28,6 +28,7 @@ export function test_config(): EnvConfig {
         rate_limit_window_ms: 60000,
         static_dir: '',
         trust_proxy: false,
+        artifact_max_mb: 50,
     };
 }
 

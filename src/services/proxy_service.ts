@@ -1,16 +1,23 @@
 /**
  * Pass-through to Core — the Core routes the BFF forwards as-is
- * (routes/passthrough_paths.ts), Core's SSE streams and the public A2A surface.
+ * (routes/passthrough_paths.ts), Core's SSE streams, artifact file streams and
+ * the public A2A surface.
  * Core applies its own route policy to each call.
  */
 
 import { ApiError } from '../errors/api_error.js';
 import type { CoreProxyRepository } from '../repositories/core_proxy_repository.js';
-import type { StreamRunsInput, StreamReviewMessagesInput } from '../schemas/streams_types.js';
+import type { StreamRunsInput } from '../schemas/streams_types.js';
+
+const MB = 1024 * 1024;
 
 /** Forwards pass-through calls, SSE streams and A2A requests to Core unchanged. */
 export class ProxyService {
-    constructor(private readonly _repo: CoreProxyRepository) {}
+    private readonly _max_artifact_bytes: number;
+
+    constructor(private readonly _repo: CoreProxyRepository, max_artifact_mb = 50) {
+        this._max_artifact_bytes = max_artifact_mb * MB;
+    }
 
     /**
      * Forwards one control-plane call; `x-org-id` travels with it when the
@@ -25,9 +32,25 @@ export class ProxyService {
         return this._open_stream('/v1/runs/stream', input, token);
     }
 
-    /** A review's live message stream. @throws ApiError when Core refuses the stream. */
-    async stream_review_messages(input: StreamReviewMessagesInput, token: string | null): Promise<ReadableStream<Uint8Array>> {
-        return this._open_stream('/v1/reviews/stream_messages', input, token);
+    /**
+     * Streams a file to Core's `/v1/artifacts/upload` (the query names the target).
+     *
+     * @throws ApiError `payload_too_large` (413) when the declared size is over the limit.
+     */
+    async upload_artifact(query: string, body: AsyncIterable<Uint8Array>, headers: Record<string, string>): Promise<Response> {
+        const size = Number(headers['content-length']);
+        if (Number.isFinite(size) && size > this._max_artifact_bytes) {
+            throw new ApiError('payload_too_large', `File is larger than ${this._max_artifact_bytes / MB} MB`, 413);
+        }
+        return this._repo.upload_artifact(query, body, headers);
+    }
+
+    /** Opens a file from Core's `/v1/artifacts/download` (Range passed through). */
+    async download_artifact(
+        request: { method: 'GET'; query: string } | { method: 'POST'; body: unknown },
+        headers: Record<string, string>,
+    ): Promise<Response> {
+        return this._repo.download_artifact(request, headers);
     }
 
     /** The realm's public A2A agent card: Core's status and JSON. */

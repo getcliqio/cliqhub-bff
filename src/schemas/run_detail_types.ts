@@ -1,11 +1,11 @@
 /**
- * Run detail — one run with its phases, realm and pending reviews (request schema + response data).
+ * Run detail — one run with its phases, realm and open Hugs (request schema + response data).
  *
  * Routes (controllers/run_detail_controller.ts):
  *   POST /v1/run_detail/get
  *
  * BFF composition over Core: `/v1/runs/get_by_id` → `/v1/runs/get_status` + `/v1/runs/get { query }`
- * (labels) + `/v1/realms/get_by_id { realm_id }` + `/v1/reviews/get` (pending, for the run)
+ * (labels) + `/v1/realms/get_by_id { realm_id }` + `/v1/hugs/get` (open, for the run)
  * + `/v1/notifications/get { org_id, run_id, types }` (attempts) + `/v1/runs/get { parent_run_id }`
  * (children) + `/v1/runs/get_by_id` (parent, for a sub-team run).
  */
@@ -96,13 +96,15 @@ export interface RunDetailChildData {
     org_slug: string | null;
 }
 
-/** A pending review on the run. */
-export interface RunDetailReviewData {
+/** An open Hug on the run (one that reached the caller). */
+export interface RunDetailHugData {
     id: string;
     title: string;
     phase: string | null;
-    requested_at: number | null;
-    message: string | null;
+    created_at: number | null;
+    expires_at: number | null;
+    /** The caller has already answered it. */
+    responded: boolean;
 }
 
 /** A file the run stored; downloads go through `artifacts/get_by_id` (fresh link). */
@@ -177,16 +179,16 @@ export interface RunDetailPhaseOutputData {
 }
 
 /** Sections of the run page that load (and can fail) independently. */
-export type RunDetailSectionKey = 'phases' | 'labels' | 'realm' | 'reviews' | 'artifacts' | 'events' | 'parent' | 'children';
+export type RunDetailSectionKey = 'phases' | 'labels' | 'realm' | 'hugs' | 'artifacts' | 'events' | 'parent' | 'children';
 
-/** `run_detail/get` — the run, its phases, realm and pending reviews, with per-section status. */
+/** `run_detail/get` — the run, its phases, realm and open Hugs, with per-section status. */
 export interface RunDetailData {
     /** Core run row (get_by_id, with detail enrichment) + team_label/workspace_name from the list read. */
     run: Record<string, unknown> & { run_id: string; state: string };
     phases: RunDetailPhaseData[];
     realm: ControlRealmData | null;
-    /** Pending human reviews attached to this run. */
-    reviews: RunDetailReviewData[];
+    /** Open Hugs of this run that reached the caller. */
+    hugs: RunDetailHugData[];
     /** Files the run stored and its run records (empty when none). */
     artifacts: RunDetailArtifactData[];
     /** Each phase output (`kind: output` records), oldest first, read for display. */
@@ -241,7 +243,8 @@ export interface RunFailureReviewerData {
 
 /** The review a run failed on. */
 export interface RunFailureReviewData {
-    review_id: string;
+    /** The Hug the review was. */
+    hug_id: string;
     status: string | null;
     /** `any` — one answer decides; `all` — everyone must approve. */
     policy: 'any' | 'all' | null;

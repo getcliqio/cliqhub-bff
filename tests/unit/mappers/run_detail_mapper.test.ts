@@ -5,7 +5,7 @@ import {
     to_run_detail_child_data,
     to_run_detail_parent_data,
     to_run_detail_phase_data,
-    to_run_detail_review_data,
+    to_run_detail_hug_data,
 } from '../../../src/mappers/run_detail_mapper.js';
 
 describe('run detail mapper', () => {
@@ -16,11 +16,11 @@ describe('run detail mapper', () => {
             .toEqual({ phase: 'qa', status: 'pending', sequence: null, started_at: null, completed_at: null, error: null, agent: null, attempts: 0, previous_attempts: [] });
     });
 
-    it('review: id from review_id, default title, null optionals', () => {
-        expect(to_run_detail_review_data({ review_id: 'rv', title: 'Check', phase: 'qa', requested_at: 5, message: 'm' } as any))
-            .toEqual({ id: 'rv', title: 'Check', phase: 'qa', requested_at: 5, message: 'm' });
-        expect(to_run_detail_review_data({ review_id: 'rv' } as any))
-            .toEqual({ id: 'rv', title: 'Review requested', phase: null, requested_at: null, message: null });
+    it('Hug: id from hug_id, default title, null optionals, responded only when true', () => {
+        expect(to_run_detail_hug_data({ hug_id: 'h', title: 'Check', phase: 'qa', created_at: 5, expires_at: 9, responded: true } as any))
+            .toEqual({ id: 'h', title: 'Check', phase: 'qa', created_at: 5, expires_at: 9, responded: true });
+        expect(to_run_detail_hug_data({ hug_id: 'h' } as any))
+            .toEqual({ id: 'h', title: 'Input requested', phase: null, created_at: null, expires_at: null, responded: false });
     });
 
     it('phase: passes earlier attempts through and counts them with the current one', () => {

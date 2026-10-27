@@ -23,7 +23,7 @@ describe('RealmRunsService', () => {
         expect(dto).toMatchObject({ total: 40, offset: 20, limit: 10, counts: { all: 1284, running: 3, awaiting_input: 2, failed_7d: 4 }, partial: false });
     });
 
-    it('each row says whether it needs you (input / review) and which daemon ran it; both best-effort', async () => {
+    it('each row says whether an unanswered Hug needs you (awaiting input alone does not) and which daemon ran it; both best-effort', async () => {
         const c = {
             ...mocks(),
             runs: vi.fn().mockImplementation(async (f: { limit: number }) => (f.limit === 1 ? { items: [], total: 1 } : { total: 3, items: [
@@ -31,16 +31,16 @@ describe('RealmRunsService', () => {
                 { run_id: 'b', state: 'running', daemon_id: 'd2' },
                 { run_id: 'c', state: 'completed', daemon_id: 'gone' },
             ] })),
-            pending_reviews: vi.fn().mockResolvedValue({ total: 1, items: [{ review_id: 'rv', run_id: 'b' }] }),
+            open_hugs: vi.fn().mockResolvedValue({ total: 2, items: [{ hug_id: 'h1', run_id: 'b', responded: false }, { hug_id: 'h2', run_id: 'c', responded: true }] }),
             realm_daemons: vi.fn().mockResolvedValue({ total: 2, items: [{ id: 'd1', name: 'mac-1', hostname: 'h1' }, { id: 'd2', name: null, hostname: 'box' }] }),
         };
         const dto = await new RealmRunsService(c as any, () => NOW).get({ org_slug: 'acme', slug: 'prod' }, 'tok');
-        expect(c.pending_reviews).toHaveBeenCalledWith('r1', 'tok', 100);
-        expect(dto.items.map((r) => [r.run_id, r.needs_you, r.daemon_name])).toEqual([['a', 'input', 'mac-1'], ['b', 'review', 'box'], ['c', null, null]]);
-        c.pending_reviews.mockRejectedValue(new Error('down'));
+        expect(c.open_hugs).toHaveBeenCalledWith('r1', 'tok', 100);
+        expect(dto.items.map((r) => [r.run_id, r.needs_you, r.daemon_name])).toEqual([['a', null, 'mac-1'], ['b', 'hug', 'box'], ['c', null, null]]);
+        c.open_hugs.mockRejectedValue(new Error('down'));
         c.realm_daemons.mockRejectedValue(new Error('down'));
         const again = await new RealmRunsService(c as any, () => NOW).get({ org_slug: 'acme', slug: 'prod' }, 'tok');
-        expect(again.items.map((r) => [r.needs_you, r.daemon_name])).toEqual([['input', null], [null, null], [null, null]]);
+        expect(again.items.map((r) => [r.needs_you, r.daemon_name])).toEqual([[null, null], [null, null], [null, null]]);
         expect(again.partial).toBe(false);
     });
 

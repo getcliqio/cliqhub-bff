@@ -128,7 +128,21 @@ describe('RunTelemetryService', () => {
         });
         const dto = await svc.get({ run_id: 'r1' }, 'tok', t0 + 64 * M);
         expect(core.post_body.mock.calls.find((c: any[]) => c[0] === '/v1/teams/get_by_id')[1]).toEqual({ scope: 'measureone', name: 'qa' });
-        expect(core.post_body.mock.calls.filter((c: any[]) => c[0] === '/v1/teams/get_phases').map((c: any[]) => c[1].team_id)).toEqual(['install-1', 'catalog-qa']);
+        // The published team is asked for directly: no guaranteed 404 on the install id first.
+        expect(core.post_body.mock.calls.filter((c: any[]) => c[0] === '/v1/teams/get_phases').map((c: any[]) => c[1].team_id)).toEqual(['catalog-qa']);
+        expect(dto.sections.workflow?.status ?? 'ok').toBe('ok');
+    });
+
+    it("a label that isn't a published team falls back to the run's team_id", async () => {
+        const { svc, core, control } = make();
+        control.run_by_id.mockResolvedValue({ run_id: 'r1', state: 'completed', realm_id: 'realm1', team_id: 't1', team_label: '@local/scratch', started_at: t0, completed_at: t0 + 64 * M });
+        const base = core.post_body.getMockImplementation();
+        core.post_body.mockImplementation(async (p: string, b: any) => {
+            if (p === '/v1/teams/get_by_id') throw new ApiError('not_found', 'Team not found', 404);
+            return base!(p, b);
+        });
+        const dto = await svc.get({ run_id: 'r1' }, 'tok', t0 + 64 * M);
+        expect(core.post_body.mock.calls.filter((c: any[]) => c[0] === '/v1/teams/get_phases').map((c: any[]) => c[1].team_id)).toEqual(['t1']);
         expect(dto.sections.workflow?.status ?? 'ok').toBe('ok');
     });
 

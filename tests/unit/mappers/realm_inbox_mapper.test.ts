@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-    num_or_null, to_control_realm_data, to_inbox_review_item, to_inbox_run_item,
+    num_or_null, to_control_realm_data, to_inbox_hug_item, to_inbox_run_item,
 } from '../../../src/mappers/realm_inbox_mapper.js';
 
 describe('realm inbox mapper', () => {
@@ -20,24 +20,24 @@ describe('realm inbox mapper', () => {
             .toEqual({ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' });
     });
 
-    it('review item: title falls back to run name then a default; state defaults to pending', () => {
-        expect(to_inbox_review_item({ review_id: 'rv1', run_name: 'nightly', requested_at: 9, artifact_count: 2 } as any)).toEqual({
-            kind: 'review', id: 'rv1', run_id: null, title: 'nightly', team: null, phase: null,
-            state: 'pending', at: 9, error: null, message: null, artifact_count: 2, origin: null,
+    it('Hug item: title falls back to run name then a default; state defaults to open', () => {
+        expect(to_inbox_hug_item({ hug_id: 'h1', run_name: 'nightly', created_at: 9, expires_at: 99, responded: false } as any)).toEqual({
+            kind: 'hug', id: 'h1', run_id: null, title: 'nightly', team: null, phase: null,
+            state: 'open', at: 9, error: null, expires_at: 99, responded: false, origin: null,
         });
-        const full = to_inbox_review_item({
-            review_id: 'rv2', run_id: 'run-1', title: 'Check', team: 't', phase: 'qa', status: 'approved',
-            requested_at: 'x', message: 'hi',
+        const full = to_inbox_hug_item({
+            hug_id: 'h2', run_id: 'run-1', title: 'Check', team: 't', phase: 'qa', status: 'closed',
+            created_at: 'x', responded: true,
         } as any);
-        expect(full).toMatchObject({ title: 'Check', run_id: 'run-1', team: 't', phase: 'qa', state: 'approved', at: null, message: 'hi', artifact_count: null });
-        expect(to_inbox_review_item({ review_id: 'rv3' } as any).title).toBe('Review requested');
+        expect(full).toMatchObject({ title: 'Check', run_id: 'run-1', team: 't', phase: 'qa', state: 'closed', at: null, expires_at: null, responded: true });
+        expect(to_inbox_hug_item({ hug_id: 'h3' } as any)).toMatchObject({ title: 'Input requested', responded: null });
     });
 
     it('run item: failed sorts by completed_at, others by last movement', () => {
         const run = { run_id: 'r', state: 'failed', started_at: 1, last_updated_at: 5, completed_at: 9, error: 'boom' } as any;
         expect(to_inbox_run_item(run, 'failed')).toEqual({
             kind: 'failed', id: 'r', run_id: 'r', title: 'r', team: null, phase: null,
-            state: 'failed', at: 9, error: 'boom', message: null, artifact_count: null, origin: null,
+            state: 'failed', at: 9, error: 'boom', expires_at: null, responded: null, origin: null,
         });
         expect(to_inbox_run_item(run, 'run').at).toBe(5);
         expect(to_inbox_run_item({ run_id: 'r', state: 'failed', started_at: 1, last_updated_at: 4 } as any, 'failed').at).toBe(4);

@@ -10,6 +10,9 @@ describe('classify_failure', () => {
         expect(failed("Phase 'hug-lld' failed: Gate 'hug-lld' escalated: Review abcdef0123456789 timed out after 30m — escalating"))
             .toMatchObject({ reason: 'review_timed_out', summary: 'Review timed out after 30m with no decision' });
         expect(failed('Reviewer rejected — no route targets available')).toMatchObject({ reason: 'review_rejected' });
+        // The Hug gate's own messages (cliq-agents hug/index.ts).
+        expect(failed("Gate 'hug-lld' escalated: Review 0b9e6c2a-4f7d-4c1e-9a3b-adbf4c163079 timed out — escalating")).toMatchObject({ reason: 'review_timed_out', summary: 'Review timed out with no decision' });
+        expect(failed('Review 0b9e6c2a-4f7d-4c1e-9a3b-adbf4c163079: rejected by Ann — no route targets available (too big)')).toMatchObject({ reason: 'review_rejected' });
         expect(failed("Gate 'lint' escalated: style too far off")).toMatchObject({ reason: 'review_escalated', summary: 'A check escalated and stopped the run' });
         expect(failed('jira get_issue failed: 401 Unauthorized')).toMatchObject({ reason: 'permission', summary: 'Jira refused access' });
         expect(failed('git push: Permission denied (publickey)')).toMatchObject({ reason: 'permission', summary: 'GitHub refused access' });
@@ -25,7 +28,7 @@ describe('classify_failure', () => {
     });
 
     it('a timed-out review says whose reject did not decide it', () => {
-        const review = { review_id: 'r', status: 'expired', policy: 'any' as const, route_targets: ['draft-lld'],
+        const review = { hug_id: 'r', status: 'expired', policy: 'any' as const, route_targets: ['draft-lld'],
             reviewers: [{ name: 'krupali', action: 'REJECT', responded_at: '2026-10-08T13:50:00Z', comment: null }] };
         expect(classify_failure({ run_state: 'failed', error: 'Review r timed out after 30m', review }))
             .toMatchObject({ reason: 'review_timed_out', summary: "Review timed out after 30m — krupali's reject didn't decide it" });
@@ -33,17 +36,20 @@ describe('classify_failure', () => {
 });
 
 describe('to_failure_review', () => {
-    it('lists who the review went to and what each answered', () => {
-        const r = to_failure_review('rv1', {
-            status: 'expired', route_targets: ['draft-lld'],
-            groups: [{ policy: 'any', notifications: [
-                { channel_target: 'krupali', action: 'REJECT', responded_at: '2026-10-08T13:50:00Z', comment: 'jobs too big' },
-                { channel_target: 'sapan', action: null, responded_at: null, comment: null },
-            ] }],
+    it('lists who answered the Hug and how; route targets come from the decision choices', () => {
+        const r = to_failure_review('h1', {
+            status: 'closed',
+            requested_inputs: [{ name: 'decision', choices: [{ value: 'approve' }, { value: 'route:draft-lld' }, { value: 'reject' }] }, { name: 'comment' }],
+            responses: [
+                { responder: { name: 'krupali' }, values: { decision: 'reject', comment: 'jobs too big' }, responded_at: '2026-10-08T13:50:00Z' },
+                { responder: { name: 'sapan' }, values: { decision: 'route:draft-lld' }, comment: 'try again', responded_at: '2026-10-08T14:00:00Z' },
+                { responder: {}, values: {}, responded_at: null },
+            ],
         });
-        expect(r).toEqual({ review_id: 'rv1', status: 'expired', policy: 'any', route_targets: ['draft-lld'], reviewers: [
+        expect(r).toEqual({ hug_id: 'h1', status: 'closed', policy: null, route_targets: ['draft-lld'], reviewers: [
             { name: 'krupali', action: 'REJECT', responded_at: '2026-10-08T13:50:00Z', comment: 'jobs too big' },
-            { name: 'sapan', action: null, responded_at: null, comment: null },
+            { name: 'sapan', action: 'ROUTE:draft-lld', responded_at: '2026-10-08T14:00:00Z', comment: 'try again' },
+            { name: 'reviewer', action: null, responded_at: null, comment: null },
         ] });
     });
 });
@@ -57,9 +63,10 @@ describe('read_failure', () => {
         { phase: 'create-stories', status: 'pending', sequence: 4 },
     ] as any[];
     const child = { run_id: 'c1', run_name: 'solar-lilac-fox', team_label: '@measureone/design-lld', state: 'failed', parent_phase: 'design' } as any;
-    const review_error = "Gate 'hug-lld' escalated: Review adbf4c163079603a6915ff1cc4c9b18d timed out after 30m — escalating";
+    const hug_id = '0b9e6c2a-4f7d-4c1e-9a3b-adbf4c163079';
+    const review_error = `Gate 'hug-lld' escalated: Review ${hug_id} timed out — escalating`;
 
-    it('follows the failure into the sub-team and down to the review, and resumes from where a reject sends work', async () => {
+    it('follows the failure into the sub-team and down to the Hug, and resumes from where a reject sends work', async () => {
         const control = {
             run_phases: vi.fn(async () => [
                 { phase: 'draft-lld', status: 'done', sequence: 2 }, { phase: 'assemble', status: 'done', sequence: 3 },
@@ -67,16 +74,18 @@ describe('read_failure', () => {
             ]),
             child_runs: vi.fn(async () => ({ items: [], total: 0 })),
         } as any;
-        const read_review = vi.fn(async () => ({ status: 'expired', route_targets: ['draft-lld'], groups: [{ policy: 'any', notifications: [
-            { channel_target: 'krupali', action: 'REJECT', responded_at: '2026-10-08T13:50:00Z' }, { channel_target: 'sapan' }, { channel_target: 'elan' },
-        ] }] }));
+        const read_review = vi.fn(async () => ({
+            status: 'expired',
+            requested_inputs: [{ name: 'decision', choices: [{ value: 'approve' }, { value: 'route:draft-lld' }, { value: 'reject' }] }],
+            responses: [{ responder: { name: 'krupali' }, values: { decision: 'approve' }, responded_at: '2026-10-08T13:50:00Z' }],
+        }));
 
         const f = await read_failure(control, read_review, run, phases, [child], 'tok');
 
-        expect(read_review).toHaveBeenCalledWith('adbf4c163079603a6915ff1cc4c9b18d', 'tok');
+        expect(read_review).toHaveBeenCalledWith(hug_id, 'tok');
         expect(f).toMatchObject({
             reason: 'review_timed_out',
-            summary: "Review timed out after 30m — krupali's reject didn't decide it",
+            summary: 'Review timed out with no decision',
             detail: review_error,
             resume_from: 'draft-lld',
             chain: [
@@ -84,7 +93,8 @@ describe('read_failure', () => {
                 { run_id: 'c1', run_name: 'solar-lilac-fox', team: '@measureone/design-lld', phase: 'hug-lld' },
             ],
         });
-        expect(f!.review!.reviewers.map((r) => [r.name, r.action])).toEqual([['krupali', 'REJECT'], ['sapan', null], ['elan', null]]);
+        expect(f!.review).toMatchObject({ hug_id, route_targets: ['draft-lld'] });
+        expect(f!.review!.reviewers.map((r) => [r.name, r.action])).toEqual([['krupali', 'APPROVE']]);
     });
 
     it('a sub-team it cannot read ends the walk there; a run that has not stopped has no failure', async () => {

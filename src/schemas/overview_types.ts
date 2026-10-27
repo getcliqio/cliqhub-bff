@@ -27,9 +27,9 @@ export type OverviewGetInput = z.infer<typeof OverviewGetInput>;
 
 /** Counts shown on an org card and in the overview totals. */
 export interface OverviewCountsData {
-    /** Pending HUG reviews + runs awaiting input. */
+    /** Open Hugs that reached the caller (what needs them). */
     needs_you: number;
-    pending_reviews: number;
+    open_hugs: number;
     awaiting_input: number;
     active_runs: number;
     failed_24h: number;
@@ -49,8 +49,8 @@ export interface OverviewRealmData {
     daemons: { online: number; stale: number; offline: number; total: number };
     active_runs: number;
     awaiting_input: number;
-    pending_reviews: number;
-    /** pending_reviews + awaiting_input */
+    open_hugs: number;
+    /** = open_hugs (a run awaiting input waits on one) */
     needs_you: number;
     /** What the caller may do here: view < operate (run, install) < admin. null when Core is too old to say. */
     level: 'view' | 'operate' | 'admin' | null;
@@ -76,7 +76,7 @@ export interface OverviewOrgData {
 
 /** A "needs you" or live-run item, with link targets. */
 export interface OverviewItemData {
-    kind: 'review' | 'input' | 'run';
+    kind: 'hug' | 'input' | 'run';
     id: string;
     title: string;
     org_id: string;
@@ -94,7 +94,7 @@ export interface OverviewItemData {
 export interface OverviewData {
     orgs: OverviewOrgData[];
     totals: OverviewCountsData & { orgs: number; realms: number };
-    /** Merged across orgs, newest first — reviews + runs awaiting input. */
+    /** Merged across orgs, newest first — open Hugs the caller hasn't answered. */
     needs_you: OverviewItemData[];
     /** Merged across orgs, newest first — running runs. */
     live_runs: OverviewItemData[];

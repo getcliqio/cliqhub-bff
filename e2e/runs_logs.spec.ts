@@ -120,12 +120,12 @@ test.describe('Runs — control routes (Slice 1 hard cut)', () => {
         await api_login(page, TEST_USER.username, TEST_USER.password);
     });
 
-    test('cancel / resume / supply_inputs / enqueue are registered', async ({ page }) => {
+    test('cancel / resume / enqueue and the Hug reads are registered', async ({ page }) => {
         const fake_run = '00000000-0000-4000-8000-000000000099';
         const cases: Array<{ path: string; body: Record<string, unknown> }> = [
             { path: '/v1/runs/cancel', body: { run_id: fake_run } },
             { path: '/v1/runs/resume', body: { run_id: fake_run, from_phase: 'phase_a' } },
-            { path: '/v1/runs/supply_inputs', body: { run_id: fake_run, inputs: { x: '1' } } },
+            { path: '/v1/hugs/get', body: { realm_id: 'r-missing' } },
             { path: '/v1/runs/enqueue', body: { realm_id: 'r-missing', team_id: 'scope/slug' } },
         ];
         for (const c of cases) {

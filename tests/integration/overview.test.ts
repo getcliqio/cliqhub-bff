@@ -50,12 +50,12 @@ describe('POST /v1/overview/get', () => {
         });
         const core = vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string, body: any) => {
             if (path === '/internal/dashboard/summary') {
-                return { ok: true, counts: { active_runs: 1, awaiting_input: 0, failed_24h: 0, completed_24h: 2, daemons_online: 1, daemons_total: 1 }, live_runs: [], pending_reviews: [
-                    { review_id: `rev-${body.org_id.slice(0, 2)}`, title: 'Approve', requested_at: body.org_id === ORG_A ? 2 : 1, status: 'pending' },
+                return { ok: true, counts: { active_runs: 1, awaiting_input: 0, failed_24h: 0, completed_24h: 2, daemons_online: 1, daemons_total: 1 }, live_runs: [], open_hugs: [
+                    { hug_id: `hug-${body.org_id.slice(0, 2)}`, title: 'Approve', created_at: body.org_id === ORG_A ? 2 : 1, status: 'open', responded: false },
                 ] } as any;
             }
             if (path === '/internal/dashboard/realms') {
-                return { ok: true, realms: [{ id: `realm-${body.org_id.slice(0, 2)}`, slug: 'prod', name: 'Prod', pending_reviews: 1, runs: { active: 1, awaiting_input: 0 }, daemons: { online: 1, total: 1 } }] } as any;
+                return { ok: true, realms: [{ id: `realm-${body.org_id.slice(0, 2)}`, slug: 'prod', name: 'Prod', open_hugs: 1, runs: { active: 1, awaiting_input: 0 }, daemons: { online: 1, total: 1 } }] } as any;
             }
             if (path === '/v1/notifications/get') {
                 return { ok: true, data: { items: [{ id: `n-${body.org_id.slice(0, 2)}`, event: 'run.failed', title: 'Boom', message: null, realm_id: 'r', realm_slug: 'prod', user_id: null, team: null, run_id: null, phase: null, severity: 'error', payload: {}, created_at: 100 }], total: 1 } } as any;
@@ -89,7 +89,7 @@ describe('POST /v1/overview/get', () => {
         expect(res.status).toBe(200);
         expect(res.body.ok).toBe(true);
         expect(res.body.data.orgs.map((o: any) => [o.slug, o.role])).toEqual([['acme', 'owner'], ['beta', 'member']]);
-        expect(res.body.data.totals).toMatchObject({ orgs: 2, realms: 2, pending_reviews: 2, active_runs: 2 });
+        expect(res.body.data.totals).toMatchObject({ orgs: 2, realms: 2, open_hugs: 2, active_runs: 2 });
         expect(res.body.data.needs_you.map((i: any) => i.org_slug)).toEqual(['acme', 'beta']);
         // Browser made one call; BFF made 1 org list + 2 × (2 rollups + 1 inbox summary), all with the session token.
         expect(orgs).toHaveBeenCalledTimes(1);

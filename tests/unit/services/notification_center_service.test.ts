@@ -14,14 +14,14 @@ function mocks() {
             org_notification_rules: vi.fn().mockResolvedValue([rule('org-run', 'run.failed')]),
             realm_notification_rules: vi.fn().mockResolvedValue([
                 rule('realm-run', 'run.*', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
-                rule('realm-hug', 'hug.review_requested', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
+                rule('realm-hug', 'hug.expired', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
             ]),
             org_channels: vi.fn().mockResolvedValue([
                 { id: 'c1', name: '#eng', realm_id: null, org_id: 'o1', user_id: null, destinations: [{ type: 'slack', webhook_url: 'https://h/x/1234' }], enabled: 1, rule_count: 1 },
                 { id: 'c9', name: 'Mine', realm_id: null, org_id: 'o1', user_id: 'u1', destinations: [{ type: 'email', address: 'me@a.com' }], enabled: 0, rule_count: 0 },
             ]),
             realm_channels: vi.fn().mockResolvedValue([{ id: 'c2', name: '#prod-oncall', realm_id: 'r1', org_id: null, user_id: null, destinations: [{ type: 'cliqhub' }], enabled: 1, rule_count: 2 }]),
-            event_types: vi.fn().mockResolvedValue(['run.failed', 'run.completed', 'hug.review_requested']),
+            event_types: vi.fn().mockResolvedValue(['run.failed', 'run.completed', 'hug.expired']),
             realm_by_id: vi.fn().mockResolvedValue({ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }),
             realms_page: vi.fn().mockResolvedValue({ items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }], total: 1 }),
         },
@@ -109,7 +109,7 @@ describe('NotificationCenterService.get — the Events read (C2)', () => {
     let svc: NotificationCenterService;
     beforeEach(() => {
         m = mocks();
-        m.control.event_types.mockResolvedValue(['run.failed', 'run.completed', 'hug.review_reminded', 'notification.unknown_channel']);
+        m.control.event_types.mockResolvedValue(['run.failed', 'run.completed', 'hug.reminded', 'notification.unknown_channel']);
         m.control.org_notification_rules.mockResolvedValue([rule('org-run', 'run.failed', { system_key: 'org.run.failed' })]);
         m.control.realm_notification_rules.mockResolvedValue([
             rule('realm-hug', 'hug.*', { realm_id: 'r1', org_id: null, channel_id: 'c2' }),
@@ -123,7 +123,7 @@ describe('NotificationCenterService.get — the Events read (C2)', () => {
     it('org view: every event, grouped by family in catalog order; one with no rule is not sent', async () => {
         const dto = await svc.get({ org_id: 'o1' }, 'tok', VIEWER);
         expect(dto.events!.map((g) => [g.family, g.events.map((r) => r.event)])).toEqual([
-            ['run', ['run.failed', 'run.completed']], ['hug', ['hug.review_reminded']], ['notification', ['notification.unknown_channel']],
+            ['run', ['run.failed', 'run.completed']], ['hug', ['hug.reminded']], ['notification', ['notification.unknown_channel']],
         ]);
         expect(row(dto, 'run.failed')).toMatchObject({ sent: true, built_in: true, fixed: false, realm: [] });
         expect(row(dto, 'run.failed').org.map((r) => r.channel_name)).toEqual(['#eng']);
@@ -132,8 +132,8 @@ describe('NotificationCenterService.get — the Events read (C2)', () => {
 
     it('realm view: the realm\'s own rules too (a wildcard reaches its family); the fixed rule is flagged', async () => {
         const dto = await svc.get({ realm_id: 'r1' }, 'tok', VIEWER);
-        expect(row(dto, 'hug.review_reminded')).toMatchObject({ sent: true, fixed: false });
-        expect(row(dto, 'hug.review_reminded').realm.map((r) => [r.selector, r.channel_name])).toEqual([['hug.*', '#prod-oncall']]);
+        expect(row(dto, 'hug.reminded')).toMatchObject({ sent: true, fixed: false });
+        expect(row(dto, 'hug.reminded').realm.map((r) => [r.selector, r.channel_name])).toEqual([['hug.*', '#prod-oncall']]);
         expect(row(dto, 'notification.unknown_channel')).toMatchObject({ sent: true, fixed: true });
         expect(row(dto, 'run.failed').org.map((r) => r.rule_id)).toEqual(['org-run']);
         // The whole-family rule shows once, on its group, where it can be removed.
@@ -172,7 +172,7 @@ describe('NotificationCenterService.check', () => {
         expect(row('run.failed').winners.map((w) => w.rule_id)).toEqual(['org-run', 'realm-run']);
         expect(row('run.failed').replaced).toEqual([]);
         expect(row('run.completed').winners.map((w) => w.selector)).toEqual(['run.*']);
-        expect(row('hug.review_requested').winners.map((w) => [w.rule_id, w.tier])).toEqual([['realm-hug', 'realm']]);
+        expect(row('hug.expired').winners.map((w) => [w.rule_id, w.tier])).toEqual([['realm-hug', 'realm']]);
         // No team level: nothing about teams in the answer.
         expect(dto).not.toHaveProperty('teams');
         expect(dto.realm).toMatchObject({ org_id: 'o1', org_slug: 'acme' });
@@ -334,7 +334,7 @@ describe('NotificationCenterService.get — realm_events (each event as it stand
         const m = mocks();
         m.control.org_notification_rules.mockResolvedValue([
             rule('o-run', 'run.failed'),
-            rule('o-hug', 'hug.review_requested', { locked: true, lock_reason: 'Reviewers must hear' }),
+            rule('o-hug', 'hug.expired', { locked: true, lock_reason: 'Reviewers must hear' }),
             rule('o-done', 'run.completed', { enabled: false }),
             rule('o-dmn', 'daemon.offline'),
             rule('o-inv', 'invite.sent', { channel_id: 'c9' }),
@@ -353,8 +353,8 @@ describe('NotificationCenterService.get — realm_events (each event as it stand
         expect(by['custom.lld_approved']).toMatchObject({ status: 'realm_only' });
         // The realm switched its own rule off; the org's still sends.
         expect(by['daemon.offline']).toMatchObject({ status: 'default' });
-        expect(by['hug.review_requested']).toMatchObject({ status: 'default', locked: true });
-        expect(by['hug.review_requested'].org[0]).toMatchObject({ rule_id: 'o-hug', tier: 'org', channel_name: '#eng', channel_enabled: true, locked: true });
+        expect(by['hug.expired']).toMatchObject({ status: 'default', locked: true });
+        expect(by['hug.expired'].org[0]).toMatchObject({ rule_id: 'o-hug', tier: 'org', channel_name: '#eng', channel_enabled: true, locked: true });
         // The org's personal-channel rule on a switched-off channel: still Default, the channel says it's off.
         expect(by['invite.sent']).toMatchObject({ status: 'default' });
         expect(by['invite.sent'].org[0]).toMatchObject({ channel_name: 'Mine', channel_enabled: false });

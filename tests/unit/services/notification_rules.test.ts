@@ -6,7 +6,7 @@ describe('notification_rules', () => {
         expect(matching_selectors('phase.escalated')).toEqual(['phase.escalated', 'phase.*', '*']);
     });
     it.each([
-        ['run.failed', 'run.failed', true], ['run.*', 'run.failed', true], ['*', 'hug.review_requested', true],
+        ['run.failed', 'run.failed', true], ['run.*', 'run.failed', true], ['*', 'hug.expired', true],
         ['run.*', 'phase.*', false], ['run.failed', 'run.crashed', false], ['run.*', 'run.*', true],
     ])('overlap(%s, %s) = %s', (a, b, want) => {
         expect(selectors_overlap(a, b)).toBe(want);

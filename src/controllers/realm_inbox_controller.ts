@@ -2,7 +2,7 @@
  * Realm inbox — everything in one realm that needs a person (BFF composition).
  *
  * Routes (1:1 with this controller, mounted in routes/):
- *   POST /v1/realm_inbox/get — pending reviews, runs awaiting input, recent failures, running runs;
+ *   POST /v1/realm_inbox/get — open Hugs, runs awaiting input, recent failures, running runs;
  *     `summary: true` adds the realm page summary (services/realm_summary_service.ts)
  *
  * Session route (routes/route_auth.ts); Core re-checks realm membership.

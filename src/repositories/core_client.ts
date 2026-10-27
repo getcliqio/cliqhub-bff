@@ -115,6 +115,28 @@ export class CoreClient {
         }
     }
 
+    /**
+     * A byte stream in or out, unread (artifact upload / download). `body` is sent as it
+     * arrives (`duplex: 'half'`); `headers` are forwarded as given.
+     */
+    async raw_stream(
+        method: 'GET' | 'POST',
+        path: string,
+        headers: Record<string, string>,
+        body?: AsyncIterable<Uint8Array> | string,
+    ): Promise<Response> {
+        const request_id = current_request_id();
+        const all = request_id ? { ...headers, 'x-request-id': request_id } : headers;
+        const url = `${this._base_url}${path.startsWith('/') ? path : `/${path}`}`;
+        const init = { method, headers: all, ...(body === undefined ? {} : { body: body as BodyInit, duplex: 'half' }) };
+        try {
+            return await fetch(url, init as RequestInit);
+        } catch (err) {
+            log.error('upstream_unreachable', { request_id: request_id ?? null, method, path, error: (err as Error).message });
+            throw new ApiError('network_error', `Core API unreachable: ${(err as Error).message}`, 502);
+        }
+    }
+
     private async _fetch(
         method: string,
         path: string,

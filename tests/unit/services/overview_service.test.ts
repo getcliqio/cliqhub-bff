@@ -11,14 +11,14 @@ const org = (id: string, slug: string, role = 'member') => ({ id, slug, display_
 function summary(over: Record<string, unknown> = {}) {
     return {
         ok: true,
-        counts: { active_runs: 2, awaiting_input: 1, failed_24h: 1, completed_24h: 5, daemons_online: 3, daemons_total: 4, pending_reviews: 5 },
+        counts: { active_runs: 2, awaiting_input: 1, failed_24h: 1, completed_24h: 5, daemons_online: 3, daemons_total: 4, open_hugs: 5 },
         live_runs: [
             { run_id: 'r-run', run_name: 'Build', state: 'running', team_label: '@cliq/dev', realm_id: 'realm-1', realm_slug: 'prod', started_at: 2000 },
             { run_id: 'r-wait', run_name: 'Needs input', state: 'awaiting_input', team_label: '@cliq/dev', realm_id: 'realm-1', realm_slug: 'prod', started_at: 3000 },
         ],
-        pending_reviews: [
-            { review_id: 'rev-1', title: 'Approve design', phase: 'design-review', team: '@cliq/dev', realm_id: 'realm-1', realm_slug: 'prod', org_slug: 'acme', run_id: 'r-run', requested_at: 4000, status: 'pending' },
-            { review_id: 'rev-old', title: 'Done', status: 'approved', requested_at: 9999 },
+        open_hugs: [
+            { hug_id: 'hug-1', title: 'Approve design', phase: 'design-review', team: '@cliq/dev', realm_id: 'realm-1', realm_slug: 'prod', org_slug: 'acme', run_id: 'r-run', created_at: 4000, status: 'open', responded: false },
+            { hug_id: 'hug-answered', title: 'Answered', status: 'open', responded: true, created_at: 9999 },
         ],
         ...over,
     };
@@ -28,8 +28,8 @@ function realms() {
     return {
         ok: true,
         realms: [
-            { id: 'realm-1', slug: 'prod', org_slug: 'acme', name: 'Prod', last_activity_at: 10, daemons: { online: 2, stale: 0, offline: 1, total: 3 }, runs: { active: 2, awaiting_input: 1 }, pending_reviews: 3 },
-            { id: 'realm-2', slug: 'stage', org_slug: 'acme', name: 'Stage', last_activity_at: 20, daemons: { online: 1, total: 1 }, runs: { active: 0, awaiting_input: 0 }, pending_reviews: 1 },
+            { id: 'realm-1', slug: 'prod', org_slug: 'acme', name: 'Prod', last_activity_at: 10, daemons: { online: 2, stale: 0, offline: 1, total: 3 }, runs: { active: 2, awaiting_input: 1 }, open_hugs: 3 },
+            { id: 'realm-2', slug: 'stage', org_slug: 'acme', name: 'Stage', last_activity_at: 20, daemons: { online: 1, total: 1 }, runs: { active: 0, awaiting_input: 0 }, open_hugs: 1 },
         ],
     };
 }
@@ -69,36 +69,35 @@ describe('OverviewService', () => {
         for (const call of [...dash_repo.summary.mock.calls, ...dash_repo.realms.mock.calls]) expect(call[1]).toBe('t');
     });
 
-    it('maps one org: role, realm rollups, counts (pending from realms, not the capped list)', async () => {
+    it('maps one org: role, realm rollups, counts (open Hugs from realms, not the capped list)', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme', 'owner')] });
         dash_repo.summary.mockResolvedValue(summary());
         dash_repo.realms.mockResolvedValue(realms());
         const dto = await service.get({}, 't');
         const o = dto.orgs[0];
         expect(o).toMatchObject({ id: ORG_A, slug: 'acme', display_name: 'ACME', role: 'owner', status: 'ok', error: null });
-        expect(o.counts).toEqual({ needs_you: 5, pending_reviews: 4, awaiting_input: 1, active_runs: 2, failed_24h: 1, completed_24h: 5, daemons_online: 3, daemons_total: 4 });
+        expect(o.counts).toEqual({ needs_you: 4, open_hugs: 4, awaiting_input: 1, active_runs: 2, failed_24h: 1, completed_24h: 5, daemons_online: 3, daemons_total: 4 });
         // Sorted by recent activity; missing daemon fields default to 0.
         expect(o.realms.map((r) => r.slug)).toEqual(['stage', 'prod']);
         expect(o.realms[0]).toMatchObject({ org_id: ORG_A, org_slug: 'acme', daemons: { online: 1, stale: 0, offline: 0, total: 1 }, needs_you: 1 });
-        expect(o.realms[1]).toMatchObject({ pending_reviews: 3, awaiting_input: 1, needs_you: 4 });
+        expect(o.realms[1]).toMatchObject({ open_hugs: 3, awaiting_input: 1, needs_you: 3 });
     });
 
-    it('merges needs_you (pending reviews + awaiting runs) and live runs, newest first, tagged by org', async () => {
+    it('merges needs_you (open, unanswered Hugs — not awaiting runs) and live runs, newest first, tagged by org', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme'), org(ORG_B, 'beta')] });
         dash_repo.summary.mockImplementation(async ({ org_id: id }: { org_id: string }) => (id === ORG_A
             ? summary()
             : summary({
                 live_runs: [{ run_id: 'b-run', state: 'running', started_at: 5000 }],
-                pending_reviews: [{ review_id: 'b-rev', phase: 'qa', requested_at: 6000, status: 'pending' }],
+                open_hugs: [{ hug_id: 'b-hug', phase: 'qa', created_at: 6000, status: 'open' }],
             })));
         dash_repo.realms.mockResolvedValue(realms());
         const dto = await service.get({}, 't');
         expect(dto.needs_you.map((i) => [i.id, i.kind, i.org_slug])).toEqual([
-            ['b-rev', 'review', 'beta'],
-            ['rev-1', 'review', 'acme'],
-            ['r-wait', 'input', 'acme'],
+            ['b-hug', 'hug', 'beta'],
+            ['hug-1', 'hug', 'acme'],
         ]);
-        expect(dto.needs_you[0].title).toBe('Review qa');
+        expect(dto.needs_you[0].title).toBe('Input for qa');
         expect(dto.live_runs.map((i) => i.id)).toEqual(['b-run', 'r-run']);
         expect(dto.totals).toMatchObject({ orgs: 2, realms: 4, active_runs: 4, failed_24h: 2 });
     });
@@ -173,7 +172,7 @@ describe('OverviewService', () => {
             peak = Math.max(peak, in_flight);
             await new Promise((r) => setTimeout(r, 5));
             in_flight--;
-            return summary({ live_runs: [], pending_reviews: [] });
+            return summary({ live_runs: [], open_hugs: [] });
         });
         dash_repo.realms.mockResolvedValue({ realms: [] });
         const dto = await service.get({}, 't');
@@ -184,8 +183,8 @@ describe('OverviewService', () => {
 
     it('caps merged lists', async () => {
         orgs_repo.get.mockResolvedValue({ orgs: [org(ORG_A, 'acme')] });
-        const reviews = Array.from({ length: 40 }, (_, i) => ({ review_id: `r${i}`, requested_at: i, status: 'pending' }));
-        dash_repo.summary.mockResolvedValue(summary({ pending_reviews: reviews, live_runs: [] }));
+        const hugs = Array.from({ length: 40 }, (_, i) => ({ hug_id: `r${i}`, created_at: i, status: 'open' }));
+        dash_repo.summary.mockResolvedValue(summary({ open_hugs: hugs, live_runs: [] }));
         dash_repo.realms.mockResolvedValue(realms());
         const dto = await service.get({}, 't');
         expect(dto.needs_you).toHaveLength(OverviewService.MAX_ITEMS);

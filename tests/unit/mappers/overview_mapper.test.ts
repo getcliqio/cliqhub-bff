@@ -1,22 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import {
-    to_overview_org_data, to_overview_error_org_data, to_overview_review_items, to_overview_run_items,
+    to_overview_org_data, to_overview_error_org_data, to_overview_hug_items, to_overview_run_items,
     sum_overview_counts, empty_overview_counts,
 } from '../../../src/mappers/overview_mapper.js';
 
 const ORG = { id: 'o1', slug: 'acme', display_name: '', role: 'owner', member_count: 1, scope_count: 1, status: 'active', owner: null, deleted_at: null } as any;
 
 describe('overview mapper', () => {
-    it('org card: pending reviews summed from realms, needs_you = pending + awaiting, realms newest first', () => {
-        const o = to_overview_org_data(ORG, { counts: { awaiting_input: 2, active_runs: 1, pending_reviews: 99 } }, {
+    it('org card: open Hugs summed from realms, needs_you = open Hugs (awaiting runs not counted again), realms newest first', () => {
+        const o = to_overview_org_data(ORG, { counts: { awaiting_input: 2, active_runs: 1, open_hugs: 99 } }, {
             realms: [
-                { id: 'r1', slug: 'a', name: '', last_activity_at: 1, pending_reviews: 3 },
-                { id: 'r2', slug: 'b', name: 'B', last_activity_at: 5, pending_reviews: 1, runs: { awaiting_input: 2 } },
+                { id: 'r1', slug: 'a', name: '', last_activity_at: 1, open_hugs: 3 },
+                { id: 'r2', slug: 'b', name: 'B', last_activity_at: 5, open_hugs: 1, runs: { awaiting_input: 2 } },
             ],
-        });
+        } as any);
         expect(o).toMatchObject({ display_name: 'acme', status: 'ok', error: null });
-        expect(o.counts).toMatchObject({ pending_reviews: 4, awaiting_input: 2, needs_you: 6, active_runs: 1, failed_24h: 0 });
-        expect(o.realms.map((r) => [r.slug, r.name, r.needs_you])).toEqual([['b', 'B', 3], ['a', 'a', 3]]);
+        expect(o.counts).toMatchObject({ open_hugs: 4, awaiting_input: 2, needs_you: 4, active_runs: 1, failed_24h: 0 });
+        expect(o.realms.map((r) => [r.slug, r.name, r.needs_you])).toEqual([['b', 'B', 1], ['a', 'a', 3]]);
     });
 
     it('error card has zero counts and no realms', () => {
@@ -29,12 +29,13 @@ describe('overview mapper', () => {
         expect(to_overview_error_org_data(waiting, 'nope')).toMatchObject({ org_status: 'waiting_for_owner', status: 'error' });
     });
 
-    it('reviews: only pending, with a fallback title; runs: awaiting_input → input', () => {
-        const reviews = to_overview_review_items(ORG, [
-            { review_id: 'x', phase: 'qa' },
-            { review_id: 'y', status: 'approved' },
-        ]);
-        expect(reviews).toEqual([expect.objectContaining({ id: 'x', kind: 'review', title: 'Review qa', org_slug: 'acme', at: null })]);
+    it('Hugs: only open and unanswered, with a fallback title; runs: awaiting_input → input', () => {
+        const hugs = to_overview_hug_items(ORG, [
+            { hug_id: 'x', phase: 'qa', status: 'open' },
+            { hug_id: 'y', status: 'closed' },
+            { hug_id: 'z', status: 'open', responded: true },
+        ] as any);
+        expect(hugs).toEqual([expect.objectContaining({ id: 'x', kind: 'hug', title: 'Input for qa', org_slug: 'acme', state: 'open', at: null })]);
         const runs = to_overview_run_items(ORG, [{ run_id: 'r', state: 'awaiting_input', started_at: 7 }, { run_id: 's', state: 'running', team_label: 'T' }]);
         expect(runs.map((r) => [r.kind, r.title, r.at])).toEqual([['input', 'r', 7], ['run', 'T', null]]);
     });

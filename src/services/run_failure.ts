@@ -3,11 +3,11 @@
  *
  * Follows the failure down: the run's failed phase → the sub-team run that phase started (when
  * it failed too) → its failed phase … up to {@link MAX_DEPTH} hops. At the bottom, the failing
- * step's error is classified ({@link classify_failure}) and, when it was a review, the review is
- * read (`reviews/get_by_id`, who it went to and what each person answered).
+ * step's error is classified ({@link classify_failure}) and, when it was a review (a Hug gate), the
+ * Hug is read (`hugs/get_by_id`: who answered and what each decided).
  *
  * Reads (all existing Core routes, best-effort): `runs/get_status` and `runs/get { parent_run_id }`
- * per sub-team hop, plus one review read. A failed read ends the walk where it is; the card
+ * per sub-team hop, plus one Hug read. A failed read ends the walk where it is; the card
  * then shows what is known.
  */
 
@@ -27,8 +27,8 @@ const STOPPED = new Set(['failed', 'crashed', 'cancelled']);
 /** Phase and run states that mean "this is where it broke". */
 const BROKE = new Set(['failed', 'error', 'crashed']);
 
-/** Reads a review by id (with the org fallback the review page uses); null when it can't be read. */
-export type ReviewReader = (review_id: string, token: string) => Promise<Record<string, unknown> | null>;
+/** Reads a Hug by id (with the org fallback the Hug page uses); null when it can't be read. */
+export type HugReader = (hug_id: string, token: string) => Promise<Record<string, unknown> | null>;
 
 type Obj = Record<string, unknown>;
 const obj = (v: unknown): Obj => (v && typeof v === 'object' && !Array.isArray(v) ? v as Obj : {});
@@ -71,7 +71,7 @@ export function classify_failure(c: FailureContext): { reason: RunFailureReason;
         if (rejected) return { reason: 'review_timed_out', summary: `${base} — ${rejected.name}'s reject didn't decide it`, hint: null };
         return { reason: 'review_timed_out', summary: `${base} with no decision`, hint: 'Nobody answered in time. Resume when a reviewer is available, or give the review a longer timeout.' };
     }
-    if (/reviewer rejected/i.test(e) || (c.review && rejected && /escalat/i.test(e))) {
+    if (/reviewer rejected|rejected by/i.test(e) || (c.review && rejected && /escalat/i.test(e))) {
         return { reason: 'review_rejected', summary: `${rejected?.name ?? 'A reviewer'} rejected it and there was nowhere to send it back to`, hint: 'Add a route target to the review phase so a reject sends the work back instead of stopping.' };
     }
     if (c.review || /gate .*escalat|escalating/i.test(e)) {
@@ -103,18 +103,30 @@ export function classify_failure(c: FailureContext): { reason: RunFailureReason;
     return { reason: 'unknown', summary: 'The run stopped without recording why', hint: null };
 }
 
-/** The review a run failed on, from Core's review read (`groups[].notifications` = who and what). */
-export function to_failure_review(review_id: string, dto: Obj): RunFailureReviewData {
-    const groups = Array.isArray(dto.groups) ? dto.groups.map(obj) : [];
-    const reviewers: RunFailureReviewerData[] = groups.flatMap((g) => (Array.isArray(g.notifications) ? g.notifications.map(obj) : []).map((n) => ({
-        name: str(n.channel_target) ?? str(n.user_id) ?? 'reviewer',
-        action: str(n.action),
-        responded_at: str(n.responded_at),
-        comment: str(n.comment),
-    })));
-    const policy = str(groups[0]?.policy);
-    const targets = Array.isArray(dto.route_targets) ? dto.route_targets.filter((t): t is string => typeof t === 'string') : [];
-    return { review_id, status: str(dto.status), policy: policy === 'any' || policy === 'all' ? policy : null, reviewers, route_targets: targets };
+/**
+ * The review a run failed on, from Core's Hug read: who answered and what each decided (the gate's
+ * `decision` input — `approve`, `reject`, `route:<phase>` — as `APPROVE`, `REJECT`, `ROUTE:<phase>`).
+ * The any / all policy is the gate's, not the Hug's, so it isn't known here.
+ */
+export function to_failure_review(hug_id: string, dto: Obj): RunFailureReviewData {
+    const responses = Array.isArray(dto.responses) ? dto.responses.map(obj) : [];
+    const reviewers: RunFailureReviewerData[] = responses.map((r) => {
+        const values = obj(r.values);
+        const decision = str(values.decision);
+        return {
+            name: str(obj(r.responder).name) ?? 'reviewer',
+            action: decision ? (decision.startsWith('route:') ? `ROUTE:${decision.slice(6)}` : decision.toUpperCase()) : null,
+            responded_at: str(r.responded_at),
+            comment: str(values.comment) ?? str(r.comment),
+        };
+    });
+    const inputs = Array.isArray(dto.requested_inputs) ? dto.requested_inputs.map(obj) : [];
+    const choices = inputs.find((i) => i.name === 'decision')?.choices;
+    const targets = (Array.isArray(choices) ? choices.map(obj) : [])
+        .map((c) => str(c.value))
+        .filter((v): v is string => v !== null && v.startsWith('route:'))
+        .map((v) => v.slice(6));
+    return { hug_id, status: str(dto.status), policy: null, reviewers, route_targets: targets };
 }
 
 /** The phase that broke: the last failed row (by sequence). */
@@ -127,7 +139,7 @@ function failed_phase(rows: ControlRunPhaseVO[]): ControlRunPhaseVO | null {
  * Why `run` stopped, or null when it hasn't (not failed / crashed / cancelled).
  *
  * @param control - Core control reads.
- * @param read_review - Review read by id.
+ * @param read_hug - Hug read by id.
  * @param run - The run.
  * @param phases - Its phase rows (already read for the page).
  * @param children - Its sub-team runs (already read for the page).
@@ -135,7 +147,7 @@ function failed_phase(rows: ControlRunPhaseVO[]): ControlRunPhaseVO | null {
  */
 export async function read_failure(
     control: ControlRepository,
-    read_review: ReviewReader | null,
+    read_hug: HugReader | null,
     run: ControlRunVO,
     phases: ControlRunPhaseVO[],
     children: ControlRunVO[],
@@ -167,13 +179,14 @@ export async function read_failure(
 
     const error = str(broke?.error) ?? str(cur.error) ?? str(run.error);
     let review: RunFailureReviewData | null = null;
-    const review_id = error ? /review ([0-9a-f][0-9a-f-]{15,})/i.exec(error)?.[1] : undefined;
-    if (review_id && read_review) {
+    // The Hug gate names its Hug in the reason it escalates with ("Review <hug_id> …").
+    const hug_id = error ? /review ([0-9a-f][0-9a-f-]{15,})/i.exec(error)?.[1] : undefined;
+    if (hug_id && read_hug) {
         try {
-            const dto = await read_review(review_id, token);
-            if (dto) review = to_failure_review(review_id, dto);
+            const dto = await read_hug(hug_id, token);
+            if (dto) review = to_failure_review(hug_id, dto);
         } catch (err) {
-            log.warn('run_failure_review_read_failed', { review_id, error: err instanceof Error ? err.message : String(err) });
+            log.warn('run_failure_hug_read_failed', { hug_id, error: err instanceof Error ? err.message : String(err) });
         }
     }
 

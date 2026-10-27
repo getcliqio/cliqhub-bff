@@ -16,7 +16,7 @@ import type { InboxService } from './inbox_service.js';
 import { ApiError } from '../errors/api_error.js';
 import { get_logger } from '../lib/log.js';
 import { best_effort, error_fields } from '../lib/best_effort.js';
-import { to_overview_org_data, to_overview_error_org_data, to_overview_recent_items, to_overview_review_items, to_overview_run_items, sum_overview_counts } from '../mappers/overview_mapper.js';
+import { to_overview_org_data, to_overview_error_org_data, to_overview_recent_items, to_overview_hug_items, to_overview_run_items, sum_overview_counts } from '../mappers/overview_mapper.js';
 
 const log = get_logger('svc.overview');
 
@@ -77,9 +77,8 @@ export class OverviewService {
         for (const s of settled) {
             if (s.summary.status !== 'fulfilled') continue;
             const summary = s.summary.value;
-            needs_you.push(...to_overview_review_items(s.org, summary.pending_reviews ?? []));
+            needs_you.push(...to_overview_hug_items(s.org, summary.open_hugs ?? []));
             const runs = to_overview_run_items(s.org, summary.live_runs ?? []);
-            needs_you.push(...runs.filter((r) => r.state === 'awaiting_input'));
             live_runs.push(...runs.filter((r) => r.state === 'running'));
             recent_runs.push(...to_overview_recent_items(s.org, summary.recent_runs ?? []));
         }

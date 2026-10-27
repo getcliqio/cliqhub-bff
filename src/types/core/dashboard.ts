@@ -3,6 +3,8 @@
  * Only the fields the BFF overview composes are typed; Core sends more.
  */
 
+import type { ControlHugVO } from './control.js';
+
 /** A live / recent run in the summary. */
 export interface DashboardRunVO {
     run_id: string;
@@ -17,23 +19,10 @@ export interface DashboardRunVO {
     completed_at?: number | null;
 }
 
-/** A pending review in the summary (Core caps the list at 5). */
-export interface DashboardReviewVO {
-    review_id: string;
-    realm_id?: string | null;
-    realm_name?: string | null;
-    realm_slug?: string | null;
-    org_slug?: string | null;
-    run_id?: string | null;
-    run_name?: string | null;
-    phase?: string | null;
-    team?: string | null;
-    title?: string | null;
-    requested_at?: number | null;
-    status?: string | null;
-}
+/** An open Hug in the summary (Core caps the list at 5). */
+export type DashboardHugVO = ControlHugVO;
 
-/** `dashboard/summary` — org counts plus live runs and pending reviews. */
+/** `dashboard/summary` — org counts plus live runs and open Hugs. */
 export interface DashboardSummaryVO {
     counts?: {
         active_runs?: number;
@@ -44,11 +33,11 @@ export interface DashboardSummaryVO {
         daemons_stale?: number;
         daemons_offline?: number;
         daemons_total?: number;
-        pending_reviews?: number;
+        open_hugs?: number;
         realms?: number;
     };
     live_runs?: DashboardRunVO[];
-    pending_reviews?: DashboardReviewVO[];
+    open_hugs?: DashboardHugVO[];
     /** The org's most recent runs, any state (Core caps the list at 10). */
     recent_runs?: DashboardRunVO[];
 }
@@ -62,7 +51,7 @@ export interface DashboardRealmVO {
     last_activity_at?: number | null;
     daemons?: { online?: number; stale?: number; offline?: number; total?: number };
     runs?: { active?: number; awaiting_input?: number };
-    pending_reviews?: number;
+    open_hugs?: number;
     recent_notifications?: number;
     /** The caller's level in this realm (Core API 6+). */
     level?: 'view' | 'operate' | 'admin';

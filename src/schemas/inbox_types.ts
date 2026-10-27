@@ -57,8 +57,8 @@ export interface NotifInboxItemData {
     team: string | null;
     run_id: string | null;
     phase: string | null;
-    /** Promoted from payload for links: hug.* → review, notification.failed → channel. */
-    review_id: string | null;
+    /** Promoted from payload for links: hug.* → the Hug, notification.failed → channel. */
+    hug_id: string | null;
     channel_id: string | null;
     original_event: string | null;
     at: number;
