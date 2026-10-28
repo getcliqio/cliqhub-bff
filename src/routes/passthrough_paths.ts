@@ -69,7 +69,6 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     '/v1/runs/resume': 'token',
     '/v1/runs/cancel': 'token',
     '/v1/runs/supply_inputs': 'token',
-    '/v1/runs/enqueue': 'token',
     '/v1/runs/claim': 'token',
     '/v1/runs/append_logs': 'token',
     '/v1/runs/get_logs': 'token',

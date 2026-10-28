@@ -15,6 +15,7 @@ import { register_users_routes } from './users.js';
 import { register_reports_routes } from './reports.js';
 import { register_pages_routes } from './pages.js';
 import { register_invitations_routes } from './invitations.js';
+import { register_runs_routes } from './runs.js';
 import { register_passthrough_routes } from './passthrough.js';
 
 /** Mounts every BFF route; returns `METHOD /path` for each (start-up check). */
@@ -29,6 +30,7 @@ export function register_routes(app: Express, container: Container): string[] {
     register_users_routes(r, container);
     register_reports_routes(r, container);
     register_pages_routes(r, container);
+    register_runs_routes(r, container);
     register_passthrough_routes(r, container);
     return r.mounted;
 }

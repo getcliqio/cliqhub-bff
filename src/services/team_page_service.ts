@@ -222,7 +222,7 @@ export class TeamPageService {
      * as written. Each team is read once, so a loop (A runs B runs A) ends. Best effort: a team
      * the caller can't read is left out (its node stays a plain sub-team).
      */
-    private async _sub_teams(phases: TeamPhaseData[], token: string, team_id: string): Promise<{ map: Record<string, TeamSubTeamData>; failed: boolean }> {
+    async sub_teams(phases: TeamPhaseData[], token: string, team_id: string): Promise<{ map: Record<string, TeamSubTeamData>; failed: boolean }> {
         const map: Record<string, TeamSubTeamData> = {};
         let failed = false;
         let level = phases;
@@ -294,7 +294,7 @@ export class TeamPageService {
         const latest_of = () => latest_version;
 
         if (view === 'overview') {
-            const subs = this._sub_teams(phases, token, team_id);
+            const subs = this.sub_teams(phases, token, team_id);
             const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
             const inst = realms ? await this._installs_by_label(token, realms.items.slice(0, TeamPageService.REALM_CAP), latest_of, { name, scope }) : null;
             const agents = [...new Set([...phases, ...support].map((x) => x.agent).filter((x): x is string => Boolean(x)))];
@@ -309,7 +309,7 @@ export class TeamPageService {
             data.files = { files: files_of() };
             data.partial = !realms || Boolean(inst?.failed) || sub.failed;
         } else if (view === 'workflow') {
-            const subs = this._sub_teams(phases, token, team_id);
+            const subs = this.sub_teams(phases, token, team_id);
             const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
             const rmap = new Map((realms?.items ?? []).map((r) => [r.id, r]));
             const recent = await best_effort(log, 'team_page_recent_runs_failed', this._control.runs_for_team({ ...run_scope, limit: 8 }, token), null, { team_id });
