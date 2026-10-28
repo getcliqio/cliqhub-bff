@@ -150,6 +150,6 @@ export function to_scope_row(s: Row): AdminScopeRowData {
     return {
         id: String(s.id), slug: String(s.slug ?? ''), display_name: String(s.display_name ?? ''), org_id: (s.org_id as string | null) ?? null,
         org_slug: (s.org_slug as string | null) ?? null, owner_username: (s.owner_username as string | null) ?? null,
-        visibility: String(s.visibility ?? 'private'), scope_type: String(s.scope_type ?? ''), team_count: num(s.team_count) ?? 0, created_at: iso(s.created_at),
+        team_count: num(s.team_count) ?? 0, created_at: iso(s.created_at),
     };
 }

@@ -768,7 +768,7 @@ describe('Admin integration', () => {
             expect(call[1]).toEqual({});
         });
 
-        it('admin with mine + group_by_scope forwards both and gets the paged list', async () => {
+        it('admin with mine forwards it and gets the paged list', async () => {
             const sid = make_admin_session();
             vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
                 items: [{ name: 'alpha', scope: 'measureone', latest_version: '1.0.0' }],
@@ -779,14 +779,14 @@ describe('Admin integration', () => {
                 .post('/v1/teams/get')
                 .set(CSRF)
                 .set('Cookie', `test_sid=${sid}`)
-                .send({ mine: true, group_by_scope: true });
+                .send({ mine: true });
 
             expect(res.status).toBe(200);
             expect(res.body.data.teams).toHaveLength(1);
             expect(res.body.data.teams[0]).toMatchObject({ name: 'alpha', scope: 'measureone', latest_version: '1.0.0' });
             expect(res.body.data.scopes).toBeUndefined();
             const call = vi.mocked(CoreClient.prototype.post).mock.calls[0];
-            expect(call[1]).toMatchObject({ mine: true, group_by_scope: true });
+            expect(call[1]).toMatchObject({ mine: true });
         });
 
         it('admin with query uses product catalog handler (CLI team search)', async () => {

@@ -41,12 +41,20 @@ describe('POST /v1/team_list/get + /v1/team_page/get', () => {
         });
         const core = vi.spyOn(CoreClient.prototype, 'post_body').mockImplementation(async (path: string) => {
             if (path === '/v1/realms/get') return { ok: true, data: { items: [{ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }], total: 1 } } as any;
+            // The org's Teams list (PLAN-team-visibility §3.6).
+            if (path === '/v1/orgs/get_teams') return { ok: true, data: { items: [{ team_id: TEAM, scope: 'acme', name: 'dev', kind: 'own', own: true }] } } as any;
             throw new Error(`unexpected ${path}`);
         });
-        const res = await request(app).post('/v1/team_list/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ status: 'all' });
+        const res = await request(app).post('/v1/team_list/get').set(CSRF).set('Cookie', `test_sid=${sid}`)
+            .send({ status: 'all', org_id: '33333333-3333-4333-8333-333333333333', scope: 'acme' });
         expect(res.status).toBe(200);
         expect(res.body.data.items[0]).toMatchObject({ name: 'dev', phase_types: ['standard'], installs: [expect.objectContaining({ realm_slug: 'prod' })] });
         for (const c of [...api.mock.calls, ...core.mock.calls]) expect(c[2]).toBe('tok-p');
+    });
+
+    it('the list is always one org\'s: no org_id → 422 (PLAN-team-visibility §6)', async () => {
+        const res = await request(app).post('/v1/team_list/get').set(CSRF).set('Cookie', `test_sid=${sess()}`).send({ status: 'all' });
+        expect(res.status).toBe(422);
     });
 
     it('page runs view asks Core runs/get for the team by name', async () => {

@@ -2,7 +2,8 @@
  * Build › Teams — the team list and one team's page, tab by tab.
  *
  * Composes Core routes as the bearer (the session's target token):
- *   teams/get { mine }        — the caller's teams (paged; read in full)
+ *   orgs/get_teams            — the org's Teams list (own, @cliq, added), All
+ *   teams/get { mine }        — the caller's teams (paged; read in full), Published / Drafts
  *   teams/get { realm_id }    — a realm's roster with coverage ("installed in")
  *   teams/get_by_id           — the team (also the visibility gate), any version
  *   teams/get_phases          — phase shape per team / per run version
@@ -109,7 +110,7 @@ export class TeamPageService {
 
     // ── list ─────────────────────────────────────────────────────────────
 
-    /** Every team in the caller's scopes (+ their drafts), read page by page. */
+    /** The caller's teams: their orgs' and member scopes' teams they can see, plus their drafts (Core `mine`). */
     private async _mine(token: string): Promise<TeamVO[]> {
         const first = await this._teams.get({ mine: true, limit: MINE_PAGE, offset: 0 }, token);
         const out = [...(first.items ?? [])];
@@ -122,44 +123,47 @@ export class TeamPageService {
     }
 
     /**
-     * Teams installed in the realms read that aren't the caller's own (another scope's, e.g. `@cliq/…`), so
-     * the list shows everything the view can run. Their details come from the catalog; a failed read keeps
-     * the row with what the install says (name and scope).
+     * The org's Teams list (PLAN-team-visibility §3.6, Core `orgs/get_teams`: its own teams, the `@cliq` teams
+     * and the teams it added), each with its catalog details — from `mine` when there, else `teams/get_by_id`.
+     * A failed detail read keeps the row with its name and scope.
      */
-    private async _installed_elsewhere(token: string, labels: string[], mine: TeamVO[]): Promise<TeamVO[]> {
-        const own = new Set(mine.map((t) => label_of(str(t.scope), String(t.name))));
-        const extra = labels.filter((l) => !own.has(l));
-        return map_limited(extra, 6, async (label) => {
-            const { scope, slug } = parse_label(label, label);
-            const t = await best_effort(log, 'team_list_installed_read_failed', this._teams.get_by_id({ name: slug, ...(scope ? { scope } : {}) }, token), null, { label });
-            return t ? { ...t } as TeamVO : { name: slug, scope, status: 'published', description: '' } as TeamVO;
+    private async _org_list(org_id: string, mine: TeamVO[], token: string): Promise<{ teams: TeamVO[]; kinds: Map<string, 'own' | 'cliq' | 'added'> }> {
+        const rows = await this._control.org_teams(org_id, token);
+        const known = new Map(mine.map((t) => [String(t.id), t]));
+        const kinds = new Map(rows.map((r) => [label_of(r.scope, r.name), r.kind]));
+        const teams = await map_limited(rows, 6, async (r) => {
+            const hit = known.get(r.team_id);
+            if (hit) return hit;
+            const t = await best_effort(log, 'team_list_detail_read_failed', this._teams.get_by_id({ name: r.name, ...(r.scope ? { scope: r.scope } : {}) }, token), null, { team_id: r.team_id });
+            return t ? { ...t } as TeamVO : { id: r.team_id, name: r.name, scope: r.scope, status: 'published', description: '' } as TeamVO;
         });
+        return { teams, kinds };
     }
 
     /**
-     * The view's teams — All: its own teams (the org's scope, drafts too) and every team installed in its
-     * realms; Published / Drafts: its own teams only. Status counts, phase shape and "installed in" per row. Filters and pages in the BFF over the whole list.
+     * One org's teams (the Teams page is always one org's): All = the org's Teams list (§3.6), each team the
+     * caller can see; Published / Drafts = the caller's own teams in the org's scopes (`scope` is the org's
+     * slug; its scopes are that slug and `slug-*`). Status counts, phase shape and "installed in" per row.
+     * Filters and pages in the BFF over the whole list.
      *
-     * @param input - scope / status / q filters, org for "installed in", paging, sort (name | status)
+     * @param input - org, its slug, status / q filters, paging, sort (name | status)
      * @param token - The caller's Core token
      */
     async list(input: TeamListGetInput, token: string): Promise<TeamListData> {
         const limit = input.limit ?? TeamPageService.DEFAULT_LIMIT;
         const offset = input.offset ?? 0;
         const status = input.status ?? 'all';
-        // Where teams are installed first: a team installed here is listed even when it isn't the caller's.
         const realms_res = await best_effort(log, 'team_list_realms_failed', this._realms(token, input.org_id), null, { org_id: input.org_id });
         const realms = realms_res?.items.slice(0, TeamPageService.REALM_CAP) ?? [];
         const installs = await this._installs_by_label(token, realms, () => null);
-        // Own = the view's own teams (the org's scope; every scope of the caller's in the account view).
-        const own = (await this._mine(token)).filter((t) => !input.scope || t.scope === input.scope);
-        const elsewhere = await this._installed_elsewhere(token, [...installs.map.keys()], own);
+        const mine = await this._mine(token);
+        const { teams: listed, kinds } = await this._org_list(input.org_id, mine, token);
+        const in_org = (scope: string | null) => Boolean(scope && input.scope && (scope === input.scope || scope.startsWith(`${input.scope}-`)));
         const q = input.q?.toLowerCase();
         const matches = (t: TeamVO) => !q || String(t.name ?? '').toLowerCase().includes(q) || String(t.description ?? '').toLowerCase().includes(q);
         const status_of = (t: TeamVO): 'draft' | 'published' => (t.status === 'draft' || t.visibility === 'draft' ? 'draft' : 'published');
-        // All: own teams and every team installed in the view's realms; Published and Drafts: own teams only.
-        const own_rows = own.filter(matches);
-        const all = [...own_rows, ...elsewhere.filter(matches)];
+        const all = listed.filter((t) => status_of(t) === 'published' && matches(t));
+        const own_rows = mine.filter((t) => in_org(str(t.scope)) && matches(t));
         const counts = { all: all.length, published: own_rows.filter((t) => status_of(t) === 'published').length, draft: own_rows.filter((t) => status_of(t) === 'draft').length };
         const filtered = status === 'all' ? [...all] : own_rows.filter((t) => status_of(t) === status);
         // The BFF holds the whole list, so sorting here is correct across pages.
@@ -193,7 +197,8 @@ export class TeamPageService {
             return {
                 id: str(t.id), name, scope, description: String(t.description ?? ''),
                 status: status_of(t), latest_version: lv, author: str(t.author),
-                phase_types: phases[i]?.types ?? null, phase_kinds: phases[i]?.kinds ?? null, phase_names: phases[i]?.names ?? null, installs: installs.map.get(label_of(scope, name)) ?? [],
+                phase_types: phases[i]?.types ?? null, phase_kinds: phases[i]?.kinds ?? null, phase_names: phases[i]?.names ?? null,
+                list_kind: kinds.get(label_of(scope, name)) ?? null, installs: installs.map.get(label_of(scope, name)) ?? [],
             };
         });
         return {
@@ -230,6 +235,7 @@ export class TeamPageService {
             description: String(raw.description ?? ''), status, latest_version,
             version: input.version ?? latest_version, versions,
             author: str(raw.author), listed: raw.listed !== false,
+            visibility: raw.visibility === 'private' || raw.visibility === 'draft' ? raw.visibility : status === 'draft' ? 'draft' : 'public',
             tags: (raw.tags ?? []).map(String),
             can_edit: Boolean(raw.can_edit), can_delete: Boolean(raw.can_delete), can_toggle_listing: Boolean(raw.can_toggle_listing),
             draft_saved_at: raw.draft?.manifest ? (raw.draft.saved_at ?? null) : null,

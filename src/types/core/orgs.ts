@@ -5,15 +5,13 @@
 
 import type { UserStatusVO } from './users.js';
 
-/** A publishing scope (`@slug`), user- or org-owned. */
+/** A publishing scope (`@slug`); every scope belongs to an org (PLAN-team-visibility §3.1). */
 export interface ScopeVO {
     id: string;
     slug: string;
     display_name: string;
-    owner_id: string;
+    owner_id: string | null;
     org_id: string | null;
-    visibility: 'public' | 'private';
-    scope_type: 'user' | 'org';
     created_at: string;
 }
 
@@ -124,7 +122,6 @@ export interface OrgScopeVO {
     id: string;
     slug: string;
     display_name: string;
-    visibility: string;
     member_count: number;
     team_count: number;
 }
@@ -213,9 +210,7 @@ export interface ScopeListItemVO {
     id: string;
     slug: string;
     display_name: string | null;
-    visibility: 'public' | 'private';
-    scope_type: 'user' | 'org';
-    owner_id: string;
+    owner_id: string | null;
     org_id: string | null;
     member_count?: number;
     team_count?: number;

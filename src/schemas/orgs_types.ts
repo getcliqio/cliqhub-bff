@@ -18,7 +18,7 @@
  *   POST /v1/orgs/update_role            — rename / re-permission a role
  *   POST /v1/orgs/delete_role            — delete a custom role
  *   POST /v1/orgs/new_scope              — new publishing scope
- *   POST /v1/orgs/update_scope           — rename / change visibility
+ *   POST /v1/orgs/update_scope           — rename
  *   POST /v1/orgs/delete_scope           — delete a scope
  *   POST /v1/orgs/assign_scope_member    — give a member a scope
  *   POST /v1/orgs/unassign_scope_member  — take it away
@@ -44,9 +44,6 @@ const OffsetField = z.number().int().min(0).optional()
 
 const SlugPattern = /^[a-z][a-z0-9-]*$/;
 const SlugMessage = 'Slug must start with a letter and contain only lowercase letters, numbers, and hyphens';
-
-const VisibilityField = z.enum(['public', 'private']).optional()
-    .describe('Who can see teams published to the scope');
 
 const OrgStatusField = z.enum(['active', 'waiting_for_owner', 'deleted']);
 
@@ -166,7 +163,6 @@ export const OrgsNewScopeInput = z.object({
         .describe('Scope slug: lowercase letters, digits, hyphens; starts with a letter'),
     display_name: z.string().optional()
         .describe('Display name (defaults to slug)'),
-    visibility: VisibilityField,
 });
 export type OrgsNewScopeInput = z.infer<typeof OrgsNewScopeInput>;
 
@@ -176,7 +172,6 @@ export const OrgsUpdateScopeInput = z.object({
     scope_id: ScopeIdField,
     display_name: z.string().optional()
         .describe('New display name'),
-    visibility: VisibilityField,
 });
 export type OrgsUpdateScopeInput = z.infer<typeof OrgsUpdateScopeInput>;
 
@@ -209,15 +204,10 @@ export type OrgsGetScopesInput = z.infer<typeof OrgsGetScopesInput>;
 
 // ─── Response data ──────────────────────────────────────────────────────────
 
-/** A publishing scope the signed-in user can use (session payload). */
+/** A scope the signed-in user can publish to (session payload; PLAN-team-visibility §3.3). */
 export interface ScopeData {
-    id: string;
     slug: string;
     display_name: string;
-    owner_id: string;
-    org_id: string | null;
-    visibility: 'public' | 'private';
-    scope_type: 'user' | 'org';
 }
 
 /** One org the caller belongs to. */
@@ -342,7 +332,6 @@ export interface OrgScopeData {
     id: string;
     slug: string;
     display_name: string;
-    visibility: string;
     member_count: number;
     team_count: number;
 }
@@ -431,9 +420,7 @@ export interface ScopeListItemData {
     id: string;
     slug: string;
     display_name: string | null;
-    visibility: 'public' | 'private';
-    scope_type: 'user' | 'org';
-    owner_id: string;
+    owner_id: string | null;
     org_id: string | null;
     member_count?: number;
     team_count?: number;

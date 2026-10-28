@@ -13,17 +13,9 @@ import { get_logger } from '../lib/log.js';
 
 const log = get_logger('map.session');
 
-/** Scope slugs → session scopes (ids are not kept in the session). */
+/** Scope slugs → session scopes: the scopes the user can publish to (PLAN-team-visibility §3.3). */
 export function scopes_from_slugs(slugs: string[]): ScopeData[] {
-    return slugs.map((slug) => ({
-        id: '0',
-        slug,
-        display_name: slug,
-        owner_id: '0',
-        org_id: null,
-        visibility: 'private' as const,
-        scope_type: 'user' as const,
-    }));
+    return slugs.map((slug) => ({ slug, display_name: slug }));
 }
 
 /** Scope slugs stored on the session row (strings, or `{ slug }` from older rows). */

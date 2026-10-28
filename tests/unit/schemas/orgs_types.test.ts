@@ -218,22 +218,16 @@ describe('OrgsNewScopeInput', () => {
         expect(OrgsNewScopeInput.safeParse({ org_id: ORG, slug: 'acme_labs' }).success).toBe(false);
     });
 
-    it('rejects invalid visibility', () => {
-        expect(OrgsNewScopeInput.safeParse({ org_id: ORG, slug: 'acme-labs', visibility: 'internal' }).success).toBe(false);
-    });
-
     it('rejects missing org_id', () => {
         expect(OrgsNewScopeInput.safeParse({ slug: 'acme-labs' }).success).toBe(false);
     });
 });
 
 describe('OrgsUpdateScopeInput', () => {
-    it('accepts display_name and visibility', () => {
-        expect(OrgsUpdateScopeInput.safeParse({ org_id: ORG, scope_id: SCOPE, display_name: 'Labs', visibility: 'public' }).success).toBe(true);
-    });
-
-    it('rejects invalid visibility', () => {
-        expect(OrgsUpdateScopeInput.safeParse({ org_id: ORG, scope_id: SCOPE, visibility: 'internal' }).success).toBe(false);
+    it('accepts display_name; scopes have no visibility (PLAN-team-visibility §3.1)', () => {
+        const r = OrgsUpdateScopeInput.safeParse({ org_id: ORG, scope_id: SCOPE, display_name: 'Labs', visibility: 'public' });
+        expect(r.success).toBe(true);
+        expect(r.data).not.toHaveProperty('visibility');
     });
 
     it('rejects missing scope_id', () => {

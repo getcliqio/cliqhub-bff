@@ -39,7 +39,12 @@ function mocks() {
             run_phases: vi.fn().mockResolvedValue([{ phase: 'fetch', status: 'completed' }, { phase: 'architect', status: 'running' }]),
         },
         teams: {
-            get: vi.fn().mockImplementation(async (f: { mine?: boolean; realm_id?: string }) => {
+            get: vi.fn().mockImplementation(async (f: { mine?: boolean; realm_id?: string; status?: string }) => {
+                // The catalog as the caller sees it: what they can install (their own scope's, and public @cliq ones).
+                if (!f.mine && !f.realm_id) return { items: [
+                    { id: 'a', name: 'feature-dev', scope: 'acme', description: 'Build features', status: 'published', latest_version: '1.2.0', author: 'sapan' },
+                    { id: 'hx', name: 'hug-example', scope: 'cliq', description: 'Party', status: 'published', latest_version: '2.0.0', author: 'cliq' },
+                ], total: 2 };
                 if (f.mine) return { items: [
                     { id: 'a', name: 'feature-dev', scope: 'acme', description: 'Build features', status: 'published', latest_version: '1.2.0', author: 'sapan' },
                     { id: 'b', name: 'kyc', scope: 'acme', description: 'KYC', status: 'draft', latest_version: '0.0.0', author: 'ana' },
@@ -93,35 +98,70 @@ describe('kind_of_phase', () => {
 });
 
 describe('TeamPageService.list', () => {
-    it('filters by scope + status, counts, phase shapes and installed-in (behind flagged)', async () => {
-        const m = mocks();
-        const data = await svc(m).list({ scope: 'acme', org_id: '22222222-2222-4222-8222-222222222222', status: 'all' }, 'tok');
+    const ORG = '22222222-2222-4222-8222-222222222222';
+    const view = { scope: 'acme', org_id: ORG };
+    /** The org's Teams list (Core orgs/get_teams): its own team, a @cliq team and one it added. */
+    const ORG_LIST = [
+        { team_id: 'a', scope: 'acme', name: 'feature-dev', kind: 'own', own: true },
+        { team_id: 'hx', scope: 'cliq', name: 'hug-example', kind: 'cliq', own: false },
+        { team_id: 'ot', scope: 'other', name: 'tool', kind: 'added', own: false },
+    ];
+    const with_list = (m: ReturnType<typeof mocks>, rows: unknown[] = ORG_LIST) => {
+        Object.assign(m.control, { org_teams: vi.fn().mockResolvedValue(rows) });
+        m.teams.get_by_id.mockImplementation(async (p: { name: string; scope?: string }) => {
+            if (p.name === 'hug-example') return { id: 'hx', name: 'hug-example', scope: 'cliq', description: 'Party', status: 'published', latest_version: '2.0.0', author: 'cliq' };
+            if (p.name === 'tool') return { id: 'ot', name: 'tool', scope: 'other', description: 'A tool', status: 'published', latest_version: '3.0.0', author: 'ben' };
+            return team();
+        });
+        return m;
+    };
+
+    it("All is the org's Teams list (own, @cliq, added) with details, phase shapes and installed-in; no catalog read", async () => {
+        const m = with_list(mocks());
+        const data = await svc(m).list({ ...view, status: 'all' }, 'tok');
+        expect(m.control.org_teams).toHaveBeenCalledWith(ORG, 'tok');
         expect(m.teams.get).toHaveBeenCalledWith({ mine: true, limit: 200, offset: 0 }, 'tok');
-        expect(m.control.realms_page).toHaveBeenCalledWith({ org_id: '22222222-2222-4222-8222-222222222222', limit: 100, offset: 0 }, 'tok');
-        expect(data.counts).toEqual({ all: 2, published: 1, draft: 1 });
-        expect(data.items.map((i) => i.name)).toEqual(['feature-dev', 'kyc']);
+        expect(m.teams.get).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'published' }), 'tok');
+        expect(m.control.realms_page).toHaveBeenCalledWith({ org_id: ORG, limit: 100, offset: 0 }, 'tok');
+        expect(data.items.map((i) => `@${i.scope}/${i.name}`)).toEqual(['@acme/feature-dev', '@cliq/hug-example', '@other/tool']);
+        // Only an added team can be removed from the list.
+        expect(data.items.map((i) => i.list_kind)).toEqual(['own', 'cliq', 'added']);
+        // Own team details come from mine; the others from teams/get_by_id.
+        expect(m.teams.get_by_id).toHaveBeenCalledWith({ name: 'hug-example', scope: 'cliq' }, 'tok');
+        expect(m.teams.get_by_id).not.toHaveBeenCalledWith({ name: 'feature-dev', scope: 'acme' }, 'tok');
+        expect(data.items[1]).toMatchObject({ description: 'Party', latest_version: '2.0.0' });
+        expect(data.counts).toEqual({ all: 3, published: 1, draft: 1 });
         expect(data.items[0].phase_types).toEqual(['pull', 'standard', 'gate']);
-        expect(data.items[0].phase_kinds).toHaveLength(3);
         expect(data.items[0].phase_kinds![0]).toBe('connector');
         expect(data.items[0].installs.map((i) => [i.realm_slug, i.version, i.behind])).toEqual([['prod', '1.2.0', false], ['stg', '1.1.0', true]]);
-        expect(data.items[1].latest_version).toBeNull();
         expect(data.partial).toBe(false);
     });
 
+    it("Published and Drafts are the caller's own teams in the org's scopes (slug and slug-*), not other orgs'", async () => {
+        const m = with_list(mocks());
+        const get = m.teams.get.getMockImplementation()!;
+        m.teams.get.mockImplementation(async (f: { mine?: boolean }) => (f.mine
+            ? { items: [...(await get(f)).items, { id: 'l', name: 'lab', scope: 'acme-labs', status: 'published', latest_version: '1.0.0' }], total: 4 }
+            : get(f)));
+        expect((await svc(m).list({ ...view, status: 'published' }, 'tok')).items.map((i) => i.name)).toEqual(['feature-dev', 'lab']);
+        expect((await svc(m).list({ ...view, status: 'draft' }, 'tok')).items.map((i) => i.name)).toEqual(['kyc']);
+    });
+
     it('status + query narrow; pages in the BFF', async () => {
-        const m = mocks();
-        const data = await svc(m).list({ status: 'draft', q: 'ky', limit: 1 }, 'tok');
+        const m = with_list(mocks());
+        const data = await svc(m).list({ ...view, status: 'draft', q: 'ky', limit: 1 }, 'tok');
         expect(data.items.map((i) => i.name)).toEqual(['kyc']);
         expect(data.total).toBe(1);
     });
 
-    it('reads every page of the caller\'s teams (Core pages teams/get)', async () => {
+    it("reads every page of the caller's teams (Core pages teams/get)", async () => {
         const m = mocks();
         const rows = Array.from({ length: 250 }, (_, i) => ({ id: `t${i}`, name: `team-${i}`, scope: 'acme', status: 'published', latest_version: '1.0.0' }));
+        with_list(m, rows.map((r) => ({ team_id: r.id, scope: r.scope, name: r.name, kind: 'own', own: true })));
         m.teams.get.mockImplementation(async (f: { mine?: boolean; limit?: number; offset?: number }) => (f.mine
             ? { items: rows.slice(f.offset ?? 0, (f.offset ?? 0) + (f.limit ?? 50)), total: rows.length, offset: f.offset ?? 0, limit: f.limit ?? 50 }
             : { items: [], total: 0, offset: 0, limit: 200 }));
-        const data = await svc(m).list({ limit: 5 }, 'tok');
+        const data = await svc(m).list({ ...view, limit: 5 }, 'tok');
         expect(m.teams.get).toHaveBeenCalledWith({ mine: true, limit: 200, offset: 200 }, 'tok');
         expect(data.counts.all).toBe(250);
         expect(data.total).toBe(250);
@@ -130,67 +170,31 @@ describe('TeamPageService.list', () => {
     it('sorts the whole list in the BFF before paging (name desc, status asc), and says it can', async () => {
         const m = mocks();
         const rows = ['b', 'a', 'd', 'c'].map((n, i) => ({ id: `t${n}`, name: n, scope: 'acme', status: i % 2 ? 'draft' : 'published', latest_version: '1.0.0' }));
+        with_list(m, rows.filter((r) => r.status === 'published').map((r) => ({ team_id: r.id, scope: r.scope, name: r.name, kind: 'own', own: true })));
         m.teams.get.mockImplementation(async (f: { mine?: boolean }) => (f.mine ? { items: rows, total: rows.length, offset: 0, limit: 200 } : { items: [], total: 0, offset: 0, limit: 200 }));
-        const by_name = await svc(m).list({ sort_by: 'name', sort_dir: 'desc', limit: 2, offset: 0 }, 'tok');
-        expect(by_name.items.map((i) => i.name)).toEqual(['d', 'c']);
-        const page2 = await svc(m).list({ sort_by: 'name', sort_dir: 'desc', limit: 2, offset: 2 }, 'tok');
-        expect(page2.items.map((i) => i.name)).toEqual(['b', 'a']);
-        const by_status = await svc(m).list({ sort_by: 'status', sort_dir: 'asc' }, 'tok');
-        expect(by_status.items.map((i) => `${i.status}:${i.name}`)).toEqual(['draft:a', 'draft:c', 'published:b', 'published:d']);
+        const by_name = await svc(m).list({ ...view, sort_by: 'name', sort_dir: 'desc', limit: 1, offset: 0 }, 'tok');
+        expect(by_name.items.map((i) => i.name)).toEqual(['d']);
+        const page2 = await svc(m).list({ ...view, sort_by: 'name', sort_dir: 'desc', limit: 1, offset: 1 }, 'tok');
+        expect(page2.items.map((i) => i.name)).toEqual(['b']);
+        const drafts = await svc(m).list({ ...view, status: 'draft', sort_by: 'name', sort_dir: 'desc' }, 'tok');
+        expect(drafts.items.map((i) => i.name)).toEqual(['c', 'a']);
+        const by_status = await svc(m).list({ ...view, sort_by: 'status', sort_dir: 'asc' }, 'tok');
         expect(by_status.sortable).toEqual(['name', 'status']);
-        // Without sort_by Core's order is kept.
-        expect((await svc(m).list({}, 'tok')).items.map((i) => i.name)).toEqual(['b', 'a', 'd', 'c']);
+        // Without sort_by the list's order is kept.
+        expect((await svc(m).list(view, 'tok')).items.map((i) => i.name)).toEqual(['b', 'd']);
     });
 
-    it('a team installed in the view\'s realms is listed even when it isn\'t the caller\'s (e.g. @cliq/hello-world)', async () => {
-        const m = mocks();
-        const get = m.teams.get.getMockImplementation()!;
-        m.teams.get.mockImplementation(async (f: { mine?: boolean; realm_id?: string }) => (f.realm_id === 'r2'
-            ? { items: [{ slug: 'hello-world', label: '@cliq/hello-world', version: '1.0.0', in_team_list: true, installed_count: 1, online_daemon_count: 1 }], total: 1 }
-            : get(f)));
-        m.teams.get_by_id.mockImplementation(async (p: { name: string; scope?: string }) => (p.name === 'hello-world'
-            ? { id: 'hw', name: 'hello-world', scope: 'cliq', description: 'Say hello', status: 'published', latest_version: '1.1.0', author: 'cliq' }
-            : team()));
-        const data = await svc(m).list({ org_id: '22222222-2222-4222-8222-222222222222' }, 'tok');
-        const hw = data.items.find((i) => i.name === 'hello-world')!;
-        expect(m.teams.get_by_id).toHaveBeenCalledWith({ name: 'hello-world', scope: 'cliq' }, 'tok');
-        expect(hw).toMatchObject({ scope: 'cliq', description: 'Say hello', status: 'published', latest_version: '1.1.0' });
-        expect(hw.installs.map((i) => [i.realm_slug, i.version, i.behind])).toEqual([['stg', '1.0.0', true]]);
-        expect(data.counts.all).toBe(4);
-    });
-
-    it('org view: All has the org\'s teams and teams installed in its realms; Published and Drafts only its own', async () => {
-        const m = mocks();
-        const get = m.teams.get.getMockImplementation()!;
-        m.teams.get.mockImplementation(async (f: { mine?: boolean; realm_id?: string }) => (f.realm_id === 'r2'
-            ? { items: [{ slug: 'hello-world', label: '@cliq/hello-world', version: '1.0.0', in_team_list: true, installed_count: 1 }], total: 1 }
-            : get(f)));
-        m.teams.get_by_id.mockImplementation(async (p: { name: string }) => (p.name === 'hello-world'
-            ? { id: 'hw', name: 'hello-world', scope: 'cliq', description: 'Say hello', status: 'published', latest_version: '1.1.0' }
-            : team()));
-        const view = { scope: 'acme', org_id: '22222222-2222-4222-8222-222222222222' };
-        const all = await svc(m).list({ ...view, status: 'all' }, 'tok');
-        expect(all.items.map((i) => i.name)).toEqual(['feature-dev', 'kyc', 'hello-world']);
-        expect(all.counts).toEqual({ all: 3, published: 1, draft: 1 });
-        expect((await svc(m).list({ ...view, status: 'published' }, 'tok')).items.map((i) => i.name)).toEqual(['feature-dev']);
-        expect((await svc(m).list({ ...view, status: 'draft' }, 'tok')).items.map((i) => i.name)).toEqual(['kyc']);
-    });
-
-    it('a team installed elsewhere whose details can\'t be read still shows (name and scope from the install)', async () => {
-        const m = mocks();
-        const get = m.teams.get.getMockImplementation()!;
-        m.teams.get.mockImplementation(async (f: { mine?: boolean; realm_id?: string }) => (f.realm_id === 'r2'
-            ? { items: [{ slug: 'secret', label: '@other/secret', version: '2.0.0', in_team_list: true, installed_count: 1 }], total: 1 }
-            : get(f)));
-        m.teams.get_by_id.mockImplementation(async (p: { name: string }) => { if (p.name === 'secret') throw new Error('404'); return team(); });
-        const data = await svc(m).list({}, 'tok');
-        expect(data.items.find((i) => i.name === 'secret')).toMatchObject({ scope: 'other', status: 'published' });
+    it("a listed team whose details can't be read still shows (name and scope from the list)", async () => {
+        const m = with_list(mocks());
+        m.teams.get_by_id.mockImplementation(async (p: { name: string }) => { if (p.name === 'tool') throw new Error('404'); return team(); });
+        const data = await svc(m).list(view, 'tok');
+        expect(data.items.find((i) => i.name === 'tool')).toMatchObject({ scope: 'other', status: 'published' });
     });
 
     it('realm lookup failing marks partial but still lists', async () => {
-        const m = mocks();
+        const m = with_list(mocks());
         m.control.realms_page.mockRejectedValue(new Error('down'));
-        const data = await svc(m).list({}, 'tok');
+        const data = await svc(m).list(view, 'tok');
         expect(data.items).toHaveLength(3);
         expect(data.partial).toBe(true);
     });

@@ -213,7 +213,7 @@ export class ControlRepository {
         return res.data;
     }
 
-    /** `POST /v1/orgs/get_teams { org_id }` — the org's team library. */
+    /** `POST /v1/orgs/get_teams { org_id }` — the org's Teams list: own, `@cliq` and added teams. */
     async org_teams(org_id: string, token: string): Promise<ControlOrgTeamVO[]> {
         const res = await this._core.post_body<{ data?: { items?: ControlOrgTeamVO[] } }>('/v1/orgs/get_teams', { org_id }, token);
         return Array.isArray(res.data?.items) ? res.data!.items! : [];
@@ -221,7 +221,7 @@ export class ControlRepository {
 
     /**
      * `POST /v1/realms/add_team { realm_id, scope, slug }` — adds a published team to one realm
-     * (Core also adds it to the realm's org when allowed, and sends install to online daemons).
+     * from its org's Teams list (Core refuses one that isn't on it), and sends install to online daemons.
      */
     async add_team(body: { realm_id: string; scope: string; slug: string; version?: string }, token: string): Promise<Record<string, unknown>> {
         return this._core.post_body<Record<string, unknown>>('/v1/realms/add_team', body, token);

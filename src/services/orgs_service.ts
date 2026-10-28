@@ -137,7 +137,7 @@ export class OrgsService {
         return data;
     }
 
-    /** Changes a scope's display name / visibility. */
+    /** Changes a scope's display name. */
     async update_scope(input: OrgsUpdateScopeInput, token: string): Promise<OrgsUpdateScopeData> {
         const data = to_orgs_update_scope_data(await this._repo.update_scope(input, token));
         log.info('org_scope_updated', { org_id: input.org_id, scope_id: input.scope_id });

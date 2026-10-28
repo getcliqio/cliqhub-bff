@@ -664,16 +664,6 @@ describe('Orgs integration', () => {
             expect(res.body.error.message).toContain('already exists');
         });
 
-        it('returns 422 on invalid visibility value', async () => {
-            const sid = make_session();
-            const res = await request(app)
-                .post('/v1/orgs/new_scope')
-                .set(CSRF)
-                .set('Cookie', `test_sid=${sid}`)
-                .send({ org_id: hub_legacy_uuid(1), slug: 'acme-labs', visibility: 'internal' });
-
-            expect(res.status).toBe(422);
-        });
     });
 
     describe('POST /v1/orgs/delete_scope', () => {

@@ -23,7 +23,9 @@ export interface ControlOrgTeamVO {
     team_id: string;
     scope: string | null;
     name: string;
-    /** The org owns the team's scope. */
+    /** own: in one of the org's scopes; cliq: a default-scope team; added: chosen by the org (PLAN-team-visibility §3.6). */
+    kind: 'own' | 'cliq' | 'added';
+    /** The org owns the team's scope (`kind === 'own'`). */
     own: boolean;
 }
 

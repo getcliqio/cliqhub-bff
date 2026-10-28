@@ -22,10 +22,8 @@ function session(overrides: Partial<SessionRecord> = {}): SessionRecord {
 }
 
 describe('scopes_from_slugs', () => {
-    it('builds minimal private user scopes from slugs', () => {
-        expect(scopes_from_slugs(['alice'])).toEqual([{
-            id: '0', slug: 'alice', display_name: 'alice', owner_id: '0', org_id: null, visibility: 'private', scope_type: 'user',
-        }]);
+    it('the scopes the user can publish to: slug and name', () => {
+        expect(scopes_from_slugs(['alice'])).toEqual([{ slug: 'alice', display_name: 'alice' }]);
     });
 });
 

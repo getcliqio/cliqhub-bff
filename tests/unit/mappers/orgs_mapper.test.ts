@@ -14,9 +14,7 @@ const SAMPLE_SCOPE: ScopeVO = {
     slug: 'alice',
     display_name: 'Alice',
     owner_id: 'user-uuid-1',
-    org_id: null,
-    visibility: 'public',
-    scope_type: 'user',
+    org_id: 'org-uuid-1',
     created_at: '2025-01-01T00:00:00Z',
 };
 
@@ -26,17 +24,9 @@ const ROLE: OrgRoleVO = {
 };
 
 describe('to_scope_data', () => {
-    it('maps scope fields and excludes created_at', () => {
+    it('a session scope: slug and name', () => {
         const data = to_scope_data(SAMPLE_SCOPE);
-        expect(data).toEqual({
-            id: 'scope-uuid-1',
-            slug: 'alice',
-            display_name: 'Alice',
-            owner_id: 'user-uuid-1',
-            org_id: null,
-            visibility: 'public',
-            scope_type: 'user',
-        });
+        expect(data).toEqual({ slug: 'alice', display_name: 'Alice' });
         expect(data).not.toHaveProperty('created_at');
     });
 });

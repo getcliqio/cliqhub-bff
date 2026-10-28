@@ -15,7 +15,7 @@
  *   POST /v1/orgs/update_role            — rename / re-permission a role
  *   POST /v1/orgs/delete_role            — delete a custom role
  *   POST /v1/orgs/new_scope              — new publishing scope
- *   POST /v1/orgs/update_scope           — rename / change visibility
+ *   POST /v1/orgs/update_scope           — rename
  *   POST /v1/orgs/delete_scope           — delete a scope
  *   POST /v1/orgs/assign_scope_member    — give a member a scope
  *   POST /v1/orgs/unassign_scope_member  — take it away
@@ -245,7 +245,7 @@ export class OrgsController extends BaseController {
     }
 
     /**
-     * Renames a scope or changes its visibility.
+     * Renames a scope.
      *
      * @param req - Body: {@link OrgsUpdateScopeInput}
      * @param res - `{ ok: true, data: OrgsUpdateScopeData }`

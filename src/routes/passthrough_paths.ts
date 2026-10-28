@@ -43,6 +43,10 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     '/v1/realms/remove_team': 'token',
     '/v1/realms/a2a': 'token',
 
+    // ── An org's Teams list: add / remove a team from another org's scope (PLAN-team-visibility §3.6) ──
+    '/v1/orgs/add_team': 'token',
+    '/v1/orgs/remove_team': 'token',
+
     // ── Teams on daemons (install / uninstall) and version removal ────────
     '/v1/teams/install': 'token',
     '/v1/teams/delete_version': 'token',

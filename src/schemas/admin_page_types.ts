@@ -212,7 +212,7 @@ export interface AdminLogRowData {
 /** `scopes` row. */
 export interface AdminScopeRowData {
     id: string; slug: string; display_name: string; org_id: string | null; org_slug: string | null;
-    owner_username: string | null; visibility: string; scope_type: string; team_count: number; created_at: string | null;
+    owner_username: string | null; team_count: number; created_at: string | null;
 }
 /** Any admin list row (the `kind` of the list says which). */
 export type AdminListRowData = AdminAccountRowData | AdminDaemonRowData | AdminTeamRowData | AdminAuditRowData

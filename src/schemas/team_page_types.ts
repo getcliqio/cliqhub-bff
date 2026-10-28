@@ -27,12 +27,12 @@ const OffsetField = z.number().int().min(0).optional()
 
 /** POST /v1/team_list/get */
 export const TeamListGetInput = z.object({
-    org_id: z.string().uuid().optional()
-        .describe('Only this org\'s realms count for "installed in"'),
+    org_id: z.string().uuid()
+        .describe('The org: the Teams page is always one org\'s (PLAN-team-visibility §6)'),
     scope: SlugField.optional()
-        .describe('The view\'s own teams are this scope\'s (the org\'s slug); teams installed in its realms are listed under all'),
+        .describe('The org\'s slug: its scopes (slug and slug-*) hold the caller\'s own teams for published / draft'),
     status: z.enum(['all', 'published', 'draft']).optional()
-        .describe('all = own teams + teams installed in the realms; published / draft = own teams only (default all)'),
+        .describe('all = the org\'s Teams list (own, @cliq and added teams); published / draft = the caller\'s own teams (default all)'),
     q: QField,
     limit: LimitField,
     offset: OffsetField,
@@ -131,6 +131,11 @@ export interface TeamListRowData {
     phase_kinds: string[] | null;
     /** Phase names, same order (for the list's per-phase tooltip). */
     phase_names: string[] | null;
+    /**
+     * Why the team is on the org's Teams list (All; PLAN-team-visibility §3.6): own, cliq or added — only an
+     * added team can be removed (`orgs/remove_team`). Null for a row that isn't on the list (Published / Drafts).
+     */
+    list_kind: 'own' | 'cliq' | 'added' | null;
     installs: TeamInstallData[];
 }
 
@@ -171,6 +176,8 @@ export interface TeamHeaderData {
     versions: TeamReleaseData[];
     author: string | null;
     listed: boolean;
+    /** public: everyone; private: the scope's members (PLAN-team-visibility §3.2); draft: never published. */
+    visibility: 'public' | 'private' | 'draft';
     tags: string[];
     can_edit: boolean;
     can_delete: boolean;

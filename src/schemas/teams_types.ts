@@ -53,8 +53,6 @@ export const TeamsGetInput = z.object({
         .describe('Only teams in this scope'),
     mine: z.boolean().optional()
         .describe('Only teams the caller authored'),
-    group_by_scope: z.boolean().optional()
-        .describe('Order the list by scope'),
     listed: z.boolean().optional()
         .describe('Only listed (true) or unlisted (false) teams'),
     status: z.enum(['draft', 'published']).optional()

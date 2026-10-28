@@ -15,16 +15,11 @@ import type {
     OrgsUnassignScopeMemberData, OrgsGetScopesData,
 } from '../schemas/orgs_types.js';
 
-/** Session scope (drops `created_at`). */
+/** Session scope: its slug and name. */
 export function to_scope_data(scope: ScopeVO): ScopeData {
     return {
-        id: scope.id,
         slug: scope.slug,
         display_name: scope.display_name,
-        owner_id: scope.owner_id,
-        org_id: scope.org_id,
-        visibility: scope.visibility,
-        scope_type: scope.scope_type,
     };
 }
 
@@ -140,7 +135,6 @@ export function to_org_scope_data(vo: OrgScopeVO): OrgScopeData {
         id: vo.id,
         slug: vo.slug,
         display_name: vo.display_name,
-        visibility: vo.visibility,
         member_count: vo.member_count,
         team_count: vo.team_count,
     };
