@@ -61,6 +61,8 @@ import { HealthController } from './controllers/health_controller.js';
 import { A2aController } from './controllers/a2a_controller.js';
 import { PassthroughController } from './controllers/passthrough_controller.js';
 import { TeamInstallController } from './controllers/team_install_controller.js';
+import { RunEnqueueController } from './controllers/run_enqueue_controller.js';
+import { RunPreflightService } from './services/run_preflight_service.js';
 import { RealmsListController } from './controllers/realms_list_controller.js';
 import { RealmsListService } from './services/realms_list_service.js';
 import { TeamInstallService } from './services/team_install_service.js';
@@ -115,6 +117,7 @@ export interface Container {
     a2a_controller: A2aController;
     passthrough_controller: PassthroughController;
     team_install_controller: TeamInstallController;
+    run_enqueue_controller: RunEnqueueController;
     realms_list_controller: RealmsListController;
     streams_controller: StreamsController;
     artifact_files_controller: ArtifactFilesController;
@@ -207,6 +210,7 @@ export function build_container(deps: {
         a2a_controller: new A2aController(proxy_service),
         passthrough_controller: new PassthroughController(proxy_service),
         team_install_controller: new TeamInstallController(new TeamInstallService(orgs_repo, control_repo), proxy_service),
+        run_enqueue_controller: new RunEnqueueController(new RunPreflightService(control_repo, teams_repo, core_reads, orgs_repo, team_page_service), proxy_service),
         realms_list_controller: new RealmsListController(new RealmsListService(proxy_service, teams_repo)),
         streams_controller: new StreamsController(proxy_service),
         artifact_files_controller: new ArtifactFilesController(proxy_service),

@@ -250,6 +250,28 @@ describe('TeamPageService.page', () => {
         expect(m.control.run_phases).not.toHaveBeenCalled();
     });
 
+    it('workflow: sub-teams at every depth, each read once (a loop ends), unreadable ones left out and marked partial', async () => {
+        const m = mocks();
+        const wf = (phases: unknown[]) => ({ phases });
+        const by_name: Record<string, unknown> = {
+            pipeline: team({ name: 'pipeline', workflow: wf([{ name: 'build', type: 'map', team: '@acme/builder' }, { name: 'review', type: 'map', team: '@acme/reviewer' }]) }),
+            builder: team({ name: 'builder', workflow: wf([{ name: 'code', type: 'standard', agent: 'cursor' }, { name: 'back', type: 'team', team: '@acme/pipeline' }]) }),
+        };
+        m.teams.get_by_id.mockImplementation(async (p: { name: string }) => {
+            if (p.name === 'scout') return team({ name: 'scout', workflow: wf([{ name: 'find', type: 'standard', agent: 'exec' }, { name: 'start', type: 'map', team: '@acme/pipeline', depends_on: ['find'] }]) });
+            if (p.name === 'reviewer') throw new ApiError('not_found', 'Team not found', 404);
+            return by_name[p.name] as never;
+        });
+        const data = await svc(m).page({ scope: 'acme', name: 'scout', view: 'workflow' }, 'tok');
+        const subs = data.workflow!.sub_teams!;
+        expect(Object.keys(subs).sort()).toEqual(['@acme/builder', '@acme/pipeline']);
+        expect(subs['@acme/pipeline'].phases.map((p) => p.team)).toEqual(['@acme/builder', '@acme/reviewer']);
+        expect(subs['@acme/builder']).toMatchObject({ name: 'builder', version: '1.2.0' });
+        // scout + pipeline + builder + reviewer: each read once, the builder → pipeline loop is not read again.
+        expect(m.teams.get_by_id.mock.calls.filter((c) => (c[0] as { name: string }).name === 'pipeline')).toHaveLength(1);
+        expect(data.partial).toBe(true);
+    });
+
     it('files: team.yml, README and one file per role', async () => {
         const data = await svc(mocks()).page({ scope: 'acme', name: 'feature-dev', view: 'files' }, 'tok');
         expect(data.files?.files.map((f) => f.path)).toEqual(['team.yml', 'README.md', 'roles/architect.md']);

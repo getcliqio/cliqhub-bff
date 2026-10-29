@@ -204,6 +204,19 @@ export interface TeamChangeData {
 /** Tab of the team page; only that tab's section is filled. */
 export type TeamPageView = 'overview' | 'workflow' | 'files' | 'runs' | 'installs' | 'versions' | 'settings';
 
+/**
+ * A team another step runs (a `team` phase, or a `map` over a team), keyed by the
+ * reference as the step writes it ("@measureone/parser-builder"). Its own sub-teams are
+ * in the same map, so the workflow can open or expand them at any depth.
+ */
+export interface TeamSubTeamData {
+    scope: string | null;
+    name: string;
+    /** The version read: the team's latest (a sub-team runs the daemon's newest install). */
+    version: string | null;
+    phases: TeamPhaseData[];
+}
+
 /** `team_page/get` — header, counts and the requested tab's data. */
 export interface TeamPageData {
     team: TeamHeaderData;
@@ -218,10 +231,14 @@ export interface TeamPageData {
         agent_defs?: Array<{ name: string; entry: string | null; env: string[] }>;
         latest: TeamReleaseData | null;
         installs: TeamInstallData[];
+        /** Teams the workflow's steps run, at every depth (missing when one could not be read). */
+        sub_teams?: Record<string, TeamSubTeamData>;
     };
     workflow?: {
         phases: TeamPhaseData[];
         support: TeamPhaseData[];
+        /** Teams the workflow's steps run, at every depth (missing when one could not be read). */
+        sub_teams?: Record<string, TeamSubTeamData>;
         recent_runs: TeamRunRowData[];
         overlay: {
             run: TeamRunRowData;

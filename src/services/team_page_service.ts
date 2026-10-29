@@ -5,7 +5,8 @@
  *   orgs/get_teams            — the org's Teams list (own, @cliq, added), All
  *   teams/get { mine }        — the caller's teams (paged; read in full), Published / Drafts
  *   teams/get { realm_id }    — a realm's roster with coverage ("installed in")
- *   teams/get_by_id           — the team (also the visibility gate), any version
+ *   teams/get_by_id           — the team (also the visibility gate), any version; and each
+ *                               team its steps run (sub-teams, at any depth)
  *   teams/get_phases          — phase shape per team / per run version
  *   realms/get                — realms to check for installs
  *   runs/get { team: { scope, slug } }, runs/get_by_id, runs/get_status — runs and the workflow overlay
@@ -16,7 +17,7 @@ import type { TeamsRepository } from '../repositories/teams_repository.js';
 import type { TeamVO } from '../types/core/teams.js';
 import type {
     TeamListGetInput, TeamPageGetInput,
-    TeamHeaderData, TeamInstallData, TeamListData, TeamListRowData, TeamPageData, TeamPhaseData,
+    TeamHeaderData, TeamInstallData, TeamListData, TeamListRowData, TeamPageData, TeamPhaseData, TeamSubTeamData,
 } from '../schemas/team_page_types.js';
 import { is_newer, parse_label } from '../mappers/realm_teams_mapper.js';
 import {
@@ -218,6 +219,44 @@ export class TeamPageService {
      * @param token - The caller's Core token
      * @throws ApiError 404 when the caller cannot see the team (from teams/get_by_id)
      */
+    /** Most different sub-teams read for one page (a guard; there is no depth limit). */
+    static readonly SUB_TEAM_CAP = 100;
+
+    /**
+     * The teams these phases run, and the teams those run, at any depth, keyed by the reference
+     * as written. Each team is read once, so a loop (A runs B runs A) ends. Best effort: a team
+     * the caller can't read is left out (its node stays a plain sub-team).
+     */
+    async sub_teams(phases: TeamPhaseData[], token: string, team_id: string): Promise<{ map: Record<string, TeamSubTeamData>; failed: boolean }> {
+        const map: Record<string, TeamSubTeamData> = {};
+        let failed = false;
+        let level = phases;
+        let read_count = 0;
+        while (level.length) {
+            const refs = [...new Set(level.map((p) => p.team).filter((t): t is string => typeof t === 'string' && t.length > 0 && !(t in map)))]
+                .slice(0, TeamPageService.SUB_TEAM_CAP - read_count);
+            if (!refs.length) break;
+            read_count += refs.length;
+            const read = await map_limited(refs, 4, async (ref) => {
+                const m = /^@?([^/]+)\/(.+)$/.exec(ref);
+                if (!m) return null;
+                try {
+                    const r = await this._teams.get_by_id({ scope: m[1], name: m[2] }, token);
+                    const versions = to_team_releases_data(r.versions);
+                    const sub: TeamSubTeamData = { scope: str(r.scope) ?? m[1], name: String(r.name ?? m[2]), version: versions[0]?.version ?? null, phases: to_team_phases_data(r.workflow, r.roles).phases };
+                    map[ref] = sub;
+                    return sub;
+                } catch (err) {
+                    log.warn('team_page_sub_team_failed', { team_id, ref, ...error_fields(err) });
+                    failed = true;
+                    return null;
+                }
+            });
+            level = read.flatMap((sub) => sub?.phases ?? []);
+        }
+        return { map, failed };
+    }
+
     async page(input: TeamPageGetInput, token: string): Promise<TeamPageData> {
         const view = input.view ?? 'overview';
         // get_by_id is also the visibility gate (404 when the caller can't see it).
@@ -261,6 +300,7 @@ export class TeamPageService {
         const latest_of = () => latest_version;
 
         if (view === 'overview') {
+            const subs = this.sub_teams(phases, token, team_id);
             const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
             const inst = realms ? await this._installs_by_label(token, realms.items.slice(0, TeamPageService.REALM_CAP), latest_of, { name, scope }) : null;
             const agents = [...new Set([...phases, ...support].map((x) => x.agent).filter((x): x is string => Boolean(x)))];
@@ -269,11 +309,13 @@ export class TeamPageService {
                 const d = (def && typeof def === 'object' ? def : {}) as { entry?: unknown; env?: unknown };
                 return { name: agent, entry: typeof d.entry === 'string' ? d.entry : null, env: Array.isArray(d.env) ? d.env.map(String) : [] };
             });
-            data.overview = { phases, support, inputs, agents, agent_defs, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [] };
+            const sub = await subs;
+            data.overview = { phases, support, inputs, agents, agent_defs, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [], ...(Object.keys(sub.map).length ? { sub_teams: sub.map } : {}) };
             // The team page shows the workflow as a diagram or as team.yml, on one page.
             data.files = { files: files_of() };
-            data.partial = !realms || Boolean(inst?.failed);
+            data.partial = !realms || Boolean(inst?.failed) || sub.failed;
         } else if (view === 'workflow') {
+            const subs = this.sub_teams(phases, token, team_id);
             const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
             const rmap = new Map((realms?.items ?? []).map((r) => [r.id, r]));
             const recent = await best_effort(log, 'team_page_recent_runs_failed', this._control.runs_for_team({ ...run_scope, limit: 8 }, token), null, { team_id });
@@ -297,8 +339,9 @@ export class TeamPageService {
                     overlay = { run: to_team_run_row(run, rmap), version: run_version, phases: run_phases, statuses };
                 }
             }
-            data.workflow = { phases, support, recent_runs: (recent?.items ?? []).map((r) => to_team_run_row(r, rmap)), overlay };
-            data.partial = !recent;
+            const sub = await subs;
+            data.workflow = { phases, support, ...(Object.keys(sub.map).length ? { sub_teams: sub.map } : {}), recent_runs: (recent?.items ?? []).map((r) => to_team_run_row(r, rmap)), overlay };
+            data.partial = !recent || sub.failed;
         } else if (view === 'files') {
             data.files = { files: files_of() };
         } else if (view === 'runs') {

@@ -79,6 +79,11 @@ describe('BFF route surface audit', () => {
 		expect(app_src).toContain('Unknown API route');
 	});
 
+	it('runs/enqueue is the BFF’s own token route (agent settings pre-flight, then Core unchanged)', () => {
+		expect(PASSTHROUGH).not.toContain('/v1/runs/enqueue');
+		expect(ROUTE_AUTH['POST /v1/runs/enqueue']).toBe('token');
+	});
+
 	it('realms/add_team is the BFF’s own token route (one realm → Core unchanged; realm_ids → pre-flight, then each)', () => {
 		expect(PASSTHROUGH).not.toContain('/v1/realms/add_team');
 		expect(ROUTE_AUTH['POST /v1/realms/add_team']).toBe('token');
@@ -94,7 +99,6 @@ describe('BFF route surface audit', () => {
 			'/v1/realms/remove_member',
 			'/v1/realms/remove_team',
 			'/v1/realms/a2a',
-			'/v1/runs/enqueue',
 			'/v1/teams/install',
 			'/v1/teams/uninstall',
 			'/v1/events/submit',
