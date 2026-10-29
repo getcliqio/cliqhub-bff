@@ -44,6 +44,11 @@ export interface TeamVO {
     slug?: string;
     label?: string;
     sample_team_id?: string | null;
+    /** Realm mode: team.yml `use_when` / `not_for` of the realm's version (else the latest). */
+    use_when?: string[];
+    not_for?: string[];
+    /** Realm mode: the inputs a run must be given (required, no default). */
+    required_inputs?: Array<{ name: string; description: string | null }>;
 }
 
 /** `teams/get` in every mode. */

@@ -50,6 +50,13 @@ export interface RealmTeamRowData {
     online_stale: number | null;
     last_run_at: number | null;
     missing_agents: string[];
+    /** What the team does (catalog); null for CLI-installed teams. */
+    description: string | null;
+    /** When to start this team, and when to start another one (team.yml, the realm's version). */
+    use_when: string[];
+    not_for: string[];
+    /** The inputs a run must be given. */
+    required_inputs: Array<{ name: string; description: string | null }>;
 }
 
 /** `realm_teams/get` — one page of a realm's teams. */

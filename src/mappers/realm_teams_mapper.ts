@@ -40,6 +40,10 @@ export function to_realm_team_row(r: TeamVO, scope: string | null, slug: string,
         online_stale: r.online_stale ?? null,
         last_run_at: r.last_run_at ?? null,
         missing_agents: r.missing_agents ?? [],
+        description: r.description || null,
+        use_when: r.use_when ?? [],
+        not_for: r.not_for ?? [],
+        required_inputs: r.required_inputs ?? [],
     };
 }
 

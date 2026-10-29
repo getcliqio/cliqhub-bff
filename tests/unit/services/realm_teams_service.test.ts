@@ -9,7 +9,13 @@ function mocks() {
     return {
         control: { realm_by_slug: vi.fn().mockResolvedValue({ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' }) },
         teams: {
-            get: vi.fn().mockResolvedValue({ items: [row('@cliq/feature-dev-js'), row('@me/local-thing', { origin: 'cli', version: null })], total: 6, offset: 0, limit: 10 }),
+            get: vi.fn().mockResolvedValue({ items: [
+                row('@cliq/feature-dev-js', {
+                    description: 'Builds JS features', use_when: ['You have a ticket'], not_for: ['Python'],
+                    required_inputs: [{ name: 'ticket', description: 'The Jira key' }],
+                }),
+                row('@me/local-thing', { origin: 'cli', version: null }),
+            ], total: 6, offset: 0, limit: 10 }),
             get_versions: vi.fn().mockResolvedValue({ name: 'feature-dev-js', scope: 'cliq', version: '2.5.0' }),
         },
     };
@@ -37,6 +43,16 @@ describe('RealmTeamsService', () => {
         expect(dto.items[0]).toMatchObject({ scope: 'cliq', slug: 'feature-dev-js', latest_version: '2.5.0', update_available: true, installed_count: 2, online_daemon_count: 3, online_stale: 1 });
         expect(dto.items[1]).toMatchObject({ origin: 'cli', update_available: false, latest_version: null });
         expect(dto.total).toBe(6);
+    });
+
+    it('rows carry what each team is for: description, use_when, not_for, required inputs', async () => {
+        const m = mocks();
+        const dto = await new RealmTeamsService(m.control as any, m.teams as any).get({ org_slug: 'acme', slug: 'prod', limit: 10 }, 'tok');
+        expect(dto.items[0]).toMatchObject({
+            description: 'Builds JS features', use_when: ['You have a ticket'], not_for: ['Python'],
+            required_inputs: [{ name: 'ticket', description: 'The Jira key' }],
+        });
+        expect(dto.items[1]).toMatchObject({ description: null, use_when: [], not_for: [], required_inputs: [] });
     });
 
     it('version lookup failing is ignored; page failing fails; realm gate first', async () => {
