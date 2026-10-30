@@ -91,7 +91,8 @@ export interface TeamDetailVO {
     raw_manifest: string | null;
     team_json: string | null;
     /** Working copy (editors only); absent on older Core builds. */
-    draft?: { manifest: string; description: string | null; saved_at: string | null } | null;
+    /** The open draft, shown to editors (PLAN-team-bundle S1.3c). */
+    draft?: { version_id: string; saved_at: string | null } | null;
     can_edit?: boolean;
     can_delete?: boolean;
     can_toggle_listing?: boolean;
@@ -105,7 +106,8 @@ export interface TeamMutationVO {
     status: 'draft' | 'published';
     version: string | null;
     listed?: boolean;
-    draft_saved_at?: string | null;
+    /** `teams/create`: the team's first draft. */
+    version_id?: string;
 }
 
 /** `teams/download` — the archive, base64. */

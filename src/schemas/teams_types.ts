@@ -108,7 +108,7 @@ export const TeamsGetPhasesInput = z.object({
 });
 export type TeamsGetPhasesInput = z.infer<typeof TeamsGetPhasesInput>;
 
-/** POST /v1/teams/create — a draft; seeds 0.1.0 when a manifest is sent. */
+/** POST /v1/teams/create — the team and its first draft (team.yml + README.md, or a fork's files); returns its `version_id`. */
 export const TeamsCreateInput = z.object({
     name: z.string().min(1, 'Team name is required').regex(NamePattern, NameMessage)
         .describe('Team name: lowercase letters, digits, hyphens; starts with a letter'),
@@ -116,22 +116,18 @@ export const TeamsCreateInput = z.object({
         .describe('Scope (publisher) slug the caller can write to'),
     description: z.string().optional()
         .describe('Short summary'),
-    manifest: z.union([z.string(), z.record(z.unknown())]).optional()
-        .describe('Team manifest as YAML text or an object'),
-    team_json: z.string().optional()
-        .describe('Builder canvas JSON (alternative to manifest)'),
     forked_from: z.object({
         team_id: z.string().min(1).describe('Team to copy'),
         version: z.string().optional().describe('Version to copy (default: its latest)'),
     }).optional()
-        .describe('Fork: copies that version’s team.yml under the new name and records where it came from'),
+        .describe('Fork: the draft starts from that version’s files under the new name, and records where it came from'),
 });
 export type TeamsCreateInput = z.infer<typeof TeamsCreateInput>;
 
 /**
- * POST /v1/teams/update. `save_as: 'draft'` keeps the manifest as the team's one
- * working copy (no version); `'discard'` drops that copy; omitted / `'version'`
- * mints the next version (patch unless `bump` says otherwise).
+ * POST /v1/teams/update: the description, or `save_as: 'discard'` deletes the draft `version_id`
+ * (PLAN-team-bundle S1.3c). Files change only through `teams/files/upload`; a draft becomes a
+ * version only through `teams/publish`.
  */
 export const TeamsUpdateInput = z.object({
     name: z.string().optional()
@@ -140,14 +136,10 @@ export const TeamsUpdateInput = z.object({
     team_id: TeamIdField,
     description: z.string().optional()
         .describe('New summary'),
-    manifest: z.union([z.string(), z.record(z.unknown())]).optional()
-        .describe('New manifest as YAML text or an object'),
-    team_json: z.string().optional()
-        .describe('New builder canvas JSON'),
-    bump: z.enum(['minor', 'major']).optional()
-        .describe('Version bump (default patch)'),
-    save_as: z.enum(['draft', 'version', 'discard']).optional()
-        .describe("'draft': save as the working copy (no version); 'discard': drop the working copy; 'version' (default): mint a version"),
+    save_as: z.enum(['discard']).optional()
+        .describe("'discard': delete the draft named by version_id"),
+    version_id: z.string().uuid().optional()
+        .describe('The draft to discard'),
 }).refine(has_name_or_id, { message: NameOrIdMessage });
 export type TeamsUpdateInput = z.infer<typeof TeamsUpdateInput>;
 
@@ -296,7 +288,7 @@ export interface TeamDetailData {
     raw_manifest: string | null;
     /** Builder canvas payload (same as raw_manifest). */
     team_json: string | null;
-    /** The team's unversioned working copy — only for people who can edit it; null when there is none. */
+    /** The team's open draft — only for people who can edit it; null when there is none. */
     draft: TeamWorkingCopyData | null;
     /** What the caller may do with this team. */
     can_edit: boolean;
@@ -312,14 +304,13 @@ export interface TeamMutationData {
     status: 'draft' | 'published';
     version: string | null;
     listed?: boolean;
-    /** teams/update: when the working copy was saved (`save_as: 'draft'`); null otherwise. */
-    draft_saved_at?: string | null;
+    /** teams/create: the team's first draft. */
+    version_id?: string;
 }
 
-/** A team's unversioned working copy (`teams.draft_*` in Core). */
+/** A team's open draft: a version not yet published (PLAN-team-bundle S1.3c); its files via `teams/files/get`. */
 export interface TeamWorkingCopyData {
-    manifest: string;
-    description: string | null;
+    version_id: string;
     saved_at: string | null;
 }
 

@@ -124,17 +124,17 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
         it('returns 200 on create', async () => {
             const sid = make_session();
             vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
-                id: hub_legacy_uuid(1), name: 'draft-team', scope: 'alice', status: 'draft',
+                id: hub_legacy_uuid(1), name: 'draft-team', scope: 'alice', status: 'draft', version_id: '0d0d0d0d-1111-4222-8333-555555555555',
             });
 
             const res = await request(app)
                 .post('/v1/teams/create')
                 .set(CSRF)
                 .set('Cookie', `test_sid=${sid}`)
-                .send({ name: 'draft-team', scope: 'alice', team_json: '{"phases":[]}' });
+                .send({ name: 'draft-team', scope: 'alice' });
 
             expect(res.status).toBe(200);
-            expect(res.body.data.status).toBe('draft');
+            expect(res.body.data).toMatchObject({ status: 'draft', version_id: '0d0d0d0d-1111-4222-8333-555555555555' });
         });
 
         it('returns 422 when name missing', async () => {
@@ -174,21 +174,20 @@ describe('Teams draft surface (replaces /v1/drafts/*)', () => {
             expect(res.status).toBe(200);
         });
 
-        it.each(['draft', 'discard'] as const)("forwards save_as '%s' to Core and returns draft_saved_at", async (save_as) => {
+        it('forwards a discard with its draft version_id to Core', async () => {
             const sid = make_session();
-            const saved_at = save_as === 'draft' ? '2026-10-05T10:00:00.000Z' : null;
+            const version_id = '0d0d0d0d-1111-4222-8333-555555555555';
             const spy = vi.spyOn(CoreClient.prototype, 'post').mockResolvedValueOnce({
-                id: hub_legacy_uuid(1), name: 'draft-team', scope: 'alice', status: 'published', version: null, draft_saved_at: saved_at,
+                id: hub_legacy_uuid(1), name: 'draft-team', scope: 'alice', status: 'published', version: null,
             });
             const res = await request(app)
                 .post('/v1/teams/update')
                 .set(CSRF)
                 .set('Cookie', `test_sid=${sid}`)
-                .send({ team_id: hub_legacy_uuid(1), team_json: '{}', save_as });
+                .send({ team_id: hub_legacy_uuid(1), save_as: 'discard', version_id });
             expect(res.status).toBe(200);
             expect(spy.mock.calls[0][0]).toBe('/v1/teams/update');
-            expect(spy.mock.calls[0][1]).toMatchObject({ save_as });
-            expect(res.body.data).toMatchObject({ version: null, draft_saved_at: saved_at });
+            expect(spy.mock.calls[0][1]).toMatchObject({ save_as: 'discard', version_id });
         });
 
         it('rejects an unknown save_as', async () => {

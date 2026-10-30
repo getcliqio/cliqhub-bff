@@ -135,10 +135,10 @@ describe('to_team_detail_data', () => {
         expect(data.team_json).toBeNull();
     });
 
-    it('passes the working copy through, or null when there is none', () => {
+    it('passes the open draft (version_id, saved_at) through, or null when there is none', () => {
         expect(to_team_detail_data(SAMPLE_DETAIL).draft).toBeNull();
         expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft: null }).draft).toBeNull();
-        const draft = { manifest: '{"name":"tdd-git"}', description: 'wip', saved_at: '2026-10-05T10:00:00.000Z' };
+        const draft = { version_id: '0d0d0d0d-1111-4222-8333-555555555555', saved_at: '2026-10-05T10:00:00.000Z' };
         expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft }).draft).toEqual(draft);
     });
 });
@@ -147,6 +147,11 @@ describe('to_team_mutation_data', () => {
     it('maps the team after a write and drops extras', () => {
         const vo = { id: TEAM_UUID, name: 'my-team', scope: 'alice', status: 'draft' as const, version: '0.1.0', listed: false };
         expect(to_team_mutation_data({ ...vo, extra: 1 } as never)).toEqual(vo);
+    });
+
+    it('keeps the first draft teams/create returns', () => {
+        const vo = { id: TEAM_UUID, name: 'my-team', scope: 'alice', status: 'draft' as const, version: null, version_id: '0d0d0d0d-1111-4222-8333-555555555555' };
+        expect(to_team_mutation_data(vo)).toMatchObject({ version_id: vo.version_id });
     });
 });
 

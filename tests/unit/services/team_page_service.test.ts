@@ -225,10 +225,10 @@ describe('TeamPageService.page', () => {
         expect(m.control.runs_for_team).toHaveBeenCalledWith({ team: { scope: 'acme', slug: 'feature-dev' }, limit: 1 }, 'tok');
     });
 
-    it('header says when an editor has unpublished changes (working copy saved_at), else null', async () => {
+    it('header says when an editor has unpublished changes (open draft saved_at), else null', async () => {
         const m = mocks();
         expect((await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'versions' }, 'tok')).team.draft_saved_at).toBeNull();
-        m.teams.get_by_id.mockResolvedValueOnce(team({ draft: { manifest: '{"name":"feature-dev"}', description: null, saved_at: '2026-10-05T09:00:00.000Z' } }));
+        m.teams.get_by_id.mockResolvedValueOnce(team({ draft: { version_id: 'v-draft', saved_at: '2026-10-05T09:00:00.000Z' } }));
         expect((await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'versions' }, 'tok')).team.draft_saved_at).toBe('2026-10-05T09:00:00.000Z');
     });
 

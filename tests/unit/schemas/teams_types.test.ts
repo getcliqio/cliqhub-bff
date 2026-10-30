@@ -203,8 +203,12 @@ describe('TeamsUpdateInput', () => {
         expect(TeamsUpdateInput.safeParse({ team_id: TEAM_UUID, bump: 'major' }).success).toBe(true);
     });
 
-    it('rejects patch as an explicit bump', () => {
-        expect(TeamsUpdateInput.safeParse({ name: 'tdd-git', bump: 'patch' }).success).toBe(false);
+    it('discard names its draft by version_id, which reaches Core; old save_as values are refused', () => {
+        const v = '0d0d0d0d-1111-4222-8333-555555555555';
+        const r = TeamsUpdateInput.safeParse({ team_id: v, save_as: 'discard', version_id: v });
+        expect(r.success && r.data).toMatchObject({ save_as: 'discard', version_id: v });
+        expect(TeamsUpdateInput.safeParse({ team_id: v, save_as: 'draft' }).success).toBe(false);
+        expect(TeamsUpdateInput.safeParse({ team_id: v, version_id: 'not-a-uuid' }).success).toBe(false);
     });
 
     it('rejects body without name or team_id', () => {
