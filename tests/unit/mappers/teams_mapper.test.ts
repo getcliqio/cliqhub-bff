@@ -152,8 +152,8 @@ describe('to_team_mutation_data', () => {
 
 describe('to_teams_download_data', () => {
     it('maps download response', () => {
-        expect(to_teams_download_data({ filename: 'tdd-1.0.0.zip', data_base64: 'abc', version: '1.0.0' }))
-            .toEqual({ filename: 'tdd-1.0.0.zip', data_base64: 'abc', version: '1.0.0' });
+        expect(to_teams_download_data({ filename: 'tdd-1.0.0.zip', data_base64: 'abc', version: '1.0.0', version_id: '0e0e0e0e-5555-4666-8777-888888888888' }))
+            .toEqual({ filename: 'tdd-1.0.0.zip', data_base64: 'abc', version: '1.0.0', version_id: '0e0e0e0e-5555-4666-8777-888888888888' });
     });
 });
 

@@ -110,7 +110,7 @@ export function to_team_mutation_data(vo: TeamMutationVO): TeamMutationData {
 
 /** `teams/download` → the base64 archive. */
 export function to_teams_download_data(vo: TeamsDownloadVO): TeamsDownloadData {
-    return { filename: vo.filename, data_base64: vo.data_base64, version: vo.version };
+    return { filename: vo.filename, data_base64: vo.data_base64, version: vo.version, version_id: vo.version_id };
 }
 
 /** `teams/delete` → `{ deleted }`. */

@@ -81,6 +81,12 @@ describe('TeamsGetByIdInput', () => {
 });
 
 describe('TeamsDownloadInput', () => {
+    it('accepts a version_id alone, and refuses neither name nor version_id (S1.2)', () => {
+        expect(TeamsDownloadInput.safeParse({ version_id: '0e0e0e0e-5555-4666-8777-888888888888' }).success).toBe(true);
+        expect(TeamsDownloadInput.safeParse({ scope: 'cliq' }).success).toBe(false);
+        expect(TeamsDownloadInput.safeParse({ version_id: 'not-a-uuid' }).success).toBe(false);
+    });
+
     it('accepts valid name', () => {
         expect(TeamsDownloadInput.safeParse({ name: 'tdd-git' }).success).toBe(true);
     });

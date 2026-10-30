@@ -189,12 +189,14 @@ export type TeamRefInput = z.infer<typeof TeamRefInput>;
 
 /** POST /v1/teams/download */
 export const TeamsDownloadInput = z.object({
-    name: z.string().min(1, 'Team name is required')
-        .describe('Team name'),
+    version_id: z.string().uuid().optional()
+        .describe('The version to download, by id (wins over name / scope / version)'),
+    name: z.string().min(1).optional()
+        .describe('Team name (required without version_id)'),
     scope: ScopeField,
     version: z.string().optional()
         .describe('Version to download; latest published when omitted'),
-});
+}).refine((d) => Boolean(d.version_id) || Boolean(d.name), { message: 'Provide version_id, or the team name' });
 export type TeamsDownloadInput = z.infer<typeof TeamsDownloadInput>;
 
 /** POST /v1/teams/rename */
@@ -327,6 +329,8 @@ export interface TeamsDownloadData {
     /** The zip package, base64. */
     data_base64: string;
     version: string;
+    /** The version's id. */
+    version_id: string;
 }
 
 /** `teams/delete` */

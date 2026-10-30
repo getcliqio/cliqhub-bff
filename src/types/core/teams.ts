@@ -113,6 +113,7 @@ export interface TeamsDownloadVO {
     filename: string;
     data_base64: string;
     version: string;
+    version_id: string;
 }
 
 /** `teams/delete`. */
