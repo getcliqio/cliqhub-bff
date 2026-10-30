@@ -10,6 +10,8 @@ import type { CoreProxyRepository } from '../repositories/core_proxy_repository.
 import type { StreamRunsInput } from '../schemas/streams_types.js';
 
 const MB = 1024 * 1024;
+/** The largest team-files upload: 10 MB of files plus the multipart framing (PLAN-team-bundle §2.2). */
+const TEAM_FILES_MAX_BYTES = 11 * MB;
 
 /** Forwards pass-through calls, SSE streams and A2A requests to Core unchanged. */
 export class ProxyService {
@@ -43,6 +45,18 @@ export class ProxyService {
             throw new ApiError('payload_too_large', `File is larger than ${this._max_artifact_bytes / MB} MB`, 413);
         }
         return this._repo.upload_artifact(query, body, headers);
+    }
+
+    /**
+     * Streams a team-files upload (multipart: a payload part and the files) to Core. Refused here (413) when it
+     * declares more than a team may hold (10 MB of files, plus the multipart framing).
+     */
+    async upload_team_files(body: AsyncIterable<Uint8Array>, headers: Record<string, string>): Promise<Response> {
+        const size = Number(headers['content-length']);
+        if (Number.isFinite(size) && size > TEAM_FILES_MAX_BYTES) {
+            throw new ApiError('payload_too_large', "A team's files total at most 10 MB", 413);
+        }
+        return this._repo.upload_team_files(body, headers);
     }
 
     /** Opens a file from Core's `/v1/artifacts/download` (Range passed through). */

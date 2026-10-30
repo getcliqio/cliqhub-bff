@@ -144,6 +144,7 @@ const OWN_ROUTES: Record<string, RouteAuth> = {
 
     // ── Artifact files (streamed passthrough; Core checks access) ──
     'POST /v1/artifacts/upload': 'token',
+    'POST /v1/teams/files/upload': 'token',
     'GET /v1/artifacts/download': 'token',
     'POST /v1/artifacts/download': 'token',
 };

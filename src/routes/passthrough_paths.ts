@@ -18,6 +18,10 @@ export const PASSTHROUGH_PATHS: Readonly<Record<string, Extract<RouteAuth, 'toke
     // ── System ────────────────────────────────────────────────────────────
     '/v1/system/seed': 'token',
 
+    // ── Team files (PLAN-team-bundle §2.6; the upload itself is streamed: controllers/artifact_files_controller.ts) ──
+    '/v1/teams/files/remove': 'token',
+    '/v1/teams/files/get': 'token',
+
     // ── Daemons ───────────────────────────────────────────────────────────
     '/v1/daemons/register': 'token',
     '/v1/daemons/heartbeat': 'token',

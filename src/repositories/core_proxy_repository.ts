@@ -34,6 +34,11 @@ export class CoreProxyRepository {
         return this._client.raw_stream('POST', `/v1/artifacts/upload${query}`, headers, body);
     }
 
+    /** `POST /v1/teams/files/upload` with the multipart body streamed through; Core's response unread. */
+    async upload_team_files(body: AsyncIterable<Uint8Array>, headers: Record<string, string>): Promise<Response> {
+        return this._client.raw_stream('POST', '/v1/teams/files/upload', headers, body);
+    }
+
     /** `GET ?{query}` or `POST {body}` `/v1/artifacts/download`; the file unread. */
     async download_artifact(
         request: { method: 'GET'; query: string } | { method: 'POST'; body: unknown },

@@ -5,6 +5,7 @@
  * POST <every path in routes/passthrough_paths.ts>
  * GET  /v1/runs/stream
  * POST /v1/artifacts/upload            (streamed file in)
+ * POST /v1/teams/files/upload          (a team's files, multipart, streamed in)
  * GET|POST /v1/artifacts/download      (streamed file out)
  */
 import type { RouteRegistrar } from './registrar.js';
@@ -17,6 +18,7 @@ export function register_passthrough_routes(r: RouteRegistrar, container: Contai
     for (const path of Object.keys(PASSTHROUGH_PATHS)) r.post(path, pass.wrap(pass.forward));
     r.get('/v1/runs/stream', streams.wrap(streams.runs));
     r.post('/v1/artifacts/upload', files.wrap(files.upload));
+    r.post('/v1/teams/files/upload', files.wrap(files.upload_team_files));
     r.get('/v1/artifacts/download', files.wrap(files.download));
     r.post('/v1/artifacts/download', files.wrap(files.download));
 }

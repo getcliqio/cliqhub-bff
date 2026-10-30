@@ -102,11 +102,11 @@ describe('TeamsDownloadInput', () => {
 
 describe('TeamsPublishInput', () => {
     it('accepts valid publish body', () => {
-        expect(TeamsPublishInput.safeParse({ name: 'my-team', files: { 'team.yml': 'name: x' }, version: '1.0.0' }).success).toBe(true);
+        expect(TeamsPublishInput.safeParse({ name: 'my-team', version_id: '0d0d0d0d-1111-4222-8333-555555555555', version: '1.0.0' }).success).toBe(true);
     });
 
     it('accepts with bump instead of version', () => {
-        expect(TeamsPublishInput.safeParse({ name: 'my-team', files: { 'team.yml': 'name: x' }, bump: 'minor' }).success).toBe(true);
+        expect(TeamsPublishInput.safeParse({ name: 'my-team', version_id: '0d0d0d0d-1111-4222-8333-555555555555', bump: 'minor' }).success).toBe(true);
     });
 
     it('accepts team_id instead of name', () => {
@@ -114,14 +114,14 @@ describe('TeamsPublishInput', () => {
     });
 
     it('rejects empty name', () => {
-        expect(TeamsPublishInput.safeParse({ name: '', files: { 'team.yml': 'name: x' } }).success).toBe(false);
+        expect(TeamsPublishInput.safeParse({ name: '', version_id: '0d0d0d0d-1111-4222-8333-555555555555' }).success).toBe(false);
     });
 
     it('rejects missing name', () => {
-        expect(TeamsPublishInput.safeParse({ files: { 'team.yml': 'name: x' } }).success).toBe(false);
+        expect(TeamsPublishInput.safeParse({ version_id: '0d0d0d0d-1111-4222-8333-555555555555' }).success).toBe(false);
     });
 
-    it('allows status-only publish without files', () => {
+    it('allows status-only publish without a version_id', () => {
         expect(TeamsPublishInput.safeParse({ name: 'my-team', visibility: 'public' }).success).toBe(true);
     });
 
@@ -130,11 +130,11 @@ describe('TeamsPublishInput', () => {
     });
 
     it('rejects uppercase name', () => {
-        expect(TeamsPublishInput.safeParse({ name: 'MyTeam', files: { 'team.yml': 'name: x' } }).success).toBe(false);
+        expect(TeamsPublishInput.safeParse({ name: 'MyTeam', version_id: '0d0d0d0d-1111-4222-8333-555555555555' }).success).toBe(false);
     });
 
     it('rejects invalid bump value', () => {
-        expect(TeamsPublishInput.safeParse({ name: 'my-team', files: { 'team.yml': 'name: x' }, bump: 'huge' }).success).toBe(false);
+        expect(TeamsPublishInput.safeParse({ name: 'my-team', version_id: '0d0d0d0d-1111-4222-8333-555555555555', bump: 'huge' }).success).toBe(false);
     });
 });
 

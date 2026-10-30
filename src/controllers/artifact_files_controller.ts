@@ -6,6 +6,7 @@
  *   POST /v1/artifacts/upload?…   — the raw file as the body; the query names the target (Core)
  *   GET  /v1/artifacts/download?artifact_id=  — browser navigation (cookie session)
  *   POST /v1/artifacts/download   — `{ artifact_id }` (token callers)
+ *   POST /v1/teams/files/upload   — a team's files: multipart (a JSON payload part and the files), streamed
  *
  * Route auth `token`; Core checks access. Core's status, file headers and body (or its JSON
  * error) are returned as-is; `Range` is passed through. An upload declared larger than
@@ -44,6 +45,25 @@ export class ArtifactFilesController extends BaseController {
         }
         const upstream = await this._proxy_service.upload_artifact(query_of(req), req, headers).catch((err: unknown) => {
             // Refused unread: close the connection rather than wait for the rest of the file.
+            res.setHeader('Connection', 'close');
+            throw err;
+        });
+        await send_upstream(req, res, upstream);
+    }
+
+    /**
+     * Streams a team-files upload to Core: the multipart body unread (PLAN-team-bundle §2.6).
+     *
+     * @param req - Multipart: a `payload` part `{ team_id, version_id? }` and the files as attachments
+     * @param res - Core's answer; 413 when Content-Length is over what a team may hold
+     */
+    async upload_team_files(req: Request, res: Response): Promise<void> {
+        const headers = this._auth(req);
+        for (const h of UPLOAD_HEADERS) {
+            const v = req.headers[h];
+            if (typeof v === 'string') headers[h] = v;
+        }
+        const upstream = await this._proxy_service.upload_team_files(req, headers).catch((err: unknown) => {
             res.setHeader('Connection', 'close');
             throw err;
         });
