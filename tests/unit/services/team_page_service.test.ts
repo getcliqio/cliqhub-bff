@@ -21,7 +21,7 @@ function team(over: Record<string, unknown> = {}) {
         id: TEAM_ID, name: 'feature-dev', scope: 'acme', description: 'd', status: 'published', author: 'sapan', listed: true, tags: ['x'],
         versions: [{ version: '1.2.0', changelog: 'new', published_at: 5 }, { version: '1.1.0', changelog: null, published_at: 4 }],
         workflow: WF, roles: ROLES, inputs: [{ name: 'ticket', required: true, description: 'Jira key' }],
-        readme: '# hi', raw_manifest: 'name: feature-dev', can_edit: true, can_delete: true, can_toggle_listing: false,
+        readme: '# hi', raw_manifest: 'name: feature-dev', can_edit: true, can_delete: true, can_toggle_listing: false, version_id: 'v-shown',
         ...over,
     };
 }
@@ -39,6 +39,13 @@ function mocks() {
             run_phases: vi.fn().mockResolvedValue([{ phase: 'fetch', status: 'completed' }, { phase: 'architect', status: 'running' }]),
         },
         teams: {
+            // The version's files (PLAN-team-bundle S1.4c), in storage order.
+            files_get: vi.fn().mockResolvedValue({ files: [
+                { id: 'f1', path: 'roles/architect.md', size: 1, sha256: 'x', content: '# architect' },
+                { id: 'f2', path: 'team.yml', size: 1, sha256: 'x', content: 'name: feature-dev' },
+                { id: 'f3', path: 'dependencies.yml', size: 1, sha256: 'x', content: '- name: jq' },
+                { id: 'f4', path: 'README.md', size: 1, sha256: 'x', content: '# hi' },
+            ] }),
             get: vi.fn().mockImplementation(async (f: { mine?: boolean; realm_id?: string; status?: string }) => {
                 // The catalog as the caller sees it: what they can install (their own scope's, and public @cliq ones).
                 if (!f.mine && !f.realm_id) return { items: [
@@ -272,9 +279,25 @@ describe('TeamPageService.page', () => {
         expect(data.partial).toBe(true);
     });
 
-    it('files: team.yml, README and one file per role', async () => {
-        const data = await svc(mocks()).page({ scope: 'acme', name: 'feature-dev', view: 'files' }, 'tok');
-        expect(data.files?.files.map((f) => f.path)).toEqual(['team.yml', 'README.md', 'roles/architect.md']);
+    it("files: every file of the version shown (files/get), team.yml, README, dependencies.yml first", async () => {
+        const m = mocks();
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'files' }, 'tok');
+        expect(m.teams.files_get).toHaveBeenCalledWith({ team_id: TEAM_ID, version_id: 'v-shown', content: true }, 'tok');
+        expect(data.files?.files).toEqual([
+            { path: 'team.yml', kind: 'yaml', content: 'name: feature-dev' },
+            { path: 'README.md', kind: 'md', content: '# hi' },
+            { path: 'dependencies.yml', kind: 'yaml', content: '- name: jq' },
+            { path: 'roles/architect.md', kind: 'md', content: '# architect' },
+        ]);
+        expect(data.partial).toBe(false);
+    });
+
+    it("files: unreadable files leave the list empty and mark the page partial", async () => {
+        const m = mocks();
+        m.teams.files_get.mockRejectedValueOnce(new Error('Core is down'));
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'files' }, 'tok');
+        expect(data.files?.files).toEqual([]);
+        expect(data.partial).toBe(true);
     });
 
     it('runs: team filter by name, state chips, failed = failed+crashed in 7d, realm slugs', async () => {

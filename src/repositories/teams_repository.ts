@@ -3,7 +3,7 @@
 import type { CoreClient } from './core_client.js';
 import type {
     TeamsGetVO, TeamDetailVO, TeamMutationVO, TeamsDownloadVO, TeamsDeleteVO,
-    TeamsGetVersionsVO, TeamsGetPhasesVO,
+    TeamsGetVersionsVO, TeamsGetPhasesVO, TeamsFilesGetVO,
 } from '../types/core/teams.js';
 import type {
     TeamsGetInput, TeamsGetByIdInput, TeamsGetVersionsInput, TeamsGetPhasesInput,
@@ -33,6 +33,11 @@ export class TeamsRepository {
     /** `POST /v1/teams/get_phases` */
     async get_phases(input: TeamsGetPhasesInput, token?: string): Promise<TeamsGetPhasesVO> {
         return this._client.post<TeamsGetPhasesVO>('/v1/teams/get_phases', input, token);
+    }
+
+    /** `POST /v1/teams/files/get` — a version's files, with their text when `content` is set. */
+    async files_get(input: { team_id: string; version_id: string; content?: boolean }, token?: string): Promise<TeamsFilesGetVO> {
+        return this._client.post<TeamsFilesGetVO>('/v1/teams/files/get', input, token);
     }
 
     /** `POST /v1/teams/create` */

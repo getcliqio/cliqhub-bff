@@ -285,17 +285,19 @@ export class TeamPageService {
         const runs_total = best_effort(log, 'team_page_runs_total_failed', this._control.runs_for_team({ ...run_scope, limit: 1 }, token).then((r) => r.total), null, { team_id });
 
         const data: TeamPageData = { team: header, counts: { phases: phases.length, versions: versions.length, runs: null }, view, partial: false };
-        /** team.yml, README and role briefs of this version (from get_by_id; no extra Core read). */
-        const files_of = (): Array<{ path: string; kind: 'yaml' | 'md'; content: string }> => {
-            const files: Array<{ path: string; kind: 'yaml' | 'md'; content: string }> = [];
-            const manifest = str(raw.raw_manifest) ?? str(raw.team_json);
-            if (manifest) files.push({ path: 'team.yml', kind: 'yaml', content: manifest });
-            if (str(raw.readme)) files.push({ path: 'README.md', kind: 'md', content: String(raw.readme) });
-            for (const r of raw.roles ?? []) {
-                const n = str(r.name);
-                if (n) files.push({ path: `roles/${n.replace(/\.md$/, '')}.md`, kind: 'md', content: String(r.content_md ?? '') });
-            }
-            return files;
+        /**
+         * Every file of the version shown (PLAN-team-bundle S1.4c): `teams/files/get` for the `version_id` get_by_id
+         * returned — team.yml, README.md and dependencies.yml first, then the roles. Null when they couldn't be read.
+         */
+        const files_of = async (): Promise<Array<{ path: string; kind: 'yaml' | 'md'; content: string }> | null> => {
+            const version_id = str(raw.version_id);
+            if (!version_id) return [];
+            const got = await best_effort(log, 'team_page_files_failed', this._teams.files_get({ team_id, version_id, content: true }, token), null, { team_id, version_id });
+            if (!got) return null;
+            const order = (p: string) => ['team.yml', 'README.md', 'dependencies.yml'].indexOf(p) >= 0 ? ['team.yml', 'README.md', 'dependencies.yml'].indexOf(p) : 3;
+            return [...got.files]
+                .sort((a, b) => order(a.path) - order(b.path) || a.path.localeCompare(b.path))
+                .map((f) => ({ path: f.path, kind: f.path.endsWith('.md') ? 'md' as const : 'yaml' as const, content: f.content ?? '' }));
         };
         const latest_of = () => latest_version;
 
@@ -312,8 +314,9 @@ export class TeamPageService {
             const sub = await subs;
             data.overview = { phases, support, inputs, agents, agent_defs, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [], ...(Object.keys(sub.map).length ? { sub_teams: sub.map } : {}) };
             // The team page shows the workflow as a diagram or as team.yml, on one page.
-            data.files = { files: files_of() };
-            data.partial = !realms || Boolean(inst?.failed) || sub.failed;
+            const files = await files_of();
+            data.files = { files: files ?? [] };
+            data.partial = !realms || Boolean(inst?.failed) || sub.failed || files === null;
         } else if (view === 'workflow') {
             const subs = this.sub_teams(phases, token, team_id);
             const realms = await best_effort(log, 'team_page_realms_failed', this._realms(token, input.org_id), null, { team_id, view });
@@ -343,7 +346,9 @@ export class TeamPageService {
             data.workflow = { phases, support, ...(Object.keys(sub.map).length ? { sub_teams: sub.map } : {}), recent_runs: (recent?.items ?? []).map((r) => to_team_run_row(r, rmap)), overlay };
             data.partial = !recent || sub.failed;
         } else if (view === 'files') {
-            data.files = { files: files_of() };
+            const files = await files_of();
+            data.files = { files: files ?? [] };
+            data.partial = files === null;
         } else if (view === 'runs') {
             const limit = input.limit ?? TeamPageService.DEFAULT_LIMIT;
             const offset = input.offset ?? 0;

@@ -135,6 +135,11 @@ export interface TeamsGetVersionsVO {
 }
 
 /** Core `TeamsGetPhasesData` */
+/** `teams/files/get` with `content: true` — a version's files (PLAN-team-bundle §2.2). */
+export interface TeamsFilesGetVO {
+    files: Array<{ id: string; path: string; size: number; sha256: string; content_type?: string; content?: string }>;
+}
+
 export interface TeamsGetPhasesVO {
     team_id: string;
     version_id: string | null;
