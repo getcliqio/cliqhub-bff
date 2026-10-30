@@ -45,7 +45,13 @@ export function create_app(container: Container): express.Express {
 
     // A streamed upload's body is the file itself: leave it unread for the controller to pipe.
     const json = express.json({ limit: '2mb' });
-    app.use((req, res, next) => (req.path === '/v1/artifacts/upload' ? next() : json(req, res, next)));
+    // A team's files travel as JSON on these three: up to 10 MB of them (PLAN-team-bundle §2.2).
+    const team_files_json = express.json({ limit: '10mb' });
+    const TEAM_FILES_PATHS = new Set(['/v1/teams/publish', '/v1/teams/update', '/v1/teams/create']);
+    app.use((req, res, next) => {
+        if (req.path === '/v1/artifacts/upload') return next();
+        return (TEAM_FILES_PATHS.has(req.path) ? team_files_json : json)(req, res, next);
+    });
     app.use(cookieParser());
     app.use(request_logging_middleware);
     app.use(csrf_guard);

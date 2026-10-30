@@ -171,8 +171,8 @@ export const TeamsPublishInput = z.object({
         .describe('Tag slugs'),
     visibility: z.enum(['public', 'private']).optional()
         .describe('Visibility after publish'),
-    data_base64: z.string().optional()
-        .describe('Base64 team package (zip); required on a first publish without versions'),
+    files: z.record(z.string()).optional()
+        .describe("The team's files by path (team.yml, roles/<name>.md, README.md, dependencies.yml); Core makes the version's zip. Omit for a status-only publish"),
     agents: z.record(z.unknown()).optional()
         .describe('Agent binding overrides for this version'),
 }).refine(has_name_or_id, { message: NameOrIdMessage });
