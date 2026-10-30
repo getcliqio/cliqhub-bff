@@ -89,6 +89,8 @@ export interface TeamDetailVO {
     not_for?: string[];
     listed: boolean;
     raw_manifest: string | null;
+    /** The version shown (its files: `teams/files/get`); null when the team has none. */
+    version_id?: string | null;
     team_json: string | null;
     /** Working copy (editors only); absent on older Core builds. */
     /** The open draft, shown to editors (PLAN-team-bundle S1.3c). */

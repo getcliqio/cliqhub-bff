@@ -141,6 +141,11 @@ describe('to_team_detail_data', () => {
         const draft = { version_id: '0d0d0d0d-1111-4222-8333-555555555555', saved_at: '2026-10-05T10:00:00.000Z' };
         expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft }).draft).toEqual(draft);
     });
+
+    it('passes the version shown (version_id) through, null when there is none (PLAN-team-bundle S1.4b)', () => {
+        expect(to_team_detail_data(SAMPLE_DETAIL).version_id).toBeNull();
+        expect(to_team_detail_data({ ...SAMPLE_DETAIL, version_id: '0c0c0c0c-1111-4222-8333-555555555555' }).version_id).toBe('0c0c0c0c-1111-4222-8333-555555555555');
+    });
 });
 
 describe('to_team_mutation_data', () => {

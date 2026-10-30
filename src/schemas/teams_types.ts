@@ -164,9 +164,7 @@ export const TeamsPublishInput = z.object({
     visibility: z.enum(['public', 'private']).optional()
         .describe('Visibility after publish'),
     version_id: z.string().uuid().optional()
-        .describe('The draft to publish (its files uploaded with teams/files/upload); omit to only list the team again'),
-    agents: z.record(z.unknown()).optional()
-        .describe('Agent binding overrides for this version'),
+        .describe('The draft to publish (its files uploaded with teams/files/upload; agents come from its team.yml); omit to only list the team again'),
 }).refine(has_name_or_id, { message: NameOrIdMessage });
 export type TeamsPublishInput = z.infer<typeof TeamsPublishInput>;
 
@@ -286,6 +284,8 @@ export interface TeamDetailData {
     not_for?: string[];
     /** Manifest YAML of the loaded version. */
     raw_manifest: string | null;
+    /** The version shown, read from its files (PLAN-team-bundle S1.4b); null when the team has none. */
+    version_id: string | null;
     /** Builder canvas payload (same as raw_manifest). */
     team_json: string | null;
     /** The team's open draft — only for people who can edit it; null when there is none. */
