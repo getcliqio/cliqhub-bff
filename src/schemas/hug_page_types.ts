@@ -2,7 +2,7 @@
  * Hug page — request schema (Zod, SoT for the inbound body) and response data.
  *
  * Routes (controllers/hug_page_controller.ts):
- *   POST /v1/hug_page/get — one Hug (prompt, context, requested inputs, responses) and its
+ *   POST /v1/hug_page/get — one Hug (template, title, params, responses) and its
  *                          run's workflow with each phase's status
  *
  * Core: hugs/get_by_id (runs.view on the Hug's realm); for the run, the run telemetry reads

@@ -104,28 +104,29 @@ export function classify_failure(c: FailureContext): { reason: RunFailureReason;
 }
 
 /**
- * The review a run failed on, from Core's Hug read: who answered and what each decided (the gate's
- * `decision` input — `approve`, `reject`, `route:<phase>` — as `APPROVE`, `REJECT`, `ROUTE:<phase>`).
- * The any / all policy is the gate's, not the Hug's, so it isn't known here.
+ * The review a run failed on, from Core's Hug read (an `approval` Hug, PLAN-hug-templates §3): who
+ * answered and what each decided — `approve` as `APPROVE`, a rejection choosing a route target as
+ * `ROUTE:<phase>`, a plain rejection as `REJECT` — with the rejection's reason (or the approval's
+ * comment). The any / all policy is the gate's, not the Hug's, so it isn't known here.
  */
 export function to_failure_review(hug_id: string, dto: Obj): RunFailureReviewData {
     const responses = Array.isArray(dto.responses) ? dto.responses.map(obj) : [];
     const reviewers: RunFailureReviewerData[] = responses.map((r) => {
         const values = obj(r.values);
         const decision = str(values.decision);
+        const choice = str(values.choice);
+        const action = decision === 'reject' && choice ? `ROUTE:${choice}` : decision?.toUpperCase() ?? null;
         return {
             name: str(obj(r.responder).name) ?? 'reviewer',
-            action: decision ? (decision.startsWith('route:') ? `ROUTE:${decision.slice(6)}` : decision.toUpperCase()) : null,
+            action,
             responded_at: str(r.responded_at),
-            comment: str(values.comment) ?? str(r.comment),
+            comment: str(values.reason) ?? str(values.comment),
         };
     });
-    const inputs = Array.isArray(dto.requested_inputs) ? dto.requested_inputs.map(obj) : [];
-    const choices = inputs.find((i) => i.name === 'decision')?.choices;
+    const choices = obj(dto.params).reject_choices;
     const targets = (Array.isArray(choices) ? choices.map(obj) : [])
         .map((c) => str(c.value))
-        .filter((v): v is string => v !== null && v.startsWith('route:'))
-        .map((v) => v.slice(6));
+        .filter((v): v is string => v !== null);
     return { hug_id, status: str(dto.status), policy: null, reviewers, route_targets: targets };
 }
 
