@@ -70,7 +70,7 @@ export function identity_routes(user_id: string, username: string): Record<strin
         '/v1/users/get_by_id': ok({
             id: user_id, username, display_name: username, email: `${username}@example.test`, role: 'user',
             suspended_at: null, suspended_reason: '', created_at: '2026-10-02T10:00:00.000Z', status: 'active', deleted_at: null,
-            scope_count: 1, team_count: 0, token_count: 1, draft_count: 0,
+            scope_count: 1, team_count: 0, token_count: 1,
             orgs: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', slug: 'measureone', display_name: 'MeasureOne', role: 'member' }],
             preferences: {},
         }),

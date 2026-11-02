@@ -220,7 +220,6 @@ export interface UserDetailData {
     scope_count: number;
     team_count: number;
     token_count: number;
-    draft_count: number;
     /** Live orgs the user is an active member of. */
     orgs: { id: string; slug: string; display_name: string; role: string }[];
 }

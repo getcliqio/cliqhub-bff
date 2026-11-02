@@ -286,8 +286,6 @@ export interface TeamDetailData {
     raw_manifest: string | null;
     /** The version shown, read from its files (PLAN-team-bundle S1.4b); null when the team has none. */
     version_id: string | null;
-    /** Builder canvas payload (same as raw_manifest). */
-    team_json: string | null;
     /** The team's open draft — only for people who can edit it; null when there is none. */
     draft: TeamWorkingCopyData | null;
     /** What the caller may do with this team. */

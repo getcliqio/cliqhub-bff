@@ -46,7 +46,6 @@ const SAMPLE_DETAIL: TeamDetailVO = {
     cliq_version: null,
     tools: ['git'],
     raw_manifest: 'name: tdd-git',
-    team_json: null,
 };
 
 describe('to_team_list_item_data', () => {
@@ -115,7 +114,8 @@ describe('to_team_detail_data', () => {
         expect(data.license).toBe('MIT');
         expect(data.listed).toBe(false);
         expect(data.raw_manifest).toBe('name: tdd-git');
-        expect(data.team_json).toBeNull();
+        // team.yml is raw_manifest; the duplicate team_json is gone (PLAN-team-bundle S1.5)
+        expect(data).not.toHaveProperty('team_json');
     });
 
     it('passes the caller permissions through', () => {
@@ -128,11 +128,10 @@ describe('to_team_detail_data', () => {
         expect(data).toMatchObject({ can_edit: false, can_delete: false, can_toggle_listing: false });
     });
 
-    it('defaults absent raw_manifest / team_json to null', () => {
-        const { raw_manifest: _r, team_json: _t, ...rest } = SAMPLE_DETAIL;
+    it('defaults an absent raw_manifest to null', () => {
+        const { raw_manifest: _r, ...rest } = SAMPLE_DETAIL;
         const data = to_team_detail_data(rest as TeamDetailVO);
         expect(data.raw_manifest).toBeNull();
-        expect(data.team_json).toBeNull();
     });
 
     it('passes the open draft (version_id, saved_at) through, or null when there is none', () => {

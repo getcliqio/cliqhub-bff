@@ -23,7 +23,7 @@ const SAMPLE_DETAIL_VO: TeamDetailVO = {
     roles: [{ name: 'dev', content_md: '# Dev' }],
     workflow: { phases: [] }, agents: {},
     readme: '# TDD', cliq_version: null, tools: [],
-    raw_manifest: 'name: tdd-git', team_json: null,
+    raw_manifest: 'name: tdd-git',
     can_edit: true, can_delete: false, can_toggle_listing: true,
 };
 

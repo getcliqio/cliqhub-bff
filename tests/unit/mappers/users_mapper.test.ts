@@ -74,7 +74,7 @@ describe('to_user_detail_data', () => {
     const detail: UserDetailVO = {
         id: U1, username: 'alice', display_name: 'Alice', email: 'alice@test.com',
         role: 'user', suspended_at: null, suspended_reason: '', created_at: '2025-01-01T00:00:00.000Z', status: 'active', deleted_at: null,
-        scope_count: 2, team_count: 3, token_count: 1, draft_count: 0,
+        scope_count: 2, team_count: 3, token_count: 1,
         orgs: [{ id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', slug: 'acme', display_name: 'Acme', role: 'admin' }],
     };
 

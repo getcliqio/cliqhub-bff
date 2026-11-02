@@ -49,7 +49,7 @@ describe('UsersRepository', () => {
             mock_client.post.mockResolvedValue({
                 id: USER_1, username: 'alice', display_name: 'Alice', email: 'alice@test.com',
                 role: 'user', suspended_at: null, suspended_reason: '', created_at: '2025-01-01',
-                scope_count: 2, team_count: 3, token_count: 1, draft_count: 0, orgs: [],
+                scope_count: 2, team_count: 3, token_count: 1, orgs: [],
             });
 
             const result = await repo.get_by_id({ user_id: USER_1 }, 'jwt-abc');

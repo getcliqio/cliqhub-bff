@@ -60,7 +60,6 @@ export interface UserDetailVO {
     scope_count: number;
     team_count: number;
     token_count: number;
-    draft_count: number;
     orgs: { id: string; slug: string; display_name: string; role: string }[];
 }
 
