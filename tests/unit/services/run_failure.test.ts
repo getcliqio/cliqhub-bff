@@ -36,13 +36,14 @@ describe('classify_failure', () => {
 });
 
 describe('to_failure_review', () => {
-    it('lists who answered the Hug and how; route targets come from the decision choices', () => {
+    it('lists who answered the approval Hug and how (a rejection choosing a target is a route); route targets come from its reject choices', () => {
         const r = to_failure_review('h1', {
             status: 'closed',
-            requested_inputs: [{ name: 'decision', choices: [{ value: 'approve' }, { value: 'route:draft-lld' }, { value: 'reject' }] }, { name: 'comment' }],
+            template: 'approval',
+            params: { reject_choices: [{ value: 'draft-lld', label: 'Send back to draft-lld' }] },
             responses: [
-                { responder: { name: 'krupali' }, values: { decision: 'reject', comment: 'jobs too big' }, responded_at: '2026-10-08T13:50:00Z' },
-                { responder: { name: 'sapan' }, values: { decision: 'route:draft-lld' }, comment: 'try again', responded_at: '2026-10-08T14:00:00Z' },
+                { responder: { name: 'krupali' }, values: { decision: 'reject', reason: 'jobs too big' }, responded_at: '2026-10-08T13:50:00Z' },
+                { responder: { name: 'sapan' }, values: { decision: 'reject', reason: 'try again', choice: 'draft-lld' }, responded_at: '2026-10-08T14:00:00Z' },
                 { responder: {}, values: {}, responded_at: null },
             ],
         });
@@ -76,7 +77,8 @@ describe('read_failure', () => {
         } as any;
         const read_review = vi.fn(async () => ({
             status: 'expired',
-            requested_inputs: [{ name: 'decision', choices: [{ value: 'approve' }, { value: 'route:draft-lld' }, { value: 'reject' }] }],
+            template: 'approval',
+            params: { reject_choices: [{ value: 'draft-lld' }] },
             responses: [{ responder: { name: 'krupali' }, values: { decision: 'approve' }, responded_at: '2026-10-08T13:50:00Z' }],
         }));
 
