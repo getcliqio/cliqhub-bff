@@ -309,43 +309,6 @@ describe('Teams integration', () => {
         });
     });
 
-    describe('POST /v1/teams/rename', () => {
-        it('returns 401 without session', async () => {
-            const res = await request(app)
-                .post('/v1/teams/rename')
-                .set(CSRF)
-                .send({ name: 'old', scope: 'alice', new_name: 'new-name' });
-
-            expect(res.status).toBe(401);
-        });
-
-        it('returns 200 on success', async () => {
-            const sid = make_session();
-            vi.spyOn(CoreClient.prototype, 'post')
-                .mockResolvedValueOnce({ name: 'new-name', scope: 'alice' });
-
-            const res = await request(app)
-                .post('/v1/teams/rename')
-                .set(CSRF)
-                .set('Cookie', `test_sid=${sid}`)
-                .send({ name: 'old-name', scope: 'alice', new_name: 'new-name' });
-
-            expect(res.status).toBe(200);
-            expect(res.body.data.name).toBe('new-name');
-        });
-
-        it('returns 422 on invalid slug for new_name', async () => {
-            const sid = make_session();
-            const res = await request(app)
-                .post('/v1/teams/rename')
-                .set(CSRF)
-                .set('Cookie', `test_sid=${sid}`)
-                .send({ name: 'old', scope: 'alice', new_name: 'INVALID' });
-
-            expect(res.status).toBe(422);
-        });
-    });
-
     describe('POST /v1/teams/unpublish', () => {
         it('returns 401 without session', async () => {
             const res = await request(app)

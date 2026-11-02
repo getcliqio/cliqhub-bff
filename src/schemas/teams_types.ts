@@ -16,7 +16,6 @@
  *   POST /v1/teams/publish       — publish a version
  *   POST /v1/teams/unpublish     — back to draft
  *   POST /v1/teams/delete        — soft-delete a team
- *   POST /v1/teams/rename        — rename within its scope
  *   POST /v1/teams/build         — AI builder (schemas/builder_types.ts)
  */
 
@@ -121,6 +120,8 @@ export const TeamsCreateInput = z.object({
         version: z.string().optional().describe('Version to copy (default: its latest)'),
     }).optional()
         .describe('Fork: the draft starts from that version’s files under the new name, and records where it came from'),
+    visibility: z.enum(['public', 'private']).optional()
+        .describe('The visibility the team is meant for (default private); a fork of a private team can be public only for its scope\'s publishers'),
 });
 export type TeamsCreateInput = z.infer<typeof TeamsCreateInput>;
 
@@ -150,9 +151,7 @@ export const TeamsPublishInput = z.object({
     scope: ScopeField,
     team_id: TeamIdField,
     version: z.string().optional()
-        .describe('Explicit version; auto-bumped from the latest when omitted'),
-    bump: z.enum(['patch', 'minor', 'major']).optional()
-        .describe('Version bump when auto-versioning (default patch)'),
+        .describe('The version to publish: new and higher than every version so far (required with version_id)'),
     changelog: z.string().optional()
         .describe('Release notes'),
     description: z.string().optional()
@@ -189,16 +188,6 @@ export const TeamsDownloadInput = z.object({
 }).refine((d) => Boolean(d.version_id) || Boolean(d.name), { message: 'Provide version_id, or the team name' });
 export type TeamsDownloadInput = z.infer<typeof TeamsDownloadInput>;
 
-/** POST /v1/teams/rename */
-export const TeamsRenameInput = z.object({
-    name: z.string().min(1, 'Current team name is required')
-        .describe('Current team name'),
-    scope: z.string().min(1, 'Scope is required')
-        .describe('Scope (publisher) slug'),
-    new_name: z.string().min(1, 'New name is required').regex(NamePattern, NameMessage)
-        .describe('New team name (same rules as create)'),
-});
-export type TeamsRenameInput = z.infer<typeof TeamsRenameInput>;
 
 // ─── Response data ──────────────────────────────────────────────────────────
 
@@ -294,7 +283,7 @@ export interface TeamDetailData {
     can_toggle_listing: boolean;
 }
 
-/** `teams/create`, `update`, `publish`, `unpublish`, `rename` — the team after the write. */
+/** `teams/create`, `update`, `publish`, `unpublish` — the team after the write. */
 export interface TeamMutationData {
     id: string;
     name: string;

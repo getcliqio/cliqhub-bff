@@ -41,7 +41,6 @@ describe('TeamsService', () => {
         publish: vi.fn(),
         unpublish: vi.fn(),
         delete: vi.fn(),
-        rename: vi.fn(),
     };
 
     let service: TeamsService;
@@ -195,7 +194,6 @@ describe('TeamsService', () => {
             ['update', { name: 'my-team', scope: 'alice', description: 'x' }],
             ['publish', { name: 'my-team', data_base64: 'abc', version: '1.0.0' }],
             ['unpublish', { name: 'my-team' }],
-            ['rename', { name: 'old-name', scope: 'alice', new_name: 'my-team' }],
         ] as const)('%s', async (method, input) => {
             mock_repo[method].mockResolvedValue({ ...MUTATION_VO, extra: 'dropped' });
 

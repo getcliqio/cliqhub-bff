@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
     TeamsGetInput, TeamsGetByIdInput, TeamsGetVersionsInput, TeamsGetPhasesInput,
     TeamsCreateInput, TeamsUpdateInput, TeamsPublishInput, TeamRefInput, TeamsDownloadInput,
-    TeamsRenameInput,
 } from '../../../src/schemas/teams_types.js';
 
 const TEAM_UUID = '00000000-0000-4000-8000-000000000001';
@@ -105,10 +104,6 @@ describe('TeamsPublishInput', () => {
         expect(TeamsPublishInput.safeParse({ name: 'my-team', version_id: '0d0d0d0d-1111-4222-8333-555555555555', version: '1.0.0' }).success).toBe(true);
     });
 
-    it('accepts with bump instead of version', () => {
-        expect(TeamsPublishInput.safeParse({ name: 'my-team', version_id: '0d0d0d0d-1111-4222-8333-555555555555', bump: 'minor' }).success).toBe(true);
-    });
-
     it('accepts team_id instead of name', () => {
         expect(TeamsPublishInput.safeParse({ team_id: TEAM_UUID }).success).toBe(true);
     });
@@ -132,10 +127,6 @@ describe('TeamsPublishInput', () => {
     it('rejects uppercase name', () => {
         expect(TeamsPublishInput.safeParse({ name: 'MyTeam', version_id: '0d0d0d0d-1111-4222-8333-555555555555' }).success).toBe(false);
     });
-
-    it('rejects invalid bump value', () => {
-        expect(TeamsPublishInput.safeParse({ name: 'my-team', version_id: '0d0d0d0d-1111-4222-8333-555555555555', bump: 'huge' }).success).toBe(false);
-    });
 });
 
 describe('TeamRefInput (unpublish / delete)', () => {
@@ -157,24 +148,6 @@ describe('TeamRefInput (unpublish / delete)', () => {
 
     it('rejects empty body', () => {
         expect(TeamRefInput.safeParse({}).success).toBe(false);
-    });
-});
-
-describe('TeamsRenameInput', () => {
-    it('accepts valid rename body', () => {
-        expect(TeamsRenameInput.safeParse({ name: 'old-name', scope: 'alice', new_name: 'new-name' }).success).toBe(true);
-    });
-
-    it('rejects missing scope', () => {
-        expect(TeamsRenameInput.safeParse({ name: 'old', new_name: 'new' }).success).toBe(false);
-    });
-
-    it('rejects uppercase new_name', () => {
-        expect(TeamsRenameInput.safeParse({ name: 'old', scope: 'alice', new_name: 'NewName' }).success).toBe(false);
-    });
-
-    it('rejects empty new_name', () => {
-        expect(TeamsRenameInput.safeParse({ name: 'old', scope: 'alice', new_name: '' }).success).toBe(false);
     });
 });
 

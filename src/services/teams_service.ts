@@ -7,7 +7,6 @@ import type { CoreCompatService } from './core_compat_service.js';
 import type {
     TeamsGetInput, TeamsGetByIdInput, TeamsGetVersionsInput, TeamsGetPhasesInput,
     TeamsCreateInput, TeamsUpdateInput, TeamsPublishInput, TeamRefInput, TeamsDownloadInput,
-    TeamsRenameInput,
     TeamsGetData, TeamDetailData, TeamsGetVersionsData, TeamsGetPhasesData, TeamMutationData,
     TeamsDownloadData, TeamsDeleteData,
 } from '../schemas/teams_types.js';
@@ -18,7 +17,7 @@ import {
 
 const log = get_logger('svc.teams');
 
-/** Team catalog reads and draft / publish / delete / rename writes. */
+/** Team catalog reads and draft / publish / delete writes. */
 export class TeamsService {
     /**
      * @param _repo - Core team calls.
@@ -94,10 +93,4 @@ export class TeamsService {
         return data;
     }
 
-    /** Renames a team within its scope. */
-    async rename(input: TeamsRenameInput, token: string): Promise<TeamMutationData> {
-        const data = to_team_mutation_data(await this._repo.rename(input, token));
-        log.info('team_renamed', { team_id: data.id, from: input.name, name: data.name, scope: data.scope });
-        return data;
-    }
 }

@@ -109,7 +109,6 @@ describe('TeamsRepository', () => {
             ['publish', '/v1/teams/publish', { name: 'my-team', data_base64: 'abc', version: '1.0.0' }],
             ['unpublish', '/v1/teams/unpublish', { name: 'tdd-git', scope: 'cliq' }],
             ['delete', '/v1/teams/delete', { name: 'tdd-git', scope: 'cliq' }],
-            ['rename', '/v1/teams/rename', { name: 'old-name', scope: 'alice', new_name: 'new-name' }],
         ] as const)('%s calls POST %s with body and token', async (method, path, input) => {
             const vo = { id: TEAM_UUID, name: 'x', scope: 'alice', status: 'draft', version: null };
             mock_client.post.mockResolvedValue(vo);

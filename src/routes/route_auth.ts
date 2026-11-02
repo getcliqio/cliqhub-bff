@@ -67,7 +67,6 @@ const OWN_ROUTES: Record<string, RouteAuth> = {
     'POST /v1/teams/publish': 'session',
     'POST /v1/teams/unpublish': 'session',
     'POST /v1/teams/delete': 'session',
-    'POST /v1/teams/rename': 'session',
 
     // ── Orgs ────────────────────────────────────────────────────────
     'POST /v1/orgs/get': 'session', // site admins without `mine` get every org

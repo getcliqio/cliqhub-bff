@@ -12,7 +12,6 @@
  *   POST /v1/teams/publish       — publish a version
  *   POST /v1/teams/unpublish     — back to draft
  *   POST /v1/teams/delete        — soft-delete
- *   POST /v1/teams/rename        — rename within its scope
  *   POST /v1/teams/build         — AI builder actions                          (public, rate limited)
  *
  * `/v1/teams/install`, `/uninstall`, `/delete_version` are Core passthrough (routes/passthrough_paths.ts).
@@ -34,7 +33,6 @@ import {
     TeamsGetPhasesInput,
     TeamsGetVersionsInput,
     TeamsPublishInput,
-    TeamsRenameInput,
     TeamsUpdateInput,
 } from '../schemas/teams_types.js';
 import type {
@@ -126,7 +124,7 @@ export class TeamsController extends BaseController {
     }
 
     /**
-     * Updates a draft's manifest or description (patch bump unless `bump` says otherwise).
+     * Updates a team's description, or discards a draft.
      *
      * @param req - Body: {@link TeamsUpdateInput}
      * @param res - `{ ok: true, data: TeamMutationData }`
@@ -192,19 +190,6 @@ export class TeamsController extends BaseController {
         this.ok(res, await this._teams_service.delete(body, this.session(req).target_token));
     }
 
-    /**
-     * Renames a team inside its scope; the old name is free at once.
-     *
-     * @param req - Body: {@link TeamsRenameInput}
-     * @param res - `{ ok: true, data: TeamMutationData }`
-     */
-    async rename(
-        req: ApiRequest<TeamsRenameInput, TeamMutationData>,
-        res: ApiOkResponse<TeamMutationData>,
-    ): Promise<void> {
-        const body = this.parse_body(TeamsRenameInput, req);
-        this.ok(res, await this._teams_service.rename(body, this.session(req).target_token));
-    }
 
     /**
      * One AI builder action (`generate`, `status`, `improve_role`, `suggest`,

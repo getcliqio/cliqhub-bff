@@ -8,7 +8,6 @@ import type {
 import type {
     TeamsGetInput, TeamsGetByIdInput, TeamsGetVersionsInput, TeamsGetPhasesInput,
     TeamsCreateInput, TeamsUpdateInput, TeamsPublishInput, TeamRefInput, TeamsDownloadInput,
-    TeamsRenameInput,
 } from '../schemas/teams_types.js';
 
 /** Core `/v1/teams/*` calls. */
@@ -70,8 +69,4 @@ export class TeamsRepository {
         return this._client.post<TeamsDeleteVO>('/v1/teams/delete', input, token);
     }
 
-    /** `POST /v1/teams/rename` */
-    async rename(input: TeamsRenameInput, token: string): Promise<TeamMutationVO> {
-        return this._client.post<TeamMutationVO>('/v1/teams/rename', input, token);
-    }
 }

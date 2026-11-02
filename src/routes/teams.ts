@@ -11,7 +11,6 @@
  * POST /v1/teams/publish
  * POST /v1/teams/unpublish
  * POST /v1/teams/delete
- * POST /v1/teams/rename
  * POST /v1/teams/build       (rate limited)
  * POST /v1/realms/get        (Core's page; with_stats → + teams missing agent config per realm)
  * POST /v1/realms/add_team   (one realm → Core; `realm_ids` → pre-flight, then each realm)
@@ -32,7 +31,6 @@ export function register_teams_routes(r: RouteRegistrar, { config, teams_control
     r.post('/v1/teams/publish', c.wrap(c.publish));
     r.post('/v1/teams/unpublish', c.wrap(c.unpublish));
     r.post('/v1/teams/delete', c.wrap(c.delete));
-    r.post('/v1/teams/rename', c.wrap(c.rename));
     r.post('/v1/teams/build', create_rate_limiter(config), c.wrap(c.build));
     r.post('/v1/realms/add_team', install.wrap(install.add_team));
     r.post('/v1/realms/get', realms.wrap(realms.get));

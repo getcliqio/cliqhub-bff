@@ -93,7 +93,7 @@ export function to_team_detail_data(vo: TeamDetailVO): TeamDetailData {
     };
 }
 
-/** Create / update / publish / unpublish / rename result. */
+/** Create / update / publish / unpublish result. */
 export function to_team_mutation_data(vo: TeamMutationVO): TeamMutationData {
     return {
         id: vo.id,
