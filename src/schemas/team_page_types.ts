@@ -186,6 +186,8 @@ export interface TeamHeaderData {
     draft_saved_at: string | null;
     /** The published version that draft was started from (PLAN-team-bundle S3); null when there is no draft or it wasn't. */
     draft_based_on: string | null;
+    /** That draft's id (editors only): what Discard and "start again" throw away. */
+    draft_version_id: string | null;
 }
 
 /** A run of the team, with its realm link. */

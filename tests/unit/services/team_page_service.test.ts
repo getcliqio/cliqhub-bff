@@ -240,6 +240,7 @@ describe('TeamPageService.page', () => {
         expect(page.draft_saved_at).toBe('2026-10-05T09:00:00.000Z');
         // the version that draft was started from (PLAN-team-bundle S3)
         expect(page.draft_based_on).toBe('1.2.0');
+        expect(page.draft_version_id).toBe('v-draft');
     });
 
     it('workflow: latest run overlay, gated by run_by_id, with the run’s own version graph', async () => {
