@@ -115,7 +115,7 @@ export function to_teams_download_data(vo: TeamsDownloadVO): TeamsDownloadData {
     return {
         filename: vo.filename, data_base64: vo.data_base64, version: vo.version, version_id: vo.version_id,
         ...(vo.team_id ? { team_id: vo.team_id } : {}),
-        ...(vo.daemon_team_id ? { daemon_team_id: vo.daemon_team_id } : {}),
+        ...(vo.daemon_team_id ? { daemon_team_id: vo.daemon_team_id, scope: vo.scope ?? null, name: vo.name } : {}),
     };
 }
 

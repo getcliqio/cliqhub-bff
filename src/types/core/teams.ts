@@ -124,6 +124,8 @@ export interface TeamsDownloadVO {
     version_id: string;
     /** A daemon installing (PLAN-team-bundle S4.2). */
     team_id?: string;
+    scope?: string | null;
+    name?: string;
     daemon_team_id?: string;
 }
 

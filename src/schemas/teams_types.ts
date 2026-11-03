@@ -319,6 +319,8 @@ export interface TeamsDownloadData {
     version_id: string;
     /** A daemon installing: the catalog team and the daemon_team_id the daemon keeps (its runs carry it). */
     team_id?: string;
+    scope?: string | null;
+    name?: string;
     daemon_team_id?: string;
 }
 
