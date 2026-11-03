@@ -93,7 +93,7 @@ export interface TeamDetailVO {
     version_id?: string | null;
     /** Working copy (editors only); absent on older Core builds. */
     /** The open draft, shown to editors (PLAN-team-bundle S1.3c). */
-    draft?: { version_id: string; saved_at: string | null } | null;
+    draft?: { version_id: string; saved_at: string | null; based_on?: { version_id: string; version: string } | null } | null;
     can_edit?: boolean;
     can_delete?: boolean;
     can_toggle_listing?: boolean;

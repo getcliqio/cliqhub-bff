@@ -299,6 +299,8 @@ export interface TeamMutationData {
 export interface TeamWorkingCopyData {
     version_id: string;
     saved_at: string | null;
+    /** The published version it was started from ("Draft · based on 1.2.0", PLAN-team-bundle S3), when it was. */
+    based_on: { version_id: string; version: string } | null;
 }
 
 /** `teams/download` */

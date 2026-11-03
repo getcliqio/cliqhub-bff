@@ -278,6 +278,7 @@ export class TeamPageService {
             tags: (raw.tags ?? []).map(String),
             can_edit: Boolean(raw.can_edit), can_delete: Boolean(raw.can_delete), can_toggle_listing: Boolean(raw.can_toggle_listing),
             draft_saved_at: raw.draft?.version_id ? (raw.draft.saved_at ?? null) : null,
+            draft_based_on: raw.draft?.version_id ? (raw.draft.based_on?.version ?? null) : null,
         };
         // Runs carry their team's install id (one per daemon), not this published id: list by name.
         const run_scope = { team: { scope: scope ?? input.scope ?? '', slug: name }, ...(input.org_id ? { org_id: input.org_id } : {}) };

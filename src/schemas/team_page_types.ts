@@ -184,6 +184,8 @@ export interface TeamHeaderData {
     can_toggle_listing: boolean;
     /** When the team's unversioned working copy was saved (editors only); null when there is none. */
     draft_saved_at: string | null;
+    /** The published version that draft was started from (PLAN-team-bundle S3); null when there is no draft or it wasn't. */
+    draft_based_on: string | null;
 }
 
 /** A run of the team, with its realm link. */

@@ -235,8 +235,11 @@ describe('TeamPageService.page', () => {
     it('header says when an editor has unpublished changes (open draft saved_at), else null', async () => {
         const m = mocks();
         expect((await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'versions' }, 'tok')).team.draft_saved_at).toBeNull();
-        m.teams.get_by_id.mockResolvedValueOnce(team({ draft: { version_id: 'v-draft', saved_at: '2026-10-05T09:00:00.000Z' } }));
-        expect((await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'versions' }, 'tok')).team.draft_saved_at).toBe('2026-10-05T09:00:00.000Z');
+        m.teams.get_by_id.mockResolvedValueOnce(team({ draft: { version_id: 'v-draft', saved_at: '2026-10-05T09:00:00.000Z', based_on: { version_id: 'v-1', version: '1.2.0' } } }));
+        const page = (await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'versions' }, 'tok')).team;
+        expect(page.draft_saved_at).toBe('2026-10-05T09:00:00.000Z');
+        // the version that draft was started from (PLAN-team-bundle S3)
+        expect(page.draft_based_on).toBe('1.2.0');
     });
 
     it('workflow: latest run overlay, gated by run_by_id, with the run’s own version graph', async () => {

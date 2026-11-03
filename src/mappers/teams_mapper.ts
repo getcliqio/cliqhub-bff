@@ -86,7 +86,10 @@ export function to_team_detail_data(vo: TeamDetailVO): TeamDetailData {
         not_for: vo.not_for,
         raw_manifest: vo.raw_manifest ?? null,
         version_id: vo.version_id ?? null,
-        draft: vo.draft?.version_id ? { version_id: vo.draft.version_id, saved_at: vo.draft.saved_at ?? null } : null,
+        draft: vo.draft?.version_id ? {
+            version_id: vo.draft.version_id, saved_at: vo.draft.saved_at ?? null,
+            based_on: vo.draft.based_on?.version_id ? { version_id: vo.draft.based_on.version_id, version: vo.draft.based_on.version } : null,
+        } : null,
         can_edit: vo.can_edit === true,
         can_delete: vo.can_delete === true,
         can_toggle_listing: vo.can_toggle_listing === true,

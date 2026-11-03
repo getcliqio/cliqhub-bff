@@ -138,7 +138,10 @@ describe('to_team_detail_data', () => {
         expect(to_team_detail_data(SAMPLE_DETAIL).draft).toBeNull();
         expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft: null }).draft).toBeNull();
         const draft = { version_id: '0d0d0d0d-1111-4222-8333-555555555555', saved_at: '2026-10-05T10:00:00.000Z' };
-        expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft }).draft).toEqual(draft);
+        expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft }).draft).toEqual({ ...draft, based_on: null });
+        // the version it was started from (PLAN-team-bundle S3)
+        const based_on = { version_id: '0b0b0b0b-1111-4222-8333-555555555555', version: '1.2.0' };
+        expect(to_team_detail_data({ ...SAMPLE_DETAIL, draft: { ...draft, based_on } }).draft).toEqual({ ...draft, based_on });
     });
 
     it('passes the version shown (version_id) through, null when there is none (PLAN-team-bundle S1.4b)', () => {
