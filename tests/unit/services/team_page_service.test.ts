@@ -133,6 +133,8 @@ describe('TeamPageService.list', () => {
         expect(data.items.map((i) => `@${i.scope}/${i.name}`)).toEqual(['@acme/feature-dev', '@cliq/hug-example', '@other/tool']);
         // Only an added team can be removed from the list.
         expect(data.items.map((i) => i.list_kind)).toEqual(['own', 'cliq', 'added']);
+        // Each row says who can see it (PLAN-team-bundle S3).
+        expect(data.items.every((i) => ['public', 'private', 'draft'].includes(i.visibility))).toBe(true);
         // Own team details come from mine; the others from teams/get_by_id.
         expect(m.teams.get_by_id).toHaveBeenCalledWith({ name: 'hug-example', scope: 'cliq' }, 'tok');
         expect(m.teams.get_by_id).not.toHaveBeenCalledWith({ name: 'feature-dev', scope: 'acme' }, 'tok');

@@ -198,6 +198,7 @@ export class TeamPageService {
             return {
                 id: str(t.id), name, scope, description: String(t.description ?? ''),
                 status: status_of(t), latest_version: lv, author: str(t.author),
+                visibility: t.visibility === 'private' || t.visibility === 'draft' ? t.visibility : status_of(t) === 'draft' ? 'draft' : 'public',
                 phase_types: phases[i]?.types ?? null, phase_kinds: phases[i]?.kinds ?? null, phase_names: phases[i]?.names ?? null,
                 list_kind: kinds.get(label_of(scope, name)) ?? null, installs: installs.map.get(label_of(scope, name)) ?? [],
             };

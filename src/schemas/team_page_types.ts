@@ -123,6 +123,8 @@ export interface TeamListRowData {
     scope: string | null;
     description: string;
     status: 'draft' | 'published';
+    /** public (everyone), private (the scope's members), or draft (never published) — PLAN-team-bundle S3. */
+    visibility: 'public' | 'private' | 'draft';
     latest_version: string | null;
     author: string | null;
     /** Phase types in workflow order (null when the phases could not be read). */
