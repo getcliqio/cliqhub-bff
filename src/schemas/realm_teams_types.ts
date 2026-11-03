@@ -33,6 +33,10 @@ export type RealmTeamsGetInput = z.infer<typeof RealmTeamsGetInput>;
 
 /** One team row: version / update hint and daemon coverage. */
 export interface RealmTeamRowData {
+    /** Catalog team id (published teams; null for local installs): what realms/add_team and remove_team take. */
+    team_id: string | null;
+    /** The id of the version this realm runs (null when not on its list): "Update them" sends it back. */
+    version_id: string | null;
     scope: string | null;
     slug: string;
     label: string;

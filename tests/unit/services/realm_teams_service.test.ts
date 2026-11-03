@@ -11,6 +11,7 @@ function mocks() {
         teams: {
             get: vi.fn().mockResolvedValue({ items: [
                 row('@cliq/feature-dev-js', {
+                    id: 'team-fdj', version_id: 'ver-241',
                     description: 'Builds JS features', use_when: ['You have a ticket'], not_for: ['Python'],
                     required_inputs: [{ name: 'ticket', description: 'The Jira key' }],
                 }),
@@ -41,7 +42,9 @@ describe('RealmTeamsService', () => {
         expect(m.teams.get_versions).toHaveBeenCalledTimes(1);
         expect(m.teams.get_versions).toHaveBeenCalledWith({ name: 'feature-dev-js', scope: 'cliq', latest_only: true }, 'tok');
         expect(dto.items[0]).toMatchObject({ scope: 'cliq', slug: 'feature-dev-js', latest_version: '2.5.0', update_available: true, installed_count: 2, online_daemon_count: 3, online_stale: 1 });
-        expect(dto.items[1]).toMatchObject({ origin: 'cli', update_available: false, latest_version: null });
+        // The ids realms/add_team and remove_team take (PLAN-team-bundle S4.1); a local install has none.
+        expect(dto.items[0]).toMatchObject({ team_id: 'team-fdj', version_id: 'ver-241' });
+        expect(dto.items[1]).toMatchObject({ origin: 'cli', update_available: false, latest_version: null, team_id: null, version_id: null });
         expect(dto.total).toBe(6);
     });
 

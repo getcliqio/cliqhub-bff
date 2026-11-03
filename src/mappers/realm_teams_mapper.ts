@@ -27,6 +27,8 @@ export function is_newer(latest: string | null | undefined, current: string | nu
  */
 export function to_realm_team_row(r: TeamVO, scope: string | null, slug: string, latest_version: string | null): RealmTeamRowData {
     return {
+        team_id: r.id ?? null,
+        version_id: r.version_id ?? null,
         scope,
         slug,
         label: r.label ?? (scope ? `@${scope}/${slug}` : slug),

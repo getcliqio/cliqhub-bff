@@ -14,6 +14,8 @@ export interface TeamVO {
     name: string;
     scope: string | null;
     version?: string | null;
+    /** Realm mode: the id of the version the realm runs (null when not on its list). */
+    version_id?: string | null;
     description?: string;
     status?: 'draft' | 'published';
     visibility?: string;
