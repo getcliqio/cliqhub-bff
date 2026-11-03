@@ -63,7 +63,8 @@ const OWN_ROUTES: Record<string, RouteAuth> = {
     'POST /v1/realms/get': 'token',
     'POST /v1/teams/create': 'session',
     'POST /v1/teams/update': 'session',
-    'POST /v1/teams/download': 'session',
+    // A user downloading, or a daemon installing (daemon_id; PLAN-team-bundle S4.2) — Core decides.
+    'POST /v1/teams/download': 'token',
     'POST /v1/teams/publish': 'session',
     'POST /v1/teams/unpublish': 'session',
     'POST /v1/teams/delete': 'session',

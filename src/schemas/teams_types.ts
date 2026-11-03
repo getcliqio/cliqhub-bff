@@ -185,6 +185,10 @@ export const TeamsDownloadInput = z.object({
     scope: ScopeField,
     version: z.string().optional()
         .describe('Version to download; latest published when omitted'),
+    team_id: z.string().uuid().optional()
+        .describe('A daemon installing: the catalog team (with version_id or a version)'),
+    daemon_id: z.string().min(1).optional()
+        .describe('A daemon installing (PLAN-team-bundle S4.2): Core answers the daemon_team_id it keeps'),
 }).refine((d) => Boolean(d.version_id) || Boolean(d.name), { message: 'Provide version_id, or the team name' });
 export type TeamsDownloadInput = z.infer<typeof TeamsDownloadInput>;
 
@@ -313,6 +317,9 @@ export interface TeamsDownloadData {
     version: string;
     /** The version's id. */
     version_id: string;
+    /** A daemon installing: the catalog team and the daemon_team_id the daemon keeps (its runs carry it). */
+    team_id?: string;
+    daemon_team_id?: string;
 }
 
 /** `teams/delete` */

@@ -148,7 +148,7 @@ export class TeamsController extends BaseController {
         res: ApiOkResponse<TeamsDownloadData>,
     ): Promise<void> {
         const body = this.parse_body(TeamsDownloadInput, req);
-        this.ok(res, await this._teams_service.download(body, this.session(req).target_token));
+        this.ok(res, await this._teams_service.download(body, this.bearer(req)));
     }
 
     /**

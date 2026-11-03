@@ -122,6 +122,9 @@ export interface TeamsDownloadVO {
     data_base64: string;
     version: string;
     version_id: string;
+    /** A daemon installing (PLAN-team-bundle S4.2). */
+    team_id?: string;
+    daemon_team_id?: string;
 }
 
 /** `teams/delete`. */
