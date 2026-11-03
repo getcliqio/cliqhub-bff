@@ -9,7 +9,7 @@
  *                               team its steps run (sub-teams, at any depth)
  *   teams/get_phases          — phase shape per team / per run version
  *   realms/get                — realms to check for installs
- *   runs/get { team: { scope, slug } }, runs/get_by_id, runs/get_status — runs and the workflow overlay
+ *   runs/get { team_id }, runs/get_by_id, runs/get_status — runs and the workflow overlay
  */
 
 import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
@@ -282,8 +282,8 @@ export class TeamPageService {
             draft_based_on: raw.draft?.version_id ? (raw.draft.based_on?.version ?? null) : null,
             draft_version_id: raw.draft?.version_id ?? null,
         };
-        // Runs carry their team's install id (one per daemon), not this published id: list by name.
-        const run_scope = { team: { scope: scope ?? input.scope ?? '', slug: name }, ...(input.org_id ? { org_id: input.org_id } : {}) };
+        // This catalog team's runs: Core lists every daemon's install of it by this id (PLAN-team-bundle S4.3).
+        const run_scope = { team_id, ...(input.org_id ? { org_id: input.org_id } : {}) };
         // Started now, awaited last (only when the tab didn't already count runs).
         const runs_total = best_effort(log, 'team_page_runs_total_failed', this._control.runs_for_team({ ...run_scope, limit: 1 }, token).then((r) => r.total), null, { team_id });
 
