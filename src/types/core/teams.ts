@@ -62,7 +62,8 @@ export interface TeamVersionVO {
     id: string;
     version: string;
     changelog: string | null;
-    published_at: number | null;
+    /** Core sends the publish date (an ISO string); older payloads carried Unix ms. */
+    published_at: string | number | null;
 }
 
 /** `teams/get_by_id` */

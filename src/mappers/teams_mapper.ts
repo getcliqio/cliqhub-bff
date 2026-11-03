@@ -51,9 +51,10 @@ export function to_teams_get_data(vo: TeamsGetVO, sortable: string[] = []): Team
     };
 }
 
-/** One published version. */
+/** One published version: its id (what `realms/add_team` takes), and when it was published in Unix ms (Core sends a date). */
 export function to_team_version_data(vo: TeamVersionVO): TeamVersionData {
-    return { version: vo.version, changelog: vo.changelog, published_at: vo.published_at };
+    const at = typeof vo.published_at === 'string' ? Date.parse(vo.published_at) : vo.published_at;
+    return { id: vo.id, version: vo.version, changelog: vo.changelog, published_at: Number.isFinite(at) ? (at as number) : null };
 }
 
 /** `teams/get_by_id` → full team; the `can_*` flags are true only when Core says so. */

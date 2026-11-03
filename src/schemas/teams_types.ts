@@ -236,6 +236,8 @@ export interface TeamsGetData {
 
 /** One published version. */
 export interface TeamVersionData {
+    /** What `realms/add_team` takes as `version_id` (PLAN-team-bundle S4.1). */
+    id: string;
     version: string;
     changelog: string | null;
     /** Unix ms. */

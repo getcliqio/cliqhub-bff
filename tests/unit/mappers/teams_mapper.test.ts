@@ -100,9 +100,14 @@ describe('to_teams_get_data', () => {
 });
 
 describe('to_team_version_data', () => {
-    it('maps version fields', () => {
-        expect(to_team_version_data({ version: '1.0.0', changelog: 'Init', published_at: 1 }))
-            .toEqual({ version: '1.0.0', changelog: 'Init', published_at: 1 });
+    it('maps version fields, with the id realms/add_team takes', () => {
+        expect(to_team_version_data({ id: 'v1', version: '1.0.0', changelog: 'Init', published_at: 1 }))
+            .toEqual({ id: 'v1', version: '1.0.0', changelog: 'Init', published_at: 1 });
+    });
+    it("Core's publish date (an ISO string) becomes Unix ms; a bad one, null", () => {
+        expect(to_team_version_data({ id: 'v1', version: '1.0.0', changelog: null, published_at: '2026-10-30T10:28:14.213Z' }).published_at).toBe(Date.parse('2026-10-30T10:28:14.213Z'));
+        expect(to_team_version_data({ id: 'v1', version: '1.0.0', changelog: null, published_at: 'nope' }).published_at).toBeNull();
+        expect(to_team_version_data({ id: 'v1', version: '1.0.0', changelog: null, published_at: null }).published_at).toBeNull();
     });
 });
 
