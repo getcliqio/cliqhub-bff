@@ -56,6 +56,8 @@ export type TeamsGetVO = PagedData<TeamVO>;
 
 /** One published version. */
 export interface TeamVersionVO {
+    /** What `realms/add_team` takes as `version_id`. */
+    id: string;
     version: string;
     changelog: string | null;
     published_at: number | null;

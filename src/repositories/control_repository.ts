@@ -220,10 +220,10 @@ export class ControlRepository {
     }
 
     /**
-     * `POST /v1/realms/add_team { realm_id, scope, slug }` — adds a published team to one realm
+     * `POST /v1/realms/add_team { realm_id, team_id, version_id? }` — adds a published team to one realm
      * from its org's Teams list (Core refuses one that isn't on it), and sends install to online daemons.
      */
-    async add_team(body: { realm_id: string; scope: string; slug: string; version?: string }, token: string): Promise<Record<string, unknown>> {
+    async add_team(body: { realm_id: string; team_id: string; version_id?: string }, token: string): Promise<Record<string, unknown>> {
         return this._core.post_body<Record<string, unknown>>('/v1/realms/add_team', body, token);
     }
 

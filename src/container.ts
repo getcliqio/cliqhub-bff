@@ -209,7 +209,7 @@ export function build_container(deps: {
         health_controller: new HealthController(new HealthService(core_compat)),
         a2a_controller: new A2aController(proxy_service),
         passthrough_controller: new PassthroughController(proxy_service),
-        team_install_controller: new TeamInstallController(new TeamInstallService(orgs_repo, control_repo), proxy_service),
+        team_install_controller: new TeamInstallController(new TeamInstallService(orgs_repo, control_repo, teams_repo), proxy_service),
         run_enqueue_controller: new RunEnqueueController(new RunPreflightService(control_repo, teams_repo, core_reads, orgs_repo, team_page_service), proxy_service),
         realms_list_controller: new RealmsListController(new RealmsListService(proxy_service, teams_repo)),
         streams_controller: new StreamsController(proxy_service),

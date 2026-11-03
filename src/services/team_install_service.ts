@@ -16,6 +16,7 @@ import { best_effort, error_fields } from '../lib/best_effort.js';
 import { ApiError } from '../errors/api_error.js';
 import type { OrgsRepository } from '../repositories/orgs_repository.js';
 import type { ControlRepository } from '../repositories/control_repository.js';
+import type { TeamsRepository } from '../repositories/teams_repository.js';
 import type { ControlOrgTeamVO, ControlRealmVO } from '../types/core/control.js';
 import type { OrgDetailVO, OrgListItemVO } from '../types/core/orgs.js';
 
@@ -27,11 +28,18 @@ export const REALM_TEAMS_PERMISSION = 'realms.teams.manage';
 export const ORG_TEAMS_PERMISSION = 'teams.install';
 
 export interface TeamInstallInput {
-    scope: string;
-    slug: string;
+    /** The catalog team (PLAN-team-bundle S4.1). */
+    team_id: string;
     realm_ids: string[];
     /** The version the realms run (default: the latest published). */
-    version?: string;
+    version_id?: string;
+}
+
+/** The team being installed: its id and names (read once from Core). */
+interface InstallTeam {
+    id: string;
+    scope: string;
+    name: string;
 }
 
 export interface TeamInstallViewer {
@@ -71,6 +79,7 @@ export class TeamInstallService {
     constructor(
         private readonly _orgs_repo: OrgsRepository,
         private readonly _control_repo: ControlRepository,
+        private readonly _teams_repo: TeamsRepository,
     ) {}
 
     /**
@@ -81,10 +90,14 @@ export class TeamInstallService {
      *   `details.failed` lists each realm and why).
      * @throws ApiError `install_incomplete` when Core refused some realms after the pre-flight passed
      *   (`details.installed` / `details.failed`); the status is Core's for the first failure.
+     * @throws ApiError 404 when the viewer can't see the team (Core's answer).
      */
     async install(input: TeamInstallInput, token: string, viewer: TeamInstallViewer): Promise<TeamInstallData> {
         const realm_ids = [...new Set(input.realm_ids)];
-        const label = `@${input.scope}/${input.slug}`;
+        // The team's names, for the org check (does the org own its scope?) and the messages.
+        const detail = await this._teams_repo.get_by_id({ team_id: input.team_id }, token);
+        const team: InstallTeam = { id: detail.id, scope: detail.scope ?? '', name: detail.name };
+        const label = `@${team.scope}/${team.name}`;
 
         const orgs = await best_effort(log, 'install_orgs_failed', this._orgs_repo.get({ mine: true }, token).then((r) => r.orgs), null, {});
         const standing = new Map<string, Promise<OrgStanding | null>>();
@@ -112,12 +125,12 @@ export class TeamInstallService {
                 log.warn('install_realm_read_failed', { realm_id, ...error_fields(err) });
                 return { realm_id, realm: null, failure: null };
             }
-            const failure = await this._preflight(realm, await org_standing(realm.org_slug), input, label, token, viewer);
+            const failure = await this._preflight(realm, await org_standing(realm.org_slug), team, label, token, viewer);
             return { realm_id, realm, failure };
         }));
         const blocked = checked.flatMap((c) => (c.failure ? [c.failure] : []));
         if (blocked.length) {
-            log.info('team_install_blocked', { scope: input.scope, slug: input.slug, realms: realm_ids.length, blocked: blocked.length });
+            log.info('team_install_blocked', { team_id: team.id, realms: realm_ids.length, blocked: blocked.length });
             const lines = blocked.map((f) => `${f.realm_slug ?? f.realm_id}: ${f.error}`);
             throw new ApiError(
                 'install_blocked',
@@ -134,10 +147,10 @@ export class TeamInstallService {
         for (const c of checked) {
             const realm_slug = c.realm?.slug ?? c.realm_id;
             try {
-                await this._control_repo.add_team({ realm_id: c.realm_id, scope: input.scope, slug: input.slug, ...(input.version ? { version: input.version } : {}) }, token);
+                await this._control_repo.add_team({ realm_id: c.realm_id, team_id: team.id, ...(input.version_id ? { version_id: input.version_id } : {}) }, token);
                 installed.push({ realm_id: c.realm_id, realm_slug });
             } catch (err) {
-                log.warn('team_install_failed', { realm_id: c.realm_id, scope: input.scope, slug: input.slug, ...error_fields(err) });
+                log.warn('team_install_failed', { realm_id: c.realm_id, team_id: team.id, ...error_fields(err) });
                 if (!first_status) first_status = err instanceof ApiError ? err.status : 502;
                 failed.push({
                     realm_id: c.realm_id, realm_slug, code: err instanceof ApiError ? err.code : 'upstream_error',
@@ -145,7 +158,7 @@ export class TeamInstallService {
                 });
             }
         }
-        log.info('team_installed', { scope: input.scope, slug: input.slug, installed: installed.length, failed: failed.length });
+        log.info('team_installed', { team_id: team.id, installed: installed.length, failed: failed.length });
         if (failed.length) {
             const done = installed.length ? `Installed in ${names(installed.map((i) => i.realm_slug))}. ` : '';
             const why = failed.map((f) => `${f.realm_slug}: ${f.error}`).join(' ');
@@ -163,7 +176,7 @@ export class TeamInstallService {
     private async _preflight(
         realm: ControlRealmVO,
         org: OrgStanding | null,
-        input: TeamInstallInput,
+        team: InstallTeam,
         label: string,
         token: string,
         viewer: TeamInstallViewer,
@@ -197,8 +210,8 @@ export class TeamInstallService {
         }
         // The team must be in the realm's org, or the org owns it, or the viewer may add it.
         if (org?.teams) {
-            const in_org = org.teams.some((t) => t.name === input.slug && (t.scope ?? '') === input.scope);
-            const owned = org.detail!.scopes.some((s) => s.slug === input.scope);
+            const in_org = org.teams.some((t) => t.team_id === team.id);
+            const owned = org.detail!.scopes.some((s) => s.slug === team.scope);
             if (!in_org && !owned && !holds(ORG_TEAMS_PERMISSION)) {
                 return fail('team_not_in_org', `${label} isn’t in ${org.org.display_name || org.org.slug} yet. Ask someone who can add teams to the org to add it first.`);
             }
