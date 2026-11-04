@@ -251,6 +251,19 @@ export interface TeamVersionData {
 }
 
 /** `teams/get_by_id` */
+/** One sub-team call of a version, as CliqHub recorded it at publish (PLAN-team-bundle S8). */
+export interface SubTeamCallData {
+    phase: string;
+    /** As written: `@acme/leaf` or `@acme/leaf@1.0.0`. */
+    ref: string;
+    /** The called team; null when it isn't on CliqHub (yet), or the publisher couldn't see it. */
+    team_id: string | null;
+    /** The pinned version; null when the call takes the latest. */
+    pinned_version_id: string | null;
+    /** From a dynamic map's `teams:` list: called only for items that name it. */
+    may_call: boolean;
+}
+
 export interface TeamDetailData {
     id: string;
     name: string;
@@ -281,6 +294,8 @@ export interface TeamDetailData {
     not_for?: string[];
     /** Manifest YAML of the loaded version. */
     raw_manifest: string | null;
+    /** The shown version's sub-team calls (S8); empty when it calls none. */
+    sub_teams: SubTeamCallData[];
     /** The version shown, read from its files (PLAN-team-bundle S1.4b); null when the team has none. */
     version_id: string | null;
     /** The team's open draft — only for people who can edit it; null when there is none. */

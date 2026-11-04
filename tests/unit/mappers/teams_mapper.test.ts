@@ -133,6 +133,12 @@ describe('to_team_detail_data', () => {
         expect(data).toMatchObject({ can_edit: false, can_delete: false, can_toggle_listing: false });
     });
 
+    it('passes the shown version\'s sub-team calls through, and [] from an older Core (PLAN-team-bundle S8)', () => {
+        const call = { phase: 'a', ref: '@acme/leaf@1.0.0', team_id: 't-leaf', pinned_version_id: 'v-1', may_call: false };
+        expect(to_team_detail_data({ ...SAMPLE_DETAIL, sub_teams: [{ ...call, extra: 'x' } as never] }).sub_teams).toEqual([call]);
+        expect(to_team_detail_data(SAMPLE_DETAIL).sub_teams).toEqual([]);
+    });
+
     it('defaults an absent raw_manifest to null', () => {
         const { raw_manifest: _r, ...rest } = SAMPLE_DETAIL;
         const data = to_team_detail_data(rest as TeamDetailVO);

@@ -86,6 +86,7 @@ export function to_team_detail_data(vo: TeamDetailVO): TeamDetailData {
         use_when: vo.use_when,
         not_for: vo.not_for,
         raw_manifest: vo.raw_manifest ?? null,
+        sub_teams: (vo.sub_teams ?? []).map(({ phase, ref, team_id, pinned_version_id, may_call }) => ({ phase, ref, team_id, pinned_version_id, may_call })),
         version_id: vo.version_id ?? null,
         draft: vo.draft?.version_id ? {
             version_id: vo.draft.version_id, saved_at: vo.draft.saved_at ?? null,
