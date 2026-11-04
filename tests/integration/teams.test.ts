@@ -137,10 +137,11 @@ describe('Teams integration', () => {
 
         it('returns download data for authenticated user', async () => {
             const now = Math.floor(Date.now() / 1000);
+            // teams/download is a token route (PLAN-team-bundle S4.2): a session forwards its target_token.
             session_store._sessions.set('dl-sid', {
                 session_id: 'dl-sid',
                 user_id: 1, username: 'alice', email: 'a@test.com', role: 'user',
-                token: 'jwt-abc', scopes_json: '[]', org_slugs_json: '[]',
+                token: 'jwt-abc', target_token: 'cliq_tok_alice', scopes_json: '[]', org_slugs_json: '[]',
                 created_at: now, last_active: now, expires_at: now + 3600,
             });
 
@@ -188,10 +189,11 @@ describe('Teams integration', () => {
 
         it('returns 422 on missing name', async () => {
             const now = Math.floor(Date.now() / 1000);
+            // teams/download is a token route (PLAN-team-bundle S4.2): a session forwards its target_token.
             session_store._sessions.set('dl-val-sid', {
                 session_id: 'dl-val-sid',
                 user_id: 1, username: 'alice', email: 'a@test.com', role: 'user',
-                token: 'jwt-abc', scopes_json: '[]', org_slugs_json: '[]',
+                token: 'jwt-abc', target_token: 'cliq_tok_alice', scopes_json: '[]', org_slugs_json: '[]',
                 created_at: now, last_active: now, expires_at: now + 3600,
             });
 
