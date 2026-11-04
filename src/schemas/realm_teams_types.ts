@@ -52,6 +52,8 @@ export interface RealmTeamRowData {
     online_daemon_count: number;
     /** Online daemons not on the realm's version (older, or not installed); null when not on the realm's list. */
     online_stale: number | null;
+    /** Unpinned sub-teams with a newer published version than the realm's tree has (S8); null for a team not on the list. */
+    sub_team_updates: number | null;
     last_run_at: number | null;
     missing_agents: string[];
     /** What the team does (catalog); null for CLI-installed teams. */

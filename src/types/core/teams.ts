@@ -37,6 +37,8 @@ export interface TeamVO {
     coverage_label?: string;
     /** Realm mode: online daemons not on the realm's version; null when the team isn't on the realm's list. */
     online_stale?: number | null;
+    /** Unpinned sub-teams with a newer published version than the realm's tree has (S8); absent on older Core builds. */
+    sub_team_updates?: number | null;
     /** Realm mode: daemons that have the realm's version installed. */
     current_daemon_ids?: string[];
     missing_agents?: string[];

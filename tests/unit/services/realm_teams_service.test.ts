@@ -3,7 +3,7 @@ import { RealmTeamsService } from '../../../src/services/realm_teams_service.js'
 import { is_newer, parse_label } from '../../../src/mappers/realm_teams_mapper.js';
 import { ApiError } from '../../../src/errors/api_error.js';
 
-const row = (label: string, over: Record<string, unknown> = {}) => ({ slug: label.split('/')[1], label, version: '2.4.1', origin: 'hub', in_team_list: true, installed_count: 2, online_daemon_count: 3, online_stale: 1, last_run_at: 5, missing_agents: [], ...over });
+const row = (label: string, over: Record<string, unknown> = {}) => ({ slug: label.split('/')[1], label, version: '2.4.1', origin: 'hub', in_team_list: true, installed_count: 2, online_daemon_count: 3, online_stale: 1, sub_team_updates: 2, last_run_at: 5, missing_agents: [], ...over });
 
 function mocks() {
     return {
@@ -45,6 +45,8 @@ describe('RealmTeamsService', () => {
         // The ids realms/add_team and remove_team take (PLAN-team-bundle S4.1); a local install has none.
         expect(dto.items[0]).toMatchObject({ team_id: 'team-fdj', version_id: 'ver-241' });
         expect(dto.items[1]).toMatchObject({ origin: 'cli', update_available: false, latest_version: null, team_id: null, version_id: null });
+        // Sub-team updates pass through (S8).
+        expect(dto.items[0]).toMatchObject({ sub_team_updates: 2 });
         expect(dto.total).toBe(6);
     });
 
