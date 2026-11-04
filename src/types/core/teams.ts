@@ -53,6 +53,8 @@ export interface TeamVO {
     not_for?: string[];
     /** Realm mode: the inputs a run must be given (required, no default). */
     required_inputs?: Array<{ name: string; description: string | null }>;
+    /** The latest published version's sub-team calls (`with_sub_teams`), or a realm's installed tree (realm mode) — S9. */
+    sub_teams?: Array<SubTeamCallVO & { parent_version_id?: string; version_id?: string; version?: string }>;
 }
 
 /** `teams/get` in every mode. */
@@ -111,6 +113,8 @@ export interface TeamDetailVO {
     raw_manifest: string | null;
     /** The shown version's sub-team calls (S8); absent on older Core builds. */
     sub_teams?: SubTeamCallVO[];
+    /** Teams whose latest version calls this one, that the caller can read (S9); absent on older Core builds. */
+    used_by?: Array<{ id: string; scope: string | null; name: string; latest_version: string }>;
     /** The version shown (its files: `teams/files/get`); null when the team has none. */
     version_id?: string | null;
     /** Working copy (editors only); absent on older Core builds. */

@@ -52,6 +52,8 @@ export const TeamsGetInput = z.object({
         .describe('Only teams in this scope'),
     mine: z.boolean().optional()
         .describe('Only teams the caller authored'),
+    with_sub_teams: z.boolean().optional()
+        .describe('Also return the sub-teams each team\'s latest published version calls (PLAN-team-bundle S9)'),
     listed: z.boolean().optional()
         .describe('Only listed (true) or unlisted (false) teams'),
     status: z.enum(['draft', 'published']).optional()

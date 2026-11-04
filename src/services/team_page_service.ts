@@ -12,6 +12,7 @@
  *   runs/get { team_id }, runs/get_by_id, runs/get_status — runs and the workflow overlay
  */
 
+import { org_team_tree, uses_and_used_by } from '../lib/team_tree.js';
 import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
 import type { TeamsRepository } from '../repositories/teams_repository.js';
 import type { TeamVO } from '../types/core/teams.js';
@@ -113,10 +114,10 @@ export class TeamPageService {
 
     /** The caller's teams: their orgs' and member scopes' teams they can see, plus their drafts (Core `mine`). */
     private async _mine(token: string): Promise<TeamVO[]> {
-        const first = await this._teams.get({ mine: true, limit: MINE_PAGE, offset: 0 }, token);
+        const first = await this._teams.get({ mine: true, with_sub_teams: true, limit: MINE_PAGE, offset: 0 }, token);
         const out = [...(first.items ?? [])];
         while (out.length < first.total) {
-            const next = await this._teams.get({ mine: true, limit: MINE_PAGE, offset: out.length }, token);
+            const next = await this._teams.get({ mine: true, with_sub_teams: true, limit: MINE_PAGE, offset: out.length }, token);
             if (!next.items?.length) break;
             out.push(...next.items);
         }
@@ -176,6 +177,13 @@ export class TeamPageService {
                 : (a, b) => by_name(a, b) * dir);
         }
         const page = filtered.slice(offset, offset + limit);
+        // The tree view (S9) is the whole list, not one page: top-level teams with their sub-teams nested.
+        const tree_teams = filtered.map((t) => ({
+            team_id: str(t.id), label: label_of(str(t.scope), String(t.name)),
+            version: str(t.latest_version) && t.latest_version !== '0.0.0' ? String(t.latest_version) : null,
+            calls: (t.sub_teams ?? []).map((c) => ({ ref: c.ref, team_id: c.team_id ?? null, may_call: c.may_call === true })),
+        }));
+        const { uses, used_by } = uses_and_used_by(tree_teams.flatMap((t) => t.calls.map((c) => [t.label, c.ref] as const)));
 
         const latest = new Map(page.map((t) => [label_of(str(t.scope), String(t.name)), str(t.latest_version) && t.latest_version !== '0.0.0' ? String(t.latest_version) : null]));
         // "Behind" needs the latest version, known only now.
@@ -201,6 +209,7 @@ export class TeamPageService {
                 visibility: t.visibility === 'private' || t.visibility === 'draft' ? t.visibility : status_of(t) === 'draft' ? 'draft' : 'public',
                 phase_types: phases[i]?.types ?? null, phase_kinds: phases[i]?.kinds ?? null, phase_names: phases[i]?.names ?? null,
                 list_kind: kinds.get(label_of(scope, name)) ?? null, installs: installs.map.get(label_of(scope, name)) ?? [],
+                uses: uses.get(label_of(scope, name)) ?? [], used_by: used_by.get(label_of(scope, name)) ?? [],
             };
         });
         return {
@@ -208,6 +217,7 @@ export class TeamPageService {
             realms_checked: realms.length, realms_total: realms_res?.total ?? 0,
             partial: !realms_res || installs.failed || (realms_res.total > realms.length),
             sortable: [...TeamPageService.SORTABLE],
+            tree: org_team_tree(tree_teams),
         };
     }
 
@@ -315,7 +325,9 @@ export class TeamPageService {
                 return { name: agent, entry: typeof d.entry === 'string' ? d.entry : null, env: Array.isArray(d.env) ? d.env.map(String) : [] };
             });
             const sub = await subs;
-            data.overview = { phases, support, inputs, agents, agent_defs, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [], ...(Object.keys(sub.map).length ? { sub_teams: sub.map } : {}) };
+            // Who calls this team (S9): Core's list, already limited to the teams the viewer can see.
+            const used_by = (Array.isArray(raw.used_by) ? raw.used_by : []).map((u) => ({ id: String(u.id), label: label_of(str(u.scope), String(u.name)), latest_version: String(u.latest_version) }));
+            data.overview = { phases, support, inputs, agents, agent_defs, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [], ...(Object.keys(sub.map).length ? { sub_teams: sub.map } : {}), used_by };
             // The team page shows the workflow as a diagram or as team.yml, on one page.
             const files = await files_of();
             data.files = { files: files ?? [] };

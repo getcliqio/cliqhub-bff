@@ -8,6 +8,7 @@
  * + `/v1/teams/get_versions { latest_only: true }` (→ `version`) for published teams on the page.
  */
 
+import { realm_team_tree, uses_and_used_by } from '../lib/team_tree.js';
 import type { ControlRepository } from '../repositories/control_repository.js';
 import type { TeamsRepository } from '../repositories/teams_repository.js';
 import type { TeamsGetVO } from '../types/core/teams.js';
@@ -39,6 +40,8 @@ function page_of(res: TeamsGetVO): { items: TeamsGetVO['items']; total: number }
 export class RealmTeamsService {
     /** Page size when the request sends none. */
     static readonly DEFAULT_LIMIT = 25;
+    /** The most teams the tree view reads (one Core page). */
+    static readonly TREE_LIMIT = 200;
 
     constructor(
         private readonly _control: ControlRepository,
@@ -75,13 +78,33 @@ export class RealmTeamsService {
             return v?.version ?? v?.latest ?? null;
         });
 
+        // The tree view (S9) is the whole list: the page when it holds every team, else one read of the rest.
+        const whole = offset === 0 && !p.q && page.items.length >= page.total
+            ? page.items
+            : (await best_effort(log, 'realm_teams_tree_read_failed',
+                this._teams.get({ realm_id, sort_by: 'team', sort_dir: 'asc', limit: RealmTeamsService.TREE_LIMIT, offset: 0 }, token).then(page_of), null, { realm_id }))?.items ?? null;
+        const tree_teams = (whole ?? []).map((r) => {
+            const parsed = parse_label(r.label, r.slug ?? r.name ?? '');
+            const label = r.label ?? (parsed.scope ? `@${parsed.scope}/${parsed.slug}` : parsed.slug);
+            return {
+                team_id: r.id ?? null, label, version: r.version ?? null, version_id: r.version_id ?? null,
+                tree: (r.sub_teams ?? []).filter((c): c is typeof c & { parent_version_id: string; version_id: string; version: string; team_id: string } =>
+                    Boolean(c.parent_version_id && c.version_id && c.version && c.team_id)),
+            };
+        });
+        const { uses, used_by } = uses_and_used_by(tree_teams.flatMap((t) => t.tree.filter((c) => c.parent_version_id === t.version_id).map((c) => [t.label, c.ref] as const)));
+
         return {
             realm: to_control_realm_data(realm),
-            items: base.map(({ r, scope, slug }, i) => to_realm_team_row(r, scope, slug, latest[i])),
+            items: base.map(({ r, scope, slug }, i) => {
+                const row = to_realm_team_row(r, scope, slug, latest[i]);
+                return { ...row, uses: uses.get(row.label) ?? [], used_by: used_by.get(row.label) ?? [] };
+            }),
             total: page.total,
             offset,
             limit,
             sortable: sortable_keys('teams.get:realm'),
+            tree: whole ? realm_team_tree(tree_teams) : null,
         };
     }
 }

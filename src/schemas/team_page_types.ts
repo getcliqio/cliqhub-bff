@@ -9,6 +9,7 @@
  * runs/get { team_id }, runs/get_by_id, runs/get_status, realms/get, teams/get { realm_id }.
  */
 
+import type { TeamTreeNode } from '../lib/team_tree.js';
 import { z } from 'zod';
 import type { RealmRunRowData } from './realm_runs_types.js';
 import { sort_fields } from './list_sort.js';
@@ -139,6 +140,10 @@ export interface TeamListRowData {
      */
     list_kind: 'own' | 'cliq' | 'added' | null;
     installs: TeamInstallData[];
+    /** The teams this team's latest version calls (`@scope/slug`; S9 flat view "Uses"). */
+    uses: string[];
+    /** The listed teams that call it (S9 flat view "Used by"). */
+    used_by: string[];
 }
 
 /** `team_list/get` — one page of the caller's teams with status counts. */
@@ -154,6 +159,8 @@ export interface TeamListData {
     partial: boolean;
     /** `sort_by` keys this list accepts. */
     sortable: string[];
+    /** The whole list as a tree (S9, the default view): top-level teams, sub-teams nested with their versions. */
+    tree: TeamTreeNode[];
 }
 
 /** One published version. */
@@ -239,6 +246,8 @@ export interface TeamPageData {
         installs: TeamInstallData[];
         /** Teams the workflow's steps run, at every depth (missing when one could not be read). */
         sub_teams?: Record<string, TeamSubTeamData>;
+        /** Teams whose latest version calls this one, that the viewer can see (S9 "Used by"). */
+        used_by: Array<{ id: string; label: string; latest_version: string }>;
     };
     workflow?: {
         phases: TeamPhaseData[];

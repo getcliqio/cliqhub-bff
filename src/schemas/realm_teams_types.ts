@@ -9,6 +9,7 @@
  * chip count) + `/v1/teams/get_versions { latest_only }` for published teams on the page.
  */
 
+import type { TeamTreeNode } from '../lib/team_tree.js';
 import { z } from 'zod';
 import type { ControlRealmData } from './realm_inbox_types.js';
 import { RealmRefFields } from './realm_ref.js';
@@ -33,6 +34,10 @@ export type RealmTeamsGetInput = z.infer<typeof RealmTeamsGetInput>;
 
 /** One team row: version / update hint and daemon coverage. */
 export interface RealmTeamRowData {
+    /** The teams it calls directly, as installed (`@scope/slug`; S9 flat view). */
+    uses?: string[];
+    /** The listed teams that call it (S9 flat view). */
+    used_by?: string[];
     /** Catalog team id (published teams; null for local installs): what realms/add_team and remove_team take. */
     team_id: string | null;
     /** The id of the version this realm runs (null when not on its list): "Update them" sends it back. */
@@ -74,4 +79,6 @@ export interface RealmTeamsData {
     limit: number;
     /** `sort_by` keys Core applies (lib/core_list.ts). */
     sortable: string[];
+    /** The realm's teams as their installed tree (S9, the default view); null when the whole list couldn't be read. */
+    tree: TeamTreeNode[] | null;
 }

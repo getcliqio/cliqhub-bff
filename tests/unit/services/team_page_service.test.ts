@@ -127,7 +127,7 @@ describe('TeamPageService.list', () => {
         const m = with_list(mocks());
         const data = await svc(m).list({ ...view, status: 'all' }, 'tok');
         expect(m.control.org_teams).toHaveBeenCalledWith(ORG, 'tok');
-        expect(m.teams.get).toHaveBeenCalledWith({ mine: true, limit: 200, offset: 0 }, 'tok');
+        expect(m.teams.get).toHaveBeenCalledWith({ mine: true, with_sub_teams: true, limit: 200, offset: 0 }, 'tok');
         expect(m.teams.get).not.toHaveBeenCalledWith(expect.objectContaining({ status: 'published' }), 'tok');
         expect(m.control.realms_page).toHaveBeenCalledWith({ org_id: ORG, limit: 100, offset: 0 }, 'tok');
         expect(data.items.map((i) => `@${i.scope}/${i.name}`)).toEqual(['@acme/feature-dev', '@cliq/hug-example', '@other/tool']);
@@ -171,7 +171,7 @@ describe('TeamPageService.list', () => {
             ? { items: rows.slice(f.offset ?? 0, (f.offset ?? 0) + (f.limit ?? 50)), total: rows.length, offset: f.offset ?? 0, limit: f.limit ?? 50 }
             : { items: [], total: 0, offset: 0, limit: 200 }));
         const data = await svc(m).list({ ...view, limit: 5 }, 'tok');
-        expect(m.teams.get).toHaveBeenCalledWith({ mine: true, limit: 200, offset: 200 }, 'tok');
+        expect(m.teams.get).toHaveBeenCalledWith({ mine: true, with_sub_teams: true, limit: 200, offset: 200 }, 'tok');
         expect(data.counts.all).toBe(250);
         expect(data.total).toBe(250);
     });
