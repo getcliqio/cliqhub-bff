@@ -215,6 +215,7 @@ describe('TeamPageService.page', () => {
         const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview' }, 'tok');
         expect(m.teams.get_by_id).toHaveBeenCalledWith({ name: 'feature-dev', scope: 'acme' }, 'tok');
         expect(data.team).toMatchObject({ id: TEAM_ID, label: '@acme/feature-dev', latest_version: '1.2.0', version: '1.2.0', can_edit: true, can_toggle_listing: false });
+        expect(data.team).toMatchObject({ use_when: [], not_for: [] });
         expect(data.counts).toEqual({ phases: 3, versions: 2, runs: 9 });
         expect(data.overview?.agents).toEqual(['claude-code']);
         expect(Array.isArray(data.overview?.agent_defs)).toBe(true);
@@ -232,6 +233,46 @@ describe('TeamPageService.page', () => {
         expect(data.overview?.installs.map((i) => i.realm_slug)).toEqual(['prod', 'stg']);
         expect(m.teams.get).toHaveBeenCalledWith({ realm_id: 'r1', limit: 20, offset: 0, query: 'feature-dev' }, 'tok');
         expect(m.control.runs_for_team).toHaveBeenCalledWith({ team_id: TEAM_ID, limit: 1 }, 'tok');
+    });
+
+    it('overview: the team\'s own tree, read off its phases (no realm: no realm read)', async () => {
+        const m = mocks();
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview' }, 'tok');
+        expect(data.overview?.tree).toMatchObject({ label: '@acme/feature-dev', version: '1.2.0', children: [] });
+        // The installs lookup reads each realm by query; the realm tree read (the whole list) isn't made.
+        expect(m.teams.get).not.toHaveBeenCalledWith(expect.objectContaining({ limit: 200 }), 'tok');
+    });
+
+    it('overview with realm_id: the tree as installed in that realm (its row of the realm\'s teams/get), phases on the calls', async () => {
+        const m = mocks();
+        const base = m.teams.get.getMockImplementation()!;
+        m.teams.get.mockImplementation(async (f: { realm_id?: string }) => (f.realm_id === 'r1' ? { items: [
+            { id: TEAM_ID, slug: 'feature-dev', label: '@acme/feature-dev', version: '1.1.0', version_id: 'fd-11', sub_teams: [
+                { phase: 'build', ref: '@acme/builder', team_id: 'b', pinned_version_id: null, may_call: false, parent_version_id: 'fd-11', version_id: 'b-3', version: '3.0.0' },
+                { phase: 'test', ref: '@acme/tester', team_id: 'x', pinned_version_id: null, may_call: false, parent_version_id: 'b-3', version_id: 'x-1', version: '1.0.0' },
+            ] },
+            { id: 'other', slug: 'other', label: '@acme/other', version: '1.0.0', version_id: 'o-1', sub_teams: [] },
+        ], total: 2 } : base(f)));
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview', realm_id: 'r1' }, 'tok');
+        expect(m.teams.get).toHaveBeenCalledWith(expect.objectContaining({ realm_id: 'r1', offset: 0 }), 'tok');
+        const tree = data.overview!.tree;
+        expect(tree).toMatchObject({ label: '@acme/feature-dev', version: '1.1.0' });
+        expect(tree.children).toMatchObject([{ label: '@acme/builder', version: '3.0.0', phase: 'build', children: [{ label: '@acme/tester', version: '1.0.0', phase: 'test' }] }]);
+    });
+
+    it('overview with realm_id: the realm read failing falls back to the tree read off the phases', async () => {
+        const m = mocks();
+        const base = m.teams.get.getMockImplementation()!;
+        m.teams.get.mockImplementation(async (f: { realm_id?: string }) => { if (f.realm_id === 'r9') throw new Error('nope'); return base(f); });
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview', realm_id: 'r9' }, 'tok');
+        expect(data.overview?.tree).toMatchObject({ label: '@acme/feature-dev', version: '1.2.0' });
+    });
+
+    it('header carries team.yml use_when / not_for of the version shown', async () => {
+        const m = mocks();
+        m.teams.get_by_id.mockResolvedValue(team({ use_when: ['a bug needs fixing'], not_for: ['new features'] }));
+        const data = await svc(m).page({ scope: 'acme', name: 'feature-dev', view: 'overview' }, 'tok');
+        expect(data.team).toMatchObject({ use_when: ['a bug needs fixing'], not_for: ['new features'] });
     });
 
     it('header says when an editor has unpublished changes (open draft saved_at), else null', async () => {

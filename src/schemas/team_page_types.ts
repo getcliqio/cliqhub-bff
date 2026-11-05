@@ -62,7 +62,7 @@ export const TeamPageGetInput = z.object({
     state: z.enum(['running', 'awaiting_input', 'failed']).optional()
         .describe('runs: only runs in this state'),
     realm_id: z.string().trim().min(1).max(128).optional()
-        .describe('runs: only this realm'),
+        .describe('runs: only this realm; overview: the team\'s tree as installed in this realm'),
     q: QField,
     limit: LimitField,
     offset: OffsetField,
@@ -188,6 +188,9 @@ export interface TeamHeaderData {
     /** public: everyone; private: the scope's members (PLAN-team-visibility §3.2); draft: never published. */
     visibility: 'public' | 'private' | 'draft';
     tags: string[];
+    /** team.yml `use_when` / `not_for` of the version shown: when to start this team, and when to start another. */
+    use_when: string[];
+    not_for: string[];
     can_edit: boolean;
     can_delete: boolean;
     can_toggle_listing: boolean;
@@ -248,6 +251,8 @@ export interface TeamPageData {
         sub_teams?: Record<string, TeamSubTeamData>;
         /** Teams whose latest version calls this one, that the viewer can see (S9 "Used by"). */
         used_by: Array<{ id: string; label: string; latest_version: string }>;
+        /** This team, then the sub-teams its phases run, nested (each with the phase that runs it): installed versions with `realm_id`, else latest or pinned. */
+        tree: TeamTreeNode;
     };
     workflow?: {
         phases: TeamPhaseData[];

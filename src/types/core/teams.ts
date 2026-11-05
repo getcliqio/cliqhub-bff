@@ -45,6 +45,8 @@ export interface TeamVO {
     origin?: 'hub' | 'cli';
     in_team_list?: boolean;
     last_run_at?: number | null;
+    /** Realm mode: the most recent run started directly (no parent run: not as another team's sub-team); absent on older Core. */
+    last_direct_run_at?: number | null;
     slug?: string;
     label?: string;
     sample_team_id?: string | null;

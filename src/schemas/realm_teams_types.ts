@@ -21,7 +21,9 @@ import { sort_fields } from './list_sort.js';
 export const RealmTeamsGetInput = z.object({
     ...RealmRefFields,
     q: z.string().trim().min(1).max(200).optional()
-        .describe('Match on team name'),
+        .describe('Match on team name (a search covers every team, sub-teams too)'),
+    show: z.enum(['teams', 'all']).optional()
+        .describe('teams (default): top-level — not run by another team in this realm, or also started directly; all: every team'),
     limit: z.number().int().min(1).max(100).optional()
         .describe('Page size (max 100)'),
     offset: z.number().int().min(0).optional()
@@ -77,8 +79,14 @@ export interface RealmTeamsData {
     total: number;
     offset: number;
     limit: number;
-    /** `sort_by` keys Core applies (lib/core_list.ts). */
+    /** `sort_by` keys this list applies. */
     sortable: string[];
+    /** The most recently run teams in the view (up to 5; not repeated in `items`); empty on a search. */
+    recent: RealmTeamRowData[];
+    /** The view applied: `all` on a search, or when the whole list couldn't be read. */
+    show: 'teams' | 'all';
+    /** How many teams each view has; null when the whole list couldn't be read. */
+    counts: { teams: number; all: number } | null;
     /** The realm's teams as their installed tree (S9, the default view); null when the whole list couldn't be read. */
     tree: TeamTreeNode[] | null;
 }

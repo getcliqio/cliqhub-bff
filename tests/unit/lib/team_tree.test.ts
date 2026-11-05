@@ -1,6 +1,6 @@
 /** Teams as a tree (PLAN-team-bundle S9): top-level teams, nesting with versions, shared teams, may-call, cycles. */
 import { describe, expect, it } from 'vitest';
-import { org_team_tree, realm_team_tree, ref_parts, uses_and_used_by, type TeamTreeNode } from '../../../src/lib/team_tree.js';
+import { org_team_tree, realm_team_tree, ref_parts, team_own_tree, uses_and_used_by, type TeamTreeNode } from '../../../src/lib/team_tree.js';
 
 /** A tree as `label version [flags]` lines, indented two spaces a level. */
 function lines(nodes: TeamTreeNode[], depth = 0): string[] {
@@ -75,6 +75,43 @@ describe('realm_team_tree', () => {
             '    @acme/leaf 1.0.0',
             '  @acme/leaf 1.1.0 [pinned]',
         ]);
+    });
+});
+
+describe('realm_team_tree: the phase that runs each sub-team', () => {
+    it('carries each call\'s phase onto its node', () => {
+        const [top] = realm_team_tree([{
+            team_id: 't', label: '@acme/top', version: '1.0.0', version_id: 'top-1',
+            tree: [{ parent_version_id: 'top-1', ref: '@acme/mid', team_id: 'm', version_id: 'mid-1', version: '1.0.0', phase: 'build' }],
+        }]);
+        expect(top.children.map((c) => [c.phase, c.label])).toEqual([['build', '@acme/mid']]);
+    });
+});
+
+describe('team_own_tree', () => {
+    it('the team, then the sub-teams its phases run (pin, else the version read), nested; a cycle shows once', () => {
+        const tree = team_own_tree(
+            { label: '@acme/top', team_id: 't', version: '2.0.0' },
+            [{ name: 'fetch', team: null }, { name: 'build', team: '@acme/mid' }, { name: 'scan', team: '@acme/leaf@1.1.0' }],
+            {
+                '@acme/mid': { version: '1.0.0', phases: [{ name: 'code', team: null }, { name: 'test', team: '@acme/leaf' }, { name: 'again', team: '@acme/top' }] },
+                '@acme/leaf': { version: '1.2.0', phases: [] },
+                '@acme/leaf@1.1.0': { version: '1.1.0', phases: [] },
+            },
+        );
+        expect(lines([tree])).toEqual([
+            '@acme/top 2.0.0',
+            '  @acme/mid 1.0.0',
+            '    @acme/leaf 1.2.0',
+            '    @acme/top - [cycle]',
+            '  @acme/leaf 1.1.0 [pinned]',
+        ]);
+        expect(tree.children.map((c) => c.phase)).toEqual(['build', 'scan']);
+        expect(tree.children[0].children.map((c) => c.phase)).toEqual(['test', 'again']);
+    });
+
+    it('a team that runs no sub-team is just itself', () => {
+        expect(team_own_tree({ label: '@acme/solo', team_id: 's', version: '1.0.0' }, [{ name: 'a', team: null }], {}).children).toEqual([]);
     });
 });
 
