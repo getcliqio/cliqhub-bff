@@ -62,8 +62,6 @@ export class RealmTeamsService {
     static readonly DEFAULT_LIMIT = 25;
     /** The most teams the whole-list read takes (one Core page); a bigger realm pages in Core, all teams shown. */
     static readonly TREE_LIMIT = 200;
-    /** Teams in Recently run. */
-    static readonly RECENT = 5;
 
     constructor(
         private readonly _control: ControlRepository,
@@ -85,7 +83,7 @@ export class RealmTeamsService {
         const offset = p.offset ?? 0;
         const show = p.show ?? 'teams';
 
-        // The whole list (one read): who calls whom, the Teams view, Recently run and the counts all need it.
+        // The whole list (one read): who calls whom, the views and their counts all need it.
         const whole_page = await best_effort(log, 'realm_teams_tree_read_failed',
             this._teams.get({ realm_id, sort_by: 'team', sort_dir: 'asc', limit: RealmTeamsService.TREE_LIMIT, offset: 0 }, token).then(page_of), null, { realm_id });
         const whole = whole_page && whole_page.items.length >= whole_page.total ? whole_page.items : null;
@@ -103,21 +101,20 @@ export class RealmTeamsService {
         // picks the view (Teams: not called by another team; All), takes out Recently run, then sorts and pages.
         let page_items: TeamsGetVO['items'];
         let total: number;
-        let recent_items: TeamsGetVO['items'] = [];
-        let shown: 'teams' | 'all' = 'all';
+        let shown: 'teams' | 'recent' | 'all' = 'all';
         if (p.q || !whole) {
             const page = await this._teams.get({ realm_id, sort_by: 'team', sort_dir: 'asc', limit, offset, ...core_query(p.q), ...core_sort('teams.get:realm', p) }, token).then(page_of);
             page_items = page.items;
             total = page.total;
         } else {
             shown = show;
-            const in_view = show === 'teams' ? whole.filter(top_level) : whole;
-            // Recently run: started directly, newest first (a sub-team's runs inside its caller don't count).
-            recent_items = [...in_view].filter((r) => direct_run(r) !== null)
-                .sort((a, b) => (direct_run(b) ?? 0) - (direct_run(a) ?? 0)).slice(0, RealmTeamsService.RECENT);
-            const rest = sort_rows(in_view.filter((r) => !recent_items.includes(r)), p.sort_by ?? 'team', p.sort_dir ?? 'asc');
-            page_items = rest.slice(offset, offset + limit);
-            total = rest.length;
+            // Recently run: the teams started directly, newest first (a sub-team's runs inside its caller don't
+            // count). Top-level and All: in the asked order.
+            const in_view = show === 'recent'
+                ? whole.filter((r) => direct_run(r) !== null).sort((a, b) => (direct_run(b) ?? 0) - (direct_run(a) ?? 0))
+                : sort_rows(show === 'teams' ? whole.filter(top_level) : whole, p.sort_by ?? 'team', p.sort_dir ?? 'asc');
+            page_items = in_view.slice(offset, offset + limit);
+            total = in_view.length;
         }
 
         const rows = async (items: TeamsGetVO['items']): Promise<RealmTeamRowData[]> => {
@@ -140,18 +137,18 @@ export class RealmTeamsService {
                 return { ...row, uses: uses.get(row.label) ?? [], used_by: (used_by.get(row.label) ?? []).filter((c) => c !== row.label) };
             });
         };
-        const [items, recent] = await Promise.all([rows(page_items), rows(recent_items)]);
+        const items = await rows(page_items);
 
         return {
             realm: to_control_realm_data(realm),
             items,
-            recent,
             show: shown,
-            counts: whole ? { teams: whole.filter(top_level).length, all: whole.length } : null,
+            counts: whole ? { teams: whole.filter(top_level).length, recent: whole.filter((r) => direct_run(r) !== null).length, all: whole.length } : null,
             total,
             offset,
             limit,
-            sortable: whole && !p.q ? ['team', 'origin'] : sortable_keys('teams.get:realm'),
+            // Recently run is always newest first; the others sort by team or origin (in Core on a search).
+            sortable: whole && !p.q ? (shown === 'recent' ? [] : ['team', 'origin']) : sortable_keys('teams.get:realm'),
             tree: whole_page ? realm_team_tree(tree_teams) : null,
         };
     }

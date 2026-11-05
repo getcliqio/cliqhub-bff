@@ -41,7 +41,7 @@ describe('RealmTeamsService', () => {
         expect(m.teams.get).toHaveBeenNthCalledWith(1, { realm_id: 'r1', sort_by: 'team', sort_dir: 'asc', limit: 200, offset: 0 }, 'tok');
         expect(m.teams.get).toHaveBeenNthCalledWith(2, { realm_id: 'r1', sort_by: 'team', sort_dir: 'asc', limit: 10, offset: 0, query: 'dev' }, 'tok');
         // A search covers every team: no view, no Recently run.
-        expect(dto).toMatchObject({ show: 'all', recent: [] });
+        expect(dto).toMatchObject({ show: 'all' });
         expect(m.teams.get_versions).toHaveBeenCalledTimes(1);
         expect(m.teams.get_versions).toHaveBeenCalledWith({ name: 'feature-dev-js', scope: 'cliq', latest_only: true }, 'tok');
         expect(dto.items[0]).toMatchObject({ scope: 'cliq', slug: 'feature-dev-js', latest_version: '2.5.0', update_available: true, installed_count: 2, online_daemon_count: 3, online_stale: 1 });
@@ -95,11 +95,10 @@ describe('RealmTeamsService', () => {
             label: '@acme/top', team_id: 'top', version: '1.0.0', pinned: false, may_call: false, used_by: 0, cycle: false,
             children: [{ label: '@acme/leaf', team_id: 'leaf', version: '1.0.0', pinned: true, may_call: false, used_by: 1, cycle: false, phase: null, children: [] }],
         }]);
-        const all = [...dto.recent, ...dto.items];
-        expect(all.map((i) => [i.label, i.uses, i.used_by])).toEqual([['@acme/top', ['@acme/leaf'], []], ['@acme/leaf', [], ['@acme/top']]]);
+        expect(dto.items.map((i) => [i.label, i.uses, i.used_by])).toEqual([['@acme/leaf', [], ['@acme/top']], ['@acme/top', ['@acme/leaf'], []]]);
     });
 
-    describe('views (Teams / All), Recently run, counts', () => {
+    describe('views (Top-level / Recently run / All) and their counts', () => {
         /** top calls mid, mid calls leaf; solo calls nothing. Runs: mid newest (only ever as top's sub-team), then top; leaf and solo never. */
         function realm(extra: ReturnType<typeof row>[] = []) {
             const m = mocks();
@@ -119,47 +118,55 @@ describe('RealmTeamsService', () => {
         }
         const labels = (rows: Array<{ label: string }>) => rows.map((r) => r.label);
 
-        it('Teams (the default): only teams no other team in the realm calls; Recently run first, not repeated', async () => {
+        it('Top-level (the default): only teams no other team in the realm calls, by team', async () => {
             const { m, svc } = realm();
             const dto = await svc.get({ org_slug: 'acme', slug: 'prod' }, 'tok');
             expect(m.teams.get).toHaveBeenCalledTimes(1);
             expect(dto.show).toBe('teams');
-            expect(labels(dto.recent)).toEqual(['@acme/top']);
-            expect(labels(dto.items)).toEqual(['@acme/solo']);
-            expect(dto.total).toBe(1);
-            expect(dto.counts).toEqual({ teams: 2, all: 4 });
+            expect(labels(dto.items)).toEqual(['@acme/solo', '@acme/top']);
+            expect(dto.total).toBe(2);
+            expect(dto.counts).toEqual({ teams: 2, recent: 1, all: 4 });
         });
 
-        it('All: every team; Recently run counts only direct runs (mid ran only inside top); each row says which teams call it', async () => {
+        it('All: every team, by team; each row says which teams call it directly', async () => {
             const { svc } = realm();
             const dto = await svc.get({ org_slug: 'acme', slug: 'prod', show: 'all' }, 'tok');
-            expect(labels(dto.recent)).toEqual(['@acme/top']);
-            expect(labels(dto.items)).toEqual(['@acme/leaf', '@acme/mid', '@acme/solo']);
+            expect(labels(dto.items)).toEqual(['@acme/leaf', '@acme/mid', '@acme/solo', '@acme/top']);
             // Direct callers only: top runs mid, mid runs leaf.
             expect(dto.items.find((r) => r.label === '@acme/leaf')?.used_by).toEqual(['@acme/mid']);
-            expect(dto.recent.find((r) => r.label === '@acme/top')?.used_by).toEqual([]);
+            expect(dto.items.find((r) => r.label === '@acme/top')?.used_by).toEqual([]);
         });
 
-        it('sorts and pages the rest in the BFF; Recently run is at most 5', async () => {
-            const more = Array.from({ length: 6 }, (_, i) => row(`@acme/r${i}`, { id: `r${i}`, version_id: `r${i}-1`, last_run_at: 100 + i, last_direct_run_at: 100 + i, sub_teams: [] }));
+        it('Recently run: the teams started directly, newest first (mid ran only inside top: not listed); no sort to pick', async () => {
+            const more = Array.from({ length: 3 }, (_, i) => row(`@acme/r${i}`, { id: `r${i}`, version_id: `r${i}-1`, last_run_at: 100 + i, last_direct_run_at: 100 + i, sub_teams: [] }));
+            const { svc } = realm(more);
+            const dto = await svc.get({ org_slug: 'acme', slug: 'prod', show: 'recent', sort_by: 'team', limit: 2, offset: 1 }, 'tok');
+            // Newest first: r2, r1, r0, top → the page at offset 1.
+            expect(labels(dto.items)).toEqual(['@acme/r1', '@acme/r0']);
+            expect(dto.total).toBe(4);
+            expect(dto.show).toBe('recent');
+            expect(dto.sortable).toEqual([]);
+        });
+
+        it('sorts and pages in the BFF', async () => {
+            const more = Array.from({ length: 2 }, (_, i) => row(`@acme/r${i}`, { id: `r${i}`, version_id: `r${i}-1`, sub_teams: [] }));
             const { svc } = realm(more);
             const dto = await svc.get({ org_slug: 'acme', slug: 'prod', show: 'all', sort_by: 'team', sort_dir: 'desc', limit: 2, offset: 1 }, 'tok');
-            expect(labels(dto.recent)).toEqual(['@acme/r5', '@acme/r4', '@acme/r3', '@acme/r2', '@acme/r1']);
-            // The rest, desc: top, solo, r0, mid, leaf → the page at offset 1.
-            expect(labels(dto.items)).toEqual(['@acme/solo', '@acme/r0']);
-            expect(dto.total).toBe(5);
+            // Desc: top, solo, r1, r0, mid, leaf → the page at offset 1.
+            expect(labels(dto.items)).toEqual(['@acme/solo', '@acme/r1']);
+            expect(dto.total).toBe(6);
             expect(dto.sortable).toEqual(['team', 'origin']);
         });
 
-        it('Top-level keeps a sub-team people also start directly', async () => {
+        it('Top-level and Recently run keep a sub-team people also start directly', async () => {
             const base = realm();
             base.m.teams.get.mockResolvedValue({ items: [
                 ...((await base.m.teams.get()).items as Array<Record<string, unknown>>).map((r) => (r.label === '@acme/leaf' ? { ...r, last_run_at: 50, last_direct_run_at: 40 } : r)),
             ], total: 4, offset: 0, limit: 200 });
-            const dto = await base.svc.get({ org_slug: 'acme', slug: 'prod' }, 'tok');
-            expect(labels(dto.recent)).toEqual(['@acme/leaf', '@acme/top']);
-            expect(labels(dto.items)).toEqual(['@acme/solo']);
-            expect(dto.counts).toEqual({ teams: 3, all: 4 });
+            expect(labels((await base.svc.get({ org_slug: 'acme', slug: 'prod' }, 'tok')).items)).toEqual(['@acme/leaf', '@acme/solo', '@acme/top']);
+            const recent = await base.svc.get({ org_slug: 'acme', slug: 'prod', show: 'recent' }, 'tok');
+            expect(labels(recent.items)).toEqual(['@acme/leaf', '@acme/top']);
+            expect(recent.counts).toEqual({ teams: 3, recent: 2, all: 4 });
         });
 
         it('an older Core without last_direct_run_at: any run counts as direct', async () => {
@@ -167,14 +174,14 @@ describe('RealmTeamsService', () => {
             base.m.teams.get.mockResolvedValue({ items: [
                 ...((await base.m.teams.get()).items as Array<Record<string, unknown>>).map(({ last_direct_run_at: _drop, ...r }) => r),
             ], total: 4, offset: 0, limit: 200 });
-            const dto = await base.svc.get({ org_slug: 'acme', slug: 'prod', show: 'all' }, 'tok');
-            expect(labels(dto.recent)).toEqual(['@acme/mid', '@acme/top']);
+            const dto = await base.svc.get({ org_slug: 'acme', slug: 'prod', show: 'recent' }, 'tok');
+            expect(labels(dto.items)).toEqual(['@acme/mid', '@acme/top']);
         });
 
         it('a realm bigger than one read pages in Core over every team (no view, no counts)', async () => {
             const m = mocks(); // 2 of 6 teams in the read
             const dto = await new RealmTeamsService(m.control as never, m.teams as never).get({ org_slug: 'acme', slug: 'prod' }, 'tok');
-            expect(dto).toMatchObject({ show: 'all', counts: null, recent: [] });
+            expect(dto).toMatchObject({ show: 'all', counts: null });
             expect(m.teams.get).toHaveBeenCalledTimes(2);
         });
     });
