@@ -94,6 +94,10 @@ export class RealmTeamsService {
         const label_of_row = (r: TeamsGetVO['items'][number]) => to_realm_tree_team(r).label;
         /** Called by another team in this realm. */
         const is_sub = (r: TeamsGetVO['items'][number]) => (used_by.get(label_of_row(r)) ?? []).some((caller) => caller !== label_of_row(r));
+        /** Last started directly (not as a sub-team); an older Core without the field: any run. */
+        const direct_run = (r: TeamsGetVO['items'][number]): number | null => (r.last_direct_run_at !== undefined ? r.last_direct_run_at : r.last_run_at) ?? null;
+        /** Top-level: no other team here runs it, or people also start it directly. */
+        const top_level = (r: TeamsGetVO['items'][number]) => !is_sub(r) || direct_run(r) !== null;
 
         // A search pages in Core over every team (sub-teams too). Otherwise, with the whole list read, the BFF
         // picks the view (Teams: not called by another team; All), takes out Recently run, then sorts and pages.
@@ -107,9 +111,10 @@ export class RealmTeamsService {
             total = page.total;
         } else {
             shown = show;
-            const in_view = show === 'teams' ? whole.filter((r) => !is_sub(r)) : whole;
-            recent_items = [...in_view].filter((r) => typeof r.last_run_at === 'number')
-                .sort((a, b) => (b.last_run_at ?? 0) - (a.last_run_at ?? 0)).slice(0, RealmTeamsService.RECENT);
+            const in_view = show === 'teams' ? whole.filter(top_level) : whole;
+            // Recently run: started directly, newest first (a sub-team's runs inside its caller don't count).
+            recent_items = [...in_view].filter((r) => direct_run(r) !== null)
+                .sort((a, b) => (direct_run(b) ?? 0) - (direct_run(a) ?? 0)).slice(0, RealmTeamsService.RECENT);
             const rest = sort_rows(in_view.filter((r) => !recent_items.includes(r)), p.sort_by ?? 'team', p.sort_dir ?? 'asc');
             page_items = rest.slice(offset, offset + limit);
             total = rest.length;
@@ -142,7 +147,7 @@ export class RealmTeamsService {
             items,
             recent,
             show: shown,
-            counts: whole ? { teams: whole.filter((r) => !is_sub(r)).length, all: whole.length } : null,
+            counts: whole ? { teams: whole.filter(top_level).length, all: whole.length } : null,
             total,
             offset,
             limit,

@@ -23,7 +23,7 @@ export const RealmTeamsGetInput = z.object({
     q: z.string().trim().min(1).max(200).optional()
         .describe('Match on team name (a search covers every team, sub-teams too)'),
     show: z.enum(['teams', 'all']).optional()
-        .describe('teams (default): the teams not called by another team in this realm; all: every team'),
+        .describe('teams (default): top-level — not run by another team in this realm, or also started directly; all: every team'),
     limit: z.number().int().min(1).max(100).optional()
         .describe('Page size (max 100)'),
     offset: z.number().int().min(0).optional()
