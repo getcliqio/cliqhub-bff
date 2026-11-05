@@ -26,6 +26,8 @@ export interface TeamTreeNode {
     used_by: number;
     /** It is already on the path above (a cycle): not opened again. */
     cycle: boolean;
+    /** The caller's phase that runs it (absent on the top-level rows, and where the read doesn't say). */
+    phase?: string | null;
     children: TeamTreeNode[];
 }
 
@@ -44,7 +46,7 @@ export interface RealmTreeTeam {
     version: string | null;
     version_id: string | null;
     /** Every call of the installed tree, at any depth. */
-    tree: ReadonlyArray<{ parent_version_id: string; ref: string; team_id: string; version_id: string; version: string }>;
+    tree: ReadonlyArray<{ parent_version_id: string; ref: string; team_id: string; version_id: string; version: string; phase?: string | null }>;
 }
 
 /** A ref's parts: `@scope/slug` and its pinned version (`@latest` pins nothing). */
@@ -126,7 +128,7 @@ export function realm_team_tree(teams: readonly RealmTreeTeam[]): TeamTreeNode[]
                 const cycle = path.has(label);
                 return {
                     label, team_id: c.team_id, version: c.version, pinned: Boolean(pin), may_call: false,
-                    used_by: used.get(label)?.size ?? 0, cycle, children: cycle ? [] : children_of(c.version_id, new Set([...path, label])),
+                    used_by: used.get(label)?.size ?? 0, cycle, phase: c.phase ?? null, children: cycle ? [] : children_of(c.version_id, new Set([...path, label])),
                 };
             });
         return {
@@ -135,6 +137,34 @@ export function realm_team_tree(teams: readonly RealmTreeTeam[]): TeamTreeNode[]
         };
     };
     return with_unreached(teams, used, node);
+}
+
+/**
+ * One team's own tree (its page): the team, then the sub-teams its phases run, nested, each with the phase that runs
+ * it. In a realm it is that team's installed tree (`realm_team_tree` of it alone: installed versions); elsewhere it
+ * is read off the version's phases and the sub-teams the page already read (each at its latest, or its pin).
+ *
+ * @param root - The team: label, catalog id, the version shown.
+ * @param phases - The version's phases (and support phases); a `team` phase's `team` is the ref it runs.
+ * @param sub_teams - Every sub-team the page read, at any depth, keyed by ref as written.
+ */
+export function team_own_tree(
+    root: { label: string; team_id: string | null; version: string | null },
+    phases: ReadonlyArray<{ name: string; team: string | null }>,
+    sub_teams: Readonly<Record<string, { version: string | null; phases: ReadonlyArray<{ name: string; team: string | null }> }>>,
+): TeamTreeNode {
+    const children_of = (list: ReadonlyArray<{ name: string; team: string | null }>, path: Set<string>): TeamTreeNode[] => list
+        .filter((p): p is { name: string; team: string } => typeof p.team === 'string' && p.team.length > 0)
+        .map((p) => {
+            const { label, pin } = ref_parts(p.team);
+            const cycle = path.has(label);
+            const sub = sub_teams[p.team];
+            return {
+                label, team_id: null, version: pin ?? sub?.version ?? null, pinned: Boolean(pin), may_call: false, used_by: 0, cycle, phase: p.name,
+                children: cycle || !sub ? [] : children_of(sub.phases, new Set([...path, label])),
+            };
+        });
+    return { ...root, pinned: false, may_call: false, used_by: 0, cycle: false, children: children_of(phases, new Set([root.label])) };
 }
 
 /**

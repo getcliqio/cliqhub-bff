@@ -12,7 +12,8 @@
  *   runs/get { team_id }, runs/get_by_id, runs/get_status — runs and the workflow overlay
  */
 
-import { org_team_tree, uses_and_used_by } from '../lib/team_tree.js';
+import { org_team_tree, realm_team_tree, team_own_tree, uses_and_used_by } from '../lib/team_tree.js';
+import { page_of, RealmTeamsService, to_realm_tree_team } from './realm_teams_service.js';
 import type { ControlRepository, ControlRunState } from '../repositories/control_repository.js';
 import type { TeamsRepository } from '../repositories/teams_repository.js';
 import type { TeamVO } from '../types/core/teams.js';
@@ -287,6 +288,7 @@ export class TeamPageService {
             author: str(raw.author), listed: raw.listed !== false,
             visibility: raw.visibility === 'private' || raw.visibility === 'draft' ? raw.visibility : status === 'draft' ? 'draft' : 'public',
             tags: (raw.tags ?? []).map(String),
+            use_when: (raw.use_when ?? []).map(String), not_for: (raw.not_for ?? []).map(String),
             can_edit: Boolean(raw.can_edit), can_delete: Boolean(raw.can_delete), can_toggle_listing: Boolean(raw.can_toggle_listing),
             draft_saved_at: raw.draft?.version_id ? (raw.draft.saved_at ?? null) : null,
             draft_based_on: raw.draft?.version_id ? (raw.draft.based_on?.version ?? null) : null,
@@ -325,9 +327,18 @@ export class TeamPageService {
                 return { name: agent, entry: typeof d.entry === 'string' ? d.entry : null, env: Array.isArray(d.env) ? d.env.map(String) : [] };
             });
             const sub = await subs;
+            // Its own tree under the title: in a realm, the installed one (one realm teams/get read; this team's row);
+            // else read off its phases and the sub-teams just read.
+            const own = (): ReturnType<typeof team_own_tree> => team_own_tree({ label: label_of(scope, name), team_id, version: header.version }, [...phases, ...support], sub.map);
+            const realm_row = input.realm_id
+                ? (await best_effort(log, 'team_page_realm_tree_failed',
+                    this._teams.get({ realm_id: input.realm_id, sort_by: 'team', sort_dir: 'asc', limit: RealmTeamsService.TREE_LIMIT, offset: 0 }, token).then(page_of), null, { team_id, realm_id: input.realm_id }))
+                    ?.items.map(to_realm_tree_team).find((t) => t.label === label_of(scope, name)) ?? null
+                : null;
+            const tree = realm_row ? realm_team_tree([realm_row])[0] ?? own() : own();
             // Who calls this team (S9): Core's list, already limited to the teams the viewer can see.
             const used_by = (Array.isArray(raw.used_by) ? raw.used_by : []).map((u) => ({ id: String(u.id), label: label_of(str(u.scope), String(u.name)), latest_version: String(u.latest_version) }));
-            data.overview = { phases, support, inputs, agents, agent_defs, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [], ...(Object.keys(sub.map).length ? { sub_teams: sub.map } : {}), used_by };
+            data.overview = { phases, support, inputs, agents, agent_defs, latest: versions[0] ?? null, installs: inst?.map.get(label_of(scope, name)) ?? [], ...(Object.keys(sub.map).length ? { sub_teams: sub.map } : {}), used_by, tree };
             // The team page shows the workflow as a diagram or as team.yml, on one page.
             const files = await files_of();
             data.files = { files: files ?? [] };
