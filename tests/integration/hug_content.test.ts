@@ -53,6 +53,13 @@ describe('content route', () => {
         expect(calls).toHaveLength(1);
     });
 
+    it('lets every Hub origin frame a hug (HUB_ORIGIN with the bare domain and www)', async () => {
+        stub_bundle({ [`${SHA}/index.html`]: { body: '<!doctype html>', type: 'text/html; charset=utf-8' } });
+        const { app } = create_test_app({ ...ORIGINS, hub_origin: 'https://hub.test https://www.hub.test' });
+        const res = await request(app).get(`/hb/${SHA}/index.html`).set('Host', 'content.test:8080');
+        expect(res.headers['content-security-policy']).toMatch(/; frame-ancestors https:\/\/hub\.test https:\/\/www\.hub\.test$/);
+    });
+
     it('404 for an unknown file, a bad hash or a path with ".." — the last two before Core is asked', async () => {
         const calls = stub_bundle({});
         const { app } = create_test_app(ORIGINS);

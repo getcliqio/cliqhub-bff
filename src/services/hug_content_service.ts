@@ -3,7 +3,8 @@
  *
  * A hug's bundle is fetched from Core (`hug_bundles/get_file`, public: built code named by its sha256, no Hug data)
  * and served at `<CONTENT_ORIGIN>/hb/<sha256>/<path>` with a CSP that leaves a frame no network, no navigation and
- * no one but the Hub to frame it. Bundles never change, so files are cached here (bounded) and by browsers.
+ * no one but the Hub to frame it. Bundles never change, so files are cached here (bounded) and by browsers — but Core
+ * removes bundles no Hug uses any more (§5.3), so a cached file is checked with Core again after {@link RECHECK_MS}.
  */
 
 import type { CoreProxyRepository } from '../repositories/core_proxy_repository.js';
@@ -13,6 +14,8 @@ const log = get_logger('svc.hug_content');
 
 /** Largest total of cached file bytes. */
 const CACHE_BYTES = 64 * 1024 * 1024;
+/** How long a cached file is served before Core is asked again whether the bundle still exists. */
+const RECHECK_MS = 10 * 60 * 1000;
 /** Longest bundle path served. */
 const MAX_PATH = 300;
 
@@ -35,13 +38,14 @@ export function is_bundle_file_path(path: string): boolean {
 
 /** Hug frontend files and their URLs. */
 export class HugContentService {
-    private readonly _cache = new Map<string, HugContentFile>();
+    private readonly _cache = new Map<string, { file: HugContentFile; at: number }>();
     private _cached_bytes = 0;
 
     constructor(
         private readonly _core: CoreProxyRepository,
         private readonly _content_origin: string | null,
         private readonly _hub_origin: string | null,
+        private readonly _now: () => number = Date.now,
     ) {}
 
     /** Whether hug frames can be served (both origins configured). */
@@ -70,23 +74,37 @@ export class HugContentService {
     }
 
     /**
-     * One file of a bundle, or null (a bad hash or path, or Core has no such bundle or file).
+     * One file of a bundle, or null (a bad hash or path, or Core has no such bundle or file — including one Core has
+     * removed since it was cached here).
      *
-     * @throws when Core can't be reached or answers an error other than 404 (the route answers 502)
+     * @throws when Core can't be reached or answers an error other than 404 and nothing is cached (the route answers 502)
      */
     async file(sha256: string, path: string): Promise<HugContentFile | null> {
         if (!is_bundle_hash(sha256) || !is_bundle_file_path(path)) return null;
         const key = `${sha256}/${path}`;
         const hit = this._cache.get(key);
-        if (hit) {
+        if (hit && this._now() - hit.at < RECHECK_MS) {
             this._cache.delete(key);
             this._cache.set(key, hit); // most recently used last
-            return hit;
+            return hit.file;
         }
-        const res = await this._core.hug_bundle_file(sha256, path);
-        if (res.status === 404) return null;
-        if (!res.ok) throw new Error(`Core hug_bundles/get_file answered HTTP ${res.status}`);
+        let res: Response;
+        try {
+            res = await this._core.hug_bundle_file(sha256, path);
+        } catch (err) {
+            if (hit) return hit.file; // Core unreachable: the cached copy is still the right bytes
+            throw err;
+        }
+        if (res.status === 404) {
+            if (hit) this._forget(key);
+            return null;
+        }
+        if (!res.ok) {
+            if (hit) return hit.file;
+            throw new Error(`Core hug_bundles/get_file answered HTTP ${res.status}`);
+        }
         const file = { body: Buffer.from(await res.arrayBuffer()), content_type: res.headers.get('content-type') ?? 'text/plain; charset=utf-8' };
+        if (hit) this._forget(key);
         this._remember(key, file);
         return file;
     }
@@ -114,12 +132,18 @@ export class HugContentService {
 
     private _remember(key: string, file: HugContentFile): void {
         if (file.body.length > CACHE_BYTES / 4) return;
-        this._cache.set(key, file);
+        this._cache.set(key, { file, at: this._now() });
         this._cached_bytes += file.body.length;
-        for (const [old, f] of this._cache) {
+        for (const [old] of this._cache) {
             if (this._cached_bytes <= CACHE_BYTES) break;
-            this._cache.delete(old);
-            this._cached_bytes -= f.body.length;
+            this._forget(old);
         }
+    }
+
+    private _forget(key: string): void {
+        const hit = this._cache.get(key);
+        if (!hit) return;
+        this._cache.delete(key);
+        this._cached_bytes -= hit.file.body.length;
     }
 }

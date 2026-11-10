@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { assert_own_session_db, load_env, parse_trust_proxy } from '../../../src/config/env.js';
+import { assert_own_session_db, load_env, parse_origins, parse_trust_proxy } from '../../../src/config/env.js';
 
 describe('assert_own_session_db', () => {
     it('accepts a local Postgres and Railway-internal hosts', () => {
@@ -41,5 +41,20 @@ describe('parse_trust_proxy (TRUST_PROXY)', () => {
         for (const [k, v] of Object.entries({ BACKEND_URL: 'http://localhost:4000', DATABASE_URL: 'postgresql://u:p@localhost:5432/x', SESSION_SECRET: 'fake-session-secret', TRUST_PROXY: '2' })) vi.stubEnv(k, v);
         expect(load_env().trust_proxy).toBe(2);
         vi.unstubAllEnvs();
+    });
+});
+
+describe('parse_origins (HUB_ORIGIN — every host the Hub is served on may frame a hug)', () => {
+    it('takes one or several origins, by spaces or commas, as CSP frame-ancestors wants them', () => {
+        expect(parse_origins('HUB_ORIGIN', 'https://cliqhub.io')).toBe('https://cliqhub.io');
+        expect(parse_origins('HUB_ORIGIN', 'https://cliqhub.io https://www.cliqhub.io')).toBe('https://cliqhub.io https://www.cliqhub.io');
+        expect(parse_origins('HUB_ORIGIN', ' https://cliqhub.io/, https://www.cliqhub.io ,https://cliqhub.io')).toBe('https://cliqhub.io https://www.cliqhub.io');
+        expect(parse_origins('HUB_ORIGIN', '  ')).toBeNull();
+        expect(parse_origins('HUB_ORIGIN', undefined)).toBeNull();
+    });
+
+    it('refuses anything that is not an origin', () => {
+        expect(() => parse_origins('HUB_ORIGIN', 'https://cliqhub.io https://www.cliqhub.io/hugs')).toThrow(/must be an origin/);
+        expect(() => parse_origins('HUB_ORIGIN', 'cliqhub.io')).toThrow(/HUB_ORIGIN/);
     });
 });

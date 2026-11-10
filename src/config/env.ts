@@ -32,7 +32,10 @@ export interface EnvConfig {
      * the frame URL and the only host the content route answers on. Null: no content route, no hug frames.
      */
     content_origin: string | null;
-    /** The Hub's own origin (HUB_ORIGIN) — the only page allowed to frame a hug (CSP `frame-ancestors`). */
+    /**
+     * The Hub's own origins (HUB_ORIGIN, one or more separated by spaces or commas — e.g. the bare domain and `www`),
+     * space-separated as CSP `frame-ancestors` takes them: the only pages allowed to frame a hug.
+     */
     hub_origin: string | null;
 }
 
@@ -129,7 +132,7 @@ export function load_env(): EnvConfig {
         trust_proxy: parse_trust_proxy(process.env.TRUST_PROXY),
         artifact_max_mb: parseInt(process.env.CLIQ_ARTIFACT_MAX_MB || '50', 10),
         content_origin: parse_origin('CONTENT_ORIGIN', process.env.CONTENT_ORIGIN),
-        hub_origin: parse_origin('HUB_ORIGIN', process.env.HUB_ORIGIN),
+        hub_origin: parse_origins('HUB_ORIGIN', process.env.HUB_ORIGIN),
     };
 }
 
@@ -147,4 +150,14 @@ export function parse_origin(key: string, raw: string | undefined): string | nul
         throw new Error(`${key} must be an origin like https://content.example.com (no path): ${value}`);
     }
     return url.origin;
+}
+
+/**
+ * One or more origins (separated by spaces or commas), space-separated, or null when unset.
+ *
+ * @throws Error when any of them isn't an http(s) origin (a start-up fault).
+ */
+export function parse_origins(key: string, raw: string | undefined): string | null {
+    const origins = (raw ?? '').split(/[\s,]+/).filter(Boolean).map((one) => parse_origin(key, one)!);
+    return origins.length ? [...new Set(origins)].join(' ') : null;
 }
