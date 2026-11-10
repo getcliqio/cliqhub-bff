@@ -2,8 +2,8 @@
  * Hug page — request schema (Zod, SoT for the inbound body) and response data.
  *
  * Routes (controllers/hug_page_controller.ts):
- *   POST /v1/hug_page/get — one Hug (template, title, params, responses) and its
- *                          run's workflow with each phase's status
+ *   POST /v1/hug_page/get — one Hug (its hug, title, summary, params, responses), where its hug is
+ *                          framed from, and its run's workflow with each phase's status
  *
  * Core: hugs/get_by_id (runs.view on the Hug's realm); for the run, the run telemetry reads
  * (runs/get_by_id, realms/get_by_id, runs/get_status, teams/get_by_id + teams/get_phases).
@@ -50,6 +50,11 @@ export interface HugPageRunData {
 export interface HugPageData {
     /** Core `hugs/get_by_id` data as sent. */
     hug: Record<string, unknown>;
+    /**
+     * The hug's entry page on the content origin, for the page's frame; null when hug frames are off, the Hug was
+     * opened before hugs, or its bundle is gone (the page then shows its fallback view).
+     */
+    content_url: string | null;
     /** The Hug's run for the workflow graph; null when it couldn't be read (the Hug still shows). */
     run: HugPageRunData | null;
 }

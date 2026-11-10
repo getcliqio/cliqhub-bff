@@ -19,6 +19,7 @@ import { create_route_auth_middleware, check_route_auth } from './middleware/enf
 import { ROUTE_AUTH } from './routes/route_auth.js';
 import { register_routes } from './routes/index.js';
 import { get_logger } from './lib/log.js';
+import { create_hug_content_middleware } from './middleware/hug_content.js';
 import { ApiError } from './errors/api_error.js';
 
 const log = get_logger('app');
@@ -34,6 +35,10 @@ export function create_app(container: Container): express.Express {
     // Which proxies may set req.ip through X-Forwarded-For (TRUST_PROXY; off by default).
     app.set('trust proxy', config.trust_proxy);
 
+    // The content host (hug frontends, PLAN-hug-widgets §7) is answered first and alone: its own headers, no helmet,
+    // no cookies, nothing else served there.
+    app.use(create_hug_content_middleware(container.hug_content, container.hug_content_limiter));
+
     app.use(helmet({ contentSecurityPolicy: false }));
 
     if (config.cors_origins.length > 0) {
@@ -45,9 +50,14 @@ export function create_app(container: Container): express.Express {
 
     // A streamed upload's body is the file itself: leave it unread for the controller to pipe.
     const json = express.json({ limit: '2mb' });
+    // A Hug create may carry its hug's bundle (≤ 5 MB of text) on the retry after BUNDLE_MISSING (PLAN-hug-widgets §11.1).
+    const hug_create_json = express.json({ limit: '6mb' });
     // A streamed upload's body is the file (or a team's files, multipart) itself: leave it unread for the controller to pipe.
     const STREAMED = new Set(['/v1/artifacts/upload', '/v1/teams/files/upload']);
-    app.use((req, res, next) => (STREAMED.has(req.path) ? next() : json(req, res, next)));
+    app.use((req, res, next) => {
+        if (STREAMED.has(req.path)) return next();
+        return (req.path === '/v1/hugs/create' ? hug_create_json : json)(req, res, next);
+    });
     app.use(cookieParser());
     app.use(request_logging_middleware);
     app.use(csrf_guard);

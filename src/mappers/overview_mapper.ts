@@ -101,6 +101,7 @@ export function to_overview_hug_items(org: OrgListItemVO, hugs: DashboardHugVO[]
             kind: 'hug' as const,
             id: h.hug_id,
             title: h.title || (h.phase ? `Input for ${h.phase}` : 'Input requested'),
+            summary: h.summary ?? null,
             org_id: org.id,
             org_slug: h.org_slug || org.slug,
             realm_id: h.realm_id || null,

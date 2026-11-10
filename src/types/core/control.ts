@@ -98,6 +98,8 @@ export interface ControlPhaseAttemptVO {
 export interface ControlHugVO {
     hug_id: string;
     title?: string | null;
+    /** Plain-text summary of what's asked (PLAN-hug-widgets: the frontend isn't loaded in lists). */
+    summary?: string | null;
     realm_id?: string | null;
     realm_name?: string | null;
     realm_slug?: string | null;

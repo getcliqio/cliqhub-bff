@@ -104,13 +104,15 @@ export function classify_failure(c: FailureContext): { reason: RunFailureReason;
 }
 
 /**
- * The review a run failed on, from Core's Hug read (an `approval` Hug, PLAN-hug-templates §3): who
+ * The review a run failed on, from Core's Hug read (an `approval` Hug, PLAN-hug-widgets §10.1): who
  * answered and what each decided — `approve` as `APPROVE`, a rejection choosing a route target as
  * `ROUTE:<phase>`, a plain rejection as `REJECT` — with the rejection's reason (or the approval's
  * comment). The any / all policy is the gate's, not the Hug's, so it isn't known here.
  */
 export function to_failure_review(hug_id: string, dto: Obj): RunFailureReviewData {
-    const responses = Array.isArray(dto.responses) ? dto.responses.map(obj) : [];
+    // Only an `approval` Hug's answers carry its keys (decision / reason / choice / comment; PLAN-hug-widgets §10.1).
+    const is_approval = str(obj(dto.hug).name) === 'approval';
+    const responses = is_approval && Array.isArray(dto.responses) ? dto.responses.map(obj) : [];
     const reviewers: RunFailureReviewerData[] = responses.map((r) => {
         const values = obj(r.values);
         const decision = str(values.decision);
@@ -123,7 +125,7 @@ export function to_failure_review(hug_id: string, dto: Obj): RunFailureReviewDat
             comment: str(values.reason) ?? str(values.comment),
         };
     });
-    const choices = obj(dto.params).reject_choices;
+    const choices = is_approval ? obj(dto.params).reject_choices : undefined;
     const targets = (Array.isArray(choices) ? choices.map(obj) : [])
         .map((c) => str(c.value))
         .filter((v): v is string => v !== null);

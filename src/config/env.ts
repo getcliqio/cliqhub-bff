@@ -27,6 +27,13 @@ export interface EnvConfig {
     trust_proxy: TrustProxy;
     /** Largest artifact upload the BFF forwards, in MB (CLIQ_ARTIFACT_MAX_MB, as Core). */
     artifact_max_mb: number;
+    /**
+     * Where hug frontends are served from (CONTENT_ORIGIN, e.g. `https://content.cliqhub.io`; PLAN-hug-widgets §7.1):
+     * the frame URL and the only host the content route answers on. Null: no content route, no hug frames.
+     */
+    content_origin: string | null;
+    /** The Hub's own origin (HUB_ORIGIN) — the only page allowed to frame a hug (CSP `frame-ancestors`). */
+    hub_origin: string | null;
 }
 
 /** Express `trust proxy` value: off/on, a hop count, or addresses / subnets / presets. */
@@ -121,5 +128,23 @@ export function load_env(): EnvConfig {
         static_dir: process.env.STATIC_DIR || '',
         trust_proxy: parse_trust_proxy(process.env.TRUST_PROXY),
         artifact_max_mb: parseInt(process.env.CLIQ_ARTIFACT_MAX_MB || '50', 10),
+        content_origin: parse_origin('CONTENT_ORIGIN', process.env.CONTENT_ORIGIN),
+        hub_origin: parse_origin('HUB_ORIGIN', process.env.HUB_ORIGIN),
     };
+}
+
+/**
+ * An origin setting (`scheme://host[:port]`, nothing after it), or null when unset.
+ *
+ * @throws Error when it is set but isn't an http(s) origin (a start-up fault).
+ */
+export function parse_origin(key: string, raw: string | undefined): string | null {
+    const value = (raw ?? '').trim();
+    if (!value) return null;
+    let url: URL;
+    try { url = new URL(value); } catch { throw new Error(`${key} is not a URL: ${value}`); }
+    if (!['http:', 'https:'].includes(url.protocol) || url.origin !== value.replace(/\/$/, '')) {
+        throw new Error(`${key} must be an origin like https://content.example.com (no path): ${value}`);
+    }
+    return url.origin;
 }

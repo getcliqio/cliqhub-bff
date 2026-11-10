@@ -2,6 +2,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { HugPageService } from '../../../src/services/hug_page_service.js';
 import { ApiError } from '../../../src/errors/api_error.js';
 import { CoreReadRepository } from '../../../src/repositories/core_read_repository.js';
+import { HugContentService } from '../../../src/services/hug_content_service.js';
 
 const hug = { hug_id: 'h1', run_id: 'r1', title: 'Approve', status: 'open', responses: [] };
 const RUN = { run_id: 'r1', run_name: 'quiet-amber-heron', state: 'awaiting_input', team_label: '@cliq/hello-world', team_version: '2.0.0',
@@ -11,7 +12,7 @@ describe('HugPageService', () => {
     it('reads the Hug from Core with the caller token', async () => {
         const core = { post_body: vi.fn(async () => ({ ok: true, data: hug })) } as any;
         const dto = await new HugPageService(new CoreReadRepository(core)).get({ hug_id: 'h1' }, 'tok');
-        expect(dto).toEqual({ hug, run: null });
+        expect(dto).toEqual({ hug, content_url: null, run: null });
         expect(core.post_body.mock.calls[0][0]).toBe('/v1/hugs/get_by_id');
         expect(core.post_body.mock.calls[0][1]).toEqual({ hug_id: 'h1' });
     });
@@ -21,13 +22,13 @@ describe('HugPageService', () => {
         const run_workflow = vi.fn(async () => RUN);
         const dto = await new HugPageService(new CoreReadRepository(core), run_workflow).get({ hug_id: 'h1' }, 'tok');
         expect(run_workflow).toHaveBeenCalledWith('r1', 'tok');
-        expect(dto).toEqual({ hug, run: RUN });
+        expect(dto).toEqual({ hug, content_url: null, run: RUN });
     });
 
     it('a run that cannot be read leaves the page with the Hug alone (run: null)', async () => {
         const core = { post_body: vi.fn(async () => ({ ok: true, data: hug })) } as any;
         const dto = await new HugPageService(new CoreReadRepository(core), async () => { throw new ApiError('not_found', 'Run not found', 404); }).get({ hug_id: 'h1' }, 'tok');
-        expect(dto).toEqual({ hug, run: null });
+        expect(dto).toEqual({ hug, content_url: null, run: null });
     });
 
     it('hug() reads the Hug only (the run page uses it — no run read)', async () => {
@@ -40,5 +41,44 @@ describe('HugPageService', () => {
     it("Core's refusal (no runs.view on the realm) passes through", async () => {
         const core = { post_body: vi.fn(async () => { throw new ApiError('forbidden', 'nope', 403); }) } as any;
         await expect(new HugPageService(new CoreReadRepository(core)).get({ hug_id: 'h1' }, 'tok')).rejects.toMatchObject({ status: 403 });
+    });
+
+    describe('content_url — where the page frames the hug', () => {
+        const SHA = 'c'.repeat(64);
+        /** Core's get_file as a proxy: `files` by path; calls counted. */
+        const proxy = (files: Record<string, string>) => {
+            const calls: string[] = [];
+            return {
+                calls,
+                repo: { hug_bundle_file: vi.fn(async (_sha: string, path: string) => {
+                    calls.push(path);
+                    return files[path] !== undefined ? new Response(files[path], { status: 200, headers: { 'content-type': 'application/json' } }) : new Response('', { status: 404 });
+                }) } as any,
+            };
+        };
+        const page = async (h: Record<string, unknown>, content: HugContentService) => {
+            const core = { post_body: vi.fn(async () => ({ ok: true, data: h })) } as any;
+            return (await new HugPageService(new CoreReadRepository(core), null, content).get({ hug_id: 'h1' }, 'tok')).content_url;
+        };
+        const ON = ['https://content.test', 'https://hub.test'] as const;
+
+        it("the bundle's entry (from hug.json, default index.html) on the content origin", async () => {
+            const p = proxy({ 'hug.json': JSON.stringify({ name: 'review-batch', entry: 'app/start page.html' }) });
+            expect(await page({ ...hug, hug: { name: 'review-batch', sha256: SHA } }, new HugContentService(p.repo, ...ON)))
+                .toBe(`https://content.test/hb/${SHA}/app/start%20page.html`);
+            const q = proxy({ 'hug.json': JSON.stringify({ name: 'form' }) });
+            expect(await page({ ...hug, hug: { name: 'form', sha256: SHA } }, new HugContentService(q.repo, ...ON))).toBe(`https://content.test/hb/${SHA}/index.html`);
+        });
+
+        it('null — the fallback view — for a pre-hug Hug, a gone bundle or no content origin; an unsafe entry falls back to index.html', async () => {
+            const p = proxy({});
+            expect(await page({ ...hug, hug: null }, new HugContentService(p.repo, ...ON))).toBeNull();
+            expect(await page({ ...hug, hug: { name: 'x', sha256: SHA } }, new HugContentService(p.repo, ...ON))).toBeNull();
+            const bad = proxy({ 'hug.json': JSON.stringify({ entry: '../escape.html' }) });
+            expect(await page({ ...hug, hug: { name: 'x', sha256: SHA } }, new HugContentService(bad.repo, ...ON))).toBe(`https://content.test/hb/${SHA}/index.html`);
+            const off = proxy({ 'hug.json': '{}' });
+            expect(await page({ ...hug, hug: { name: 'x', sha256: SHA } }, new HugContentService(off.repo, null, 'https://hub.test'))).toBeNull();
+            expect(off.calls).toEqual([]);
+        });
     });
 });

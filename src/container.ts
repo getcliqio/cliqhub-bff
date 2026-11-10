@@ -54,6 +54,7 @@ import { RealmHostPageService } from './services/realm_host_page_service.js';
 import { TeamPageService } from './services/team_page_service.js';
 import { AgentPageService } from './services/agent_page_service.js';
 import { HugPageService } from './services/hug_page_service.js';
+import { HugContentService } from './services/hug_content_service.js';
 import { AdminPageService } from './services/admin_page_service.js';
 
 // ── Controllers ─────────────────────────────────────────────────────
@@ -99,13 +100,16 @@ import { HugPageController } from './controllers/hug_page_controller.js';
 import { AdminHomeController } from './controllers/admin_home_controller.js';
 import { AdminListController } from './controllers/admin_list_controller.js';
 import { SlidingWindowLimiter } from './lib/sliding_window_limiter.js';
-import { FORGOT_PASSWORD_PER_ADDRESS } from './config/limits.js';
+import { FORGOT_PASSWORD_PER_ADDRESS, HUG_CONTENT_PER_ADDRESS } from './config/limits.js';
 
 /** Every singleton the app wires: config, store, Core client, repositories, services, controllers. */
 export interface Container {
     config: EnvConfig;
     session_store: SessionStore;
     core_client: CoreClient;
+    /** Hug frontend files on the content origin (PLAN-hug-widgets §11.2). */
+    hug_content: HugContentService;
+    hug_content_limiter: SlidingWindowLimiter;
     /** Is the running Core new enough for this BFF? (Core `GET /v1/health` api_version) */
     core_compat: CoreCompatService;
     session_service: SessionService;
@@ -186,7 +190,8 @@ export function build_container(deps: {
     const teams_repo = new TeamsRepository(core_client);
     const control_repo = new ControlRepository(core_client);
     const run_telemetry_service = new RunTelemetryService(core_reads, control_repo);
-    const hug_page_service = new HugPageService(core_reads, (run_id, token) => run_telemetry_service.workflow_summary(run_id, token));
+    const hug_content = new HugContentService(new CoreProxyRepository(core_client), config.content_origin, config.hub_origin);
+    const hug_page_service = new HugPageService(core_reads, (run_id, token) => run_telemetry_service.workflow_summary(run_id, token), hug_content);
     const dashboard_repo = new DashboardRepository(core_client);
 
     // Services shared by several controllers
@@ -202,6 +207,8 @@ export function build_container(deps: {
         config,
         session_store,
         core_client,
+        hug_content,
+        hug_content_limiter: new SlidingWindowLimiter(HUG_CONTENT_PER_ADDRESS.limit, HUG_CONTENT_PER_ADDRESS.window_ms),
         core_compat,
         session_service,
         hydrate_bearer: (token) => session_service.hydrate_bearer(token),

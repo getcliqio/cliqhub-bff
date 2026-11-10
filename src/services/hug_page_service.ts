@@ -10,6 +10,7 @@
 import type { CoreReadRepository } from '../repositories/core_read_repository.js';
 import type { HugPageGetInput, HugPageData, HugPageRunData } from '../schemas/hug_page_types.js';
 import { get_logger } from '../lib/log.js';
+import type { HugContentService } from './hug_content_service.js';
 
 const log = get_logger('svc.hug_page');
 
@@ -24,7 +25,11 @@ function data_of<T>(res: unknown): T {
 
 /** Hug page read. */
 export class HugPageService {
-    constructor(private readonly _reads: CoreReadRepository, private readonly _run_workflow: RunWorkflowReader | null = null) {}
+    constructor(
+        private readonly _reads: CoreReadRepository,
+        private readonly _run_workflow: RunWorkflowReader | null = null,
+        private readonly _content: HugContentService | null = null,
+    ) {}
 
     /**
      * One Hug, as Core returns it.
@@ -37,14 +42,15 @@ export class HugPageService {
     }
 
     /**
-     * The Hug page: the Hug, and its run's workflow. The run is best-effort — when it can't be
-     * read the page still shows the Hug (`run: null`).
+     * The Hug page: the Hug, where its hug is framed from (`content_url`, PLAN-hug-widgets §11.2), and its run's
+     * workflow. The run is best-effort — when it can't be read the page still shows the Hug (`run: null`).
      *
      * @param input - {@link HugPageGetInput}
      * @param token - Caller's Core token
      */
     async get(input: HugPageGetInput, token: string): Promise<HugPageData> {
         const hug = await this.hug(input, token);
+        const content_url = this._content ? await this._content.content_url(hug.hug) : null;
         const run_id = typeof hug.run_id === 'string' ? hug.run_id : '';
         let run: HugPageRunData | null = null;
         if (run_id && this._run_workflow) {
@@ -54,6 +60,6 @@ export class HugPageService {
                 log.warn('hug_page_run_failed', { hug_id: input.hug_id, run_id, error: err instanceof Error ? err.message : String(err) });
             }
         }
-        return { hug, run };
+        return { hug, content_url, run };
     }
 }

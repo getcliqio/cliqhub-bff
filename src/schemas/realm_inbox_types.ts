@@ -45,6 +45,8 @@ export interface InboxItemData {
     id: string;
     run_id: string | null;
     title: string;
+    /** A Hug's plain-text summary, shown under its title; absent for runs. */
+    summary?: string | null;
     team: string | null;
     phase: string | null;
     state: string;

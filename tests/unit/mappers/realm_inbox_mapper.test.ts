@@ -22,14 +22,14 @@ describe('realm inbox mapper', () => {
 
     it('Hug item: title falls back to run name then a default; state defaults to open', () => {
         expect(to_inbox_hug_item({ hug_id: 'h1', run_name: 'nightly', created_at: 9, expires_at: 99, responded: false } as any)).toEqual({
-            kind: 'hug', id: 'h1', run_id: null, title: 'nightly', team: null, phase: null,
+            kind: 'hug', id: 'h1', run_id: null, title: 'nightly', summary: null, team: null, phase: null,
             state: 'open', at: 9, error: null, expires_at: 99, responded: false, origin: null,
         });
         const full = to_inbox_hug_item({
-            hug_id: 'h2', run_id: 'run-1', title: 'Check', team: 't', phase: 'qa', status: 'closed',
+            hug_id: 'h2', run_id: 'run-1', title: 'Check', summary: 'Approve the March batch', team: 't', phase: 'qa', status: 'closed',
             created_at: 'x', responded: true,
         } as any);
-        expect(full).toMatchObject({ title: 'Check', run_id: 'run-1', team: 't', phase: 'qa', state: 'closed', at: null, expires_at: null, responded: true });
+        expect(full).toMatchObject({ title: 'Check', summary: 'Approve the March batch', run_id: 'run-1', team: 't', phase: 'qa', state: 'closed', at: null, expires_at: null, responded: true });
         expect(to_inbox_hug_item({ hug_id: 'h3' } as any)).toMatchObject({ title: 'Input requested', responded: null });
     });
 

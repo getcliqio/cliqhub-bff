@@ -29,6 +29,8 @@ export function test_config(): EnvConfig {
         static_dir: '',
         trust_proxy: false,
         artifact_max_mb: 50,
+        content_origin: null,
+        hub_origin: null,
     };
 }
 

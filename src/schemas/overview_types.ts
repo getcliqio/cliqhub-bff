@@ -79,6 +79,8 @@ export interface OverviewItemData {
     kind: 'hug' | 'input' | 'run';
     id: string;
     title: string;
+    /** A Hug's plain-text summary, shown under its title; absent for runs. */
+    summary?: string | null;
     org_id: string;
     org_slug: string;
     realm_id: string | null;

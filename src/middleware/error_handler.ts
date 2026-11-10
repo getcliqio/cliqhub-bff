@@ -4,6 +4,8 @@
  *
  *   ApiError      → its status and code (Core errors arrive here already
  *                   translated by errors/upstream_error.ts)
+ *   a body over the parser's limit → 413 `payload_too_large` (a caller resending
+ *                   the same body would be refused again — cliqd's outbox stops on it)
  *   anything else → 500 `internal_error` (message hidden in production)
  *
  * Logging follows middleware/error_logging.ts.
@@ -26,6 +28,12 @@ export function error_handler(
             ok: false,
             error: { code: err.code, message: err.message, ...(err.details ? { details: err.details } : {}) },
         });
+        return;
+    }
+
+    if ((err as { type?: unknown } | null)?.type === 'entity.too.large') {
+        log_request_error(req, 413, err, 'payload_too_large');
+        res.status(413).json({ ok: false, error: { code: 'payload_too_large', message: 'The request body is too large' } });
         return;
     }
 

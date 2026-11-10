@@ -49,6 +49,11 @@ export class CoreProxyRepository {
             : this._client.raw_stream('POST', '/v1/artifacts/download', { ...headers, 'Content-Type': 'application/json' }, JSON.stringify(request.body ?? {}));
     }
 
+    /** `POST /v1/hug_bundles/get_file` — public (no credential); one file of a hug bundle, unread. */
+    async hug_bundle_file(sha256: string, path: string): Promise<Response> {
+        return this._client.raw('POST', '/v1/hug_bundles/get_file', { body: { sha256, path } });
+    }
+
     /** `GET /a2a/o/{org}/r/{slug}/.well-known/agent-card.json` — public; Core's status + body. */
     async a2a_card(org: string, slug: string): Promise<{ status: number; body: unknown }> {
         return this._client.get_json(`${a2a_base(org, slug)}/.well-known/agent-card.json`);

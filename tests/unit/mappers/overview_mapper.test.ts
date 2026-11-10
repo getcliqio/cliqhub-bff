@@ -31,11 +31,11 @@ describe('overview mapper', () => {
 
     it('Hugs: only open and unanswered, with a fallback title; runs: awaiting_input → input', () => {
         const hugs = to_overview_hug_items(ORG, [
-            { hug_id: 'x', phase: 'qa', status: 'open' },
+            { hug_id: 'x', phase: 'qa', status: 'open', summary: 'Pick a release name' },
             { hug_id: 'y', status: 'closed' },
             { hug_id: 'z', status: 'open', responded: true },
         ] as any);
-        expect(hugs).toEqual([expect.objectContaining({ id: 'x', kind: 'hug', title: 'Input for qa', org_slug: 'acme', state: 'open', at: null })]);
+        expect(hugs).toEqual([expect.objectContaining({ id: 'x', kind: 'hug', title: 'Input for qa', summary: 'Pick a release name', org_slug: 'acme', state: 'open', at: null })]);
         const runs = to_overview_run_items(ORG, [{ run_id: 'r', state: 'awaiting_input', started_at: 7 }, { run_id: 's', state: 'running', team_label: 'T' }]);
         expect(runs.map((r) => [r.kind, r.title, r.at])).toEqual([['input', 'r', 7], ['run', 'T', null]]);
     });

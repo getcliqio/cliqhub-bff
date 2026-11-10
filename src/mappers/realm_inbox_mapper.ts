@@ -19,6 +19,7 @@ export function to_inbox_hug_item(h: ControlHugVO): InboxItemData {
         id: h.hug_id,
         run_id: h.run_id ?? null,
         title: h.title || h.run_name || 'Input requested',
+        summary: h.summary ?? null,
         team: h.team ?? null,
         phase: h.phase ?? null,
         state: h.status ?? 'open',

@@ -39,7 +39,7 @@ describe('to_failure_review', () => {
     it('lists who answered the approval Hug and how (a rejection choosing a target is a route); route targets come from its reject choices', () => {
         const r = to_failure_review('h1', {
             status: 'closed',
-            template: 'approval',
+            hug: { name: 'approval', sha256: 'a'.repeat(64) },
             params: { reject_choices: [{ value: 'draft-lld', label: 'Send back to draft-lld' }] },
             responses: [
                 { responder: { name: 'krupali' }, values: { decision: 'reject', reason: 'jobs too big' }, responded_at: '2026-10-08T13:50:00Z' },
@@ -52,6 +52,15 @@ describe('to_failure_review', () => {
             { name: 'sapan', action: 'ROUTE:draft-lld', responded_at: '2026-10-08T14:00:00Z', comment: 'try again' },
             { name: 'reviewer', action: null, responded_at: null, comment: null },
         ] });
+    });
+});
+
+describe('to_failure_review — only approval answers are read', () => {
+    it("another hug's answers aren't read as approval decisions (a pre-hug Hug has no hug)", () => {
+        const dto = { status: 'closed', params: { reject_choices: [{ value: 'x' }] }, responses: [{ responder: { name: 'ana' }, values: { decision: 'reject', reason: 'no' } }] };
+        for (const hug of [{ name: 'review-batch', sha256: 'b'.repeat(64) }, null]) {
+            expect(to_failure_review('h', { ...dto, hug })).toEqual({ hug_id: 'h', status: 'closed', policy: null, reviewers: [], route_targets: [] });
+        }
     });
 });
 
@@ -77,7 +86,7 @@ describe('read_failure', () => {
         } as any;
         const read_review = vi.fn(async () => ({
             status: 'expired',
-            template: 'approval',
+            hug: { name: 'approval', sha256: 'a'.repeat(64) },
             params: { reject_choices: [{ value: 'draft-lld' }] },
             responses: [{ responder: { name: 'krupali' }, values: { decision: 'approve' }, responded_at: '2026-10-08T13:50:00Z' }],
         }));
