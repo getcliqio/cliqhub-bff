@@ -3,7 +3,7 @@
  *
  * Composes Core: `/v1/runs/get_by_id` (required) → `/v1/runs/get_status` (phases)
  * + `/v1/runs/get { realm_id, query: run_id }` (team / workspace labels)
- * + `/v1/realms/get_by_id { realm_id }` + `/v1/hugs/get` (open, filtered to the run)
+ * + `/v1/realms/get_by_id { realm_id }` + `/v1/hugs/get { run_id }` (the run's Hugs: the open ones, and every round)
  * + `/v1/artifacts/get { run_id }` (stored files and run records)
  * + `/v1/artifacts/get_by_id` for each phase output too long for the list preview
  * + `/v1/runs/get { parent_run_id }` (sub-team runs it spawned)
@@ -13,10 +13,10 @@
  */
 
 import type { ControlRepository } from '../repositories/control_repository.js';
-import type { ControlArtifactVO, ControlRealmVO, ControlRunPhaseVO, ControlRunVO } from '../types/core/control.js';
+import type { ControlArtifactVO, ControlHugVO, ControlRealmVO, ControlRunPhaseVO, ControlRunVO } from '../types/core/control.js';
 import type { InboxSectionStatusData } from '../schemas/realm_inbox_types.js';
 import type {
-    RunDetailAttemptData, RunDetailData, RunDetailGetInput, RunDetailParentData, RunDetailPhaseOutputData, RunDetailSectionKey,
+    RunDetailAttemptData, RunDetailData, RunDetailGetInput, RunDetailHugRoundData, RunDetailParentData, RunDetailPhaseOutputData, RunDetailSectionKey,
 } from '../schemas/run_detail_types.js';
 import { ApiError } from '../errors/api_error.js';
 import { read_failure, type HugReader } from './run_failure.js';
@@ -31,11 +31,22 @@ import {
     to_run_detail_phase_data,
     to_run_detail_phase_output_data,
     to_run_detail_hug_data,
+    to_run_detail_round_data,
 } from '../mappers/run_detail_mapper.js';
 import { get_logger } from '../lib/log.js';
 import { warn_rejected } from '../lib/best_effort.js';
 
 const log = get_logger('svc.run_detail');
+
+/** A run's Hugs as rounds, numbered by order within each phase (a gate sent back and a follow-up ask both count). */
+function numbered_rounds(hugs: ControlHugVO[]): RunDetailHugRoundData[] {
+    const seen = new Map<string, number>();
+    return hugs.map((h) => {
+        const n = (seen.get(h.phase ?? '') ?? 0) + 1;
+        seen.set(h.phase ?? '', n);
+        return { ...to_run_detail_round_data(h), round: n };
+    });
+}
 
 /** At most this many cut-off phase outputs are read in full per request. */
 const MAX_FULL_OUTPUT_READS = 25;
@@ -83,7 +94,7 @@ export class RunDetailService {
             this._control.run_phases(run_id, token),
             realm_id ? this._control.runs({ realm_id, query: run_id, limit: 5 }, token) : skip,
             realm_id ? this._control.realm_by_id(realm_id, token) : skip,
-            realm_id ? this._control.open_hugs(realm_id, token, 100) : skip,
+            this._control.run_hugs(run_id, token),
             this._control.run_artifacts(run_id, token),
             this._control.child_runs(run_id, token),
             parent_run_id ? this._control.run_by_id(parent_run_id, token) : Promise.resolve(null),
@@ -135,9 +146,8 @@ export class RunDetailService {
             },
             phases: phases.status === 'fulfilled' ? phases.value.map(to_run_detail_phase_data) : [],
             realm: realm.status === 'fulfilled' ? to_control_realm_data(realm.value) : null,
-            hugs: hugs.status === 'fulfilled'
-                ? hugs.value.items.filter((h) => h.run_id === run_id).map(to_run_detail_hug_data)
-                : [],
+            hugs: hugs.status === 'fulfilled' ? hugs.value.filter((h) => (h.status ?? 'open') === 'open').map(to_run_detail_hug_data) : [],
+            hug_rounds: hugs.status === 'fulfilled' ? numbered_rounds(hugs.value) : [],
             artifacts: artifacts.status === 'fulfilled' ? artifacts.value.map(to_run_detail_artifact_data) : [],
             phase_outputs,
             attempts,

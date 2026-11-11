@@ -14,7 +14,7 @@ function control() {
         run_phases: vi.fn(async () => []),
         runs: vi.fn(async () => ({ items: [], total: 0 })),
         realm_by_id: vi.fn(async () => ({ id: 'r1', slug: 'prod', name: 'Prod', org_slug: 'acme' })),
-        open_hugs: vi.fn(async () => ({ items: [], total: 0 })),
+        run_hugs: vi.fn(async () => []),
         run_artifacts: vi.fn(async () => []),
         child_runs: vi.fn(async () => ({ items: [], total: 0 })),
     };

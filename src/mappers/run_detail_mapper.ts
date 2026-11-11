@@ -4,7 +4,7 @@ import type { ControlArtifactVO, ControlPhaseAttemptVO, ControlRunPhaseVO, Contr
 import type { InAppNotificationVO } from '../types/core/notifications.js';
 import type {
     RunAttemptState, RunDetailArtifactData, RunDetailAttemptData, RunDetailChildData, RunDetailParentData,
-    RunDetailPhaseAttemptData, RunDetailPhaseData, RunDetailPhaseOutputData, RunDetailHugData,
+    RunDetailPhaseAttemptData, RunDetailPhaseData, RunDetailPhaseOutputData, RunDetailHugData, RunDetailHugRoundData,
 } from '../schemas/run_detail_types.js';
 import { num_or_null } from './realm_inbox_mapper.js';
 import { to_phase_output_view } from '../lib/phase_output_view.js';
@@ -274,6 +274,20 @@ export function to_run_detail_hug_data(h: ControlHugVO): RunDetailHugData {
         created_at: num_or_null(h.created_at),
         expires_at: num_or_null(h.expires_at),
         responded: h.responded === true,
+    };
+}
+
+/** `hugs/get { run_id }` row → one round of its phase on the run page. */
+export function to_run_detail_round_data(h: ControlHugVO): RunDetailHugRoundData {
+    return {
+        id: h.hug_id,
+        title: h.title || 'Input requested',
+        phase: h.phase ?? null,
+        round: (typeof h.iteration === 'number' ? h.iteration : 0) + 1,
+        status: h.status ?? 'open',
+        outcome: h.outcome ?? null,
+        created_at: num_or_null(h.created_at),
+        closed_at: num_or_null(h.closed_at),
     };
 }
 

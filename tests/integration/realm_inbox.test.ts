@@ -112,13 +112,16 @@ describe('BFF realm composition routes', () => {
 
     it('run detail composes run + phases + labels + realm + Hugs + artifacts', async () => {
         const sid = make_session();
-        mock_core();
+        const core = mock_core();
         const res = await request(app).post('/v1/run_detail/get').set(CSRF).set('Cookie', `test_sid=${sid}`).send({ run_id: 'r1' });
         expect(res.status).toBe(200);
         expect(res.body.data.run).toMatchObject({ run_id: 'r1', team_label: '@cliq/dev' });
         expect(res.body.data.phases).toHaveLength(1);
         expect(res.body.data.realm.slug).toBe('prod');
         expect(res.body.data.hugs.map((h: any) => h.id)).toEqual(['hug-1']);
+        // The run's own Hugs (hugs/get { run_id }), every round — not the realm's open Hugs filtered here.
+        expect(core.mock.calls.filter((c) => c[0] === '/v1/hugs/get').map((c) => c[1])).toEqual([{ run_id: 'r1', limit: 100 }]);
+        expect(res.body.data.hug_rounds).toEqual([{ id: 'hug-1', title: 'Approve', phase: null, round: 1, status: 'open', outcome: null, created_at: 3, closed_at: null }]);
         expect(res.body.data.artifacts).toEqual([{ artifact_id: 'a1', source: 'file', kind: 'file', content_preview: null, phase: 'plan', name: 'plan.md', description: null, mime_type: 'text/markdown', size_bytes: 12, created_at: 4 }]);
         expect(res.body.data.sections.artifacts.status).toBe('ok');
         expect(res.body.data.attempts).toEqual([{ n: 1, started_at: 1, from_phase: null, ended_at: null, state: 'running', failed_phase: null, error: null, resumed_by: null }]);

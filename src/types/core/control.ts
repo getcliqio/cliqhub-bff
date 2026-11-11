@@ -108,7 +108,11 @@ export interface ControlHugVO {
     run_name?: string | null;
     team?: string | null;
     phase?: string | null;
+    /** Which round of its phase (0 for the first): a gate sent back asks again as the next one. */
+    iteration?: number | null;
     status?: string | null;
+    /** How it ended, in the requester's words ("Rejected by Ann"), or null while open. */
+    outcome?: string | null;
     /** The caller has already answered it. */
     responded?: boolean;
     created_at?: number | null;

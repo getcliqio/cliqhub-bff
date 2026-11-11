@@ -12,7 +12,7 @@ describe('HugPageService', () => {
     it('reads the Hug from Core with the caller token', async () => {
         const core = { post_body: vi.fn(async () => ({ ok: true, data: hug })) } as any;
         const dto = await new HugPageService(new CoreReadRepository(core)).get({ hug_id: 'h1' }, 'tok');
-        expect(dto).toEqual({ hug, content_url: null, run: null });
+        expect(dto).toEqual({ hug, content_url: null, run: null, rounds: [] });
         expect(core.post_body.mock.calls[0][0]).toBe('/v1/hugs/get_by_id');
         expect(core.post_body.mock.calls[0][1]).toEqual({ hug_id: 'h1' });
     });
@@ -22,13 +22,52 @@ describe('HugPageService', () => {
         const run_workflow = vi.fn(async () => RUN);
         const dto = await new HugPageService(new CoreReadRepository(core), run_workflow).get({ hug_id: 'h1' }, 'tok');
         expect(run_workflow).toHaveBeenCalledWith('r1', 'tok');
-        expect(dto).toEqual({ hug, content_url: null, run: RUN });
+        expect(dto).toEqual({ hug, content_url: null, run: RUN, rounds: [] });
     });
 
     it('a run that cannot be read leaves the page with the Hug alone (run: null)', async () => {
         const core = { post_body: vi.fn(async () => ({ ok: true, data: hug })) } as any;
         const dto = await new HugPageService(new CoreReadRepository(core), async () => { throw new ApiError('not_found', 'Run not found', 404); }).get({ hug_id: 'h1' }, 'tok');
-        expect(dto).toEqual({ hug, content_url: null, run: null });
+        expect(dto).toEqual({ hug, content_url: null, run: null, rounds: [] });
+    });
+
+    it("the rounds of the Hug's phase, oldest first, with who answered what before this one (e2e 2026-11-10)", async () => {
+        const round2 = { id: 'h2', run_id: 'r1', phase: 'review', status: 'open', responses: [] };
+        const round1 = { id: 'h1', run_id: 'r1', phase: 'review', status: 'closed', responses: [
+            { responder: { name: 'Elan' }, summary: 'Rejected', values: { decision: 'reject', reason: "I don't like it" }, responded_at: '2026-11-10T21:55:33Z' },
+        ] };
+        const core = { post_body: vi.fn(async (path: string, body: { hug_id?: string }) => {
+            if (path === '/v1/hugs/get') return { ok: true, data: { items: [
+                { hug_id: 'h1', phase: 'review', iteration: 0, status: 'closed', outcome: 'Rejected by Elan', created_at: 1, closed_at: 2 },
+                { hug_id: 'x', phase: 'greet', iteration: 0, status: 'closed', outcome: null, created_at: 1, closed_at: 2 },
+                { hug_id: 'h2', phase: 'review', iteration: 1, status: 'open', outcome: null, created_at: 3, closed_at: null },
+            ] } };
+            return { ok: true, data: body.hug_id === 'h1' ? round1 : round2 };
+        }) } as any;
+        const dto = await new HugPageService(new CoreReadRepository(core)).get({ hug_id: 'h2' }, 'tok');
+        expect(core.post_body.mock.calls.find((c: unknown[]) => c[0] === '/v1/hugs/get')![1]).toEqual({ run_id: 'r1', limit: 100 });
+        expect(dto.rounds).toEqual([
+            { hug_id: 'h1', round: 1, status: 'closed', outcome: 'Rejected by Elan', created_at: 1, closed_at: 2, current: false,
+                answers: [{ responder: 'Elan', summary: 'Rejected', note: "I don't like it", responded_at: '2026-11-10T21:55:33Z' }] },
+            { hug_id: 'h2', round: 2, status: 'open', outcome: null, created_at: 3, closed_at: null, current: true, answers: [] },
+        ]);
+    });
+
+    it('a phase that asks again in the same iteration (follow-up questions) counts each ask as a round (e2e: all read "Round 1")', async () => {
+        const core = { post_body: vi.fn(async (path: string, body: { hug_id?: string }) => {
+            if (path === '/v1/hugs/get') return { ok: true, data: { items: ['a', 'b', 'c'].map((id) => ({ hug_id: id, phase: 'follow-up', iteration: 0, status: id === 'c' ? 'open' : 'closed' })) } };
+            return { ok: true, data: { id: body.hug_id, run_id: 'r1', phase: 'follow-up', status: 'open', responses: [] } };
+        }) } as any;
+        const dto = await new HugPageService(new CoreReadRepository(core)).get({ hug_id: 'c' }, 'tok');
+        expect(dto.rounds!.map((r) => [r.hug_id, r.round, r.current])).toEqual([['a', 1, false], ['b', 2, false], ['c', 3, true]]);
+    });
+
+    it('a single round, or a failed rounds read, gives no rounds — the page still shows', async () => {
+        const core = { post_body: vi.fn(async (path: string) => {
+            if (path === '/v1/hugs/get') throw new ApiError('bad_request', 'old Core', 400);
+            return { ok: true, data: { ...hug, id: 'h1', phase: 'review' } };
+        }) } as any;
+        expect((await new HugPageService(new CoreReadRepository(core)).get({ hug_id: 'h1' }, 'tok')).rounds).toEqual([]);
     });
 
     it('hug() reads the Hug only (the run page uses it — no run read)', async () => {

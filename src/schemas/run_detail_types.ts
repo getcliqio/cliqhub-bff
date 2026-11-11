@@ -107,6 +107,20 @@ export interface RunDetailHugData {
     responded: boolean;
 }
 
+/** One Hug of the run, as a round of its phase (a gate sent back asks again: round 2, 3, …). */
+export interface RunDetailHugRoundData {
+    id: string;
+    title: string;
+    phase: string | null;
+    /** From 1. */
+    round: number;
+    status: string;
+    /** How it ended ("Rejected by Ann"), or null while open. */
+    outcome: string | null;
+    created_at: number | null;
+    closed_at: number | null;
+}
+
 /** A file the run stored; downloads go through `artifacts/get_by_id` (fresh link). */
 export interface RunDetailArtifactData {
     artifact_id: string;
@@ -189,6 +203,8 @@ export interface RunDetailData {
     realm: ControlRealmData | null;
     /** Open Hugs of this run that reached the caller. */
     hugs: RunDetailHugData[];
+    /** Every Hug of the run, oldest first — the rounds of each phase that asked people (empty when none). */
+    hug_rounds?: RunDetailHugRoundData[];
     /** Files the run stored and its run records (empty when none). */
     artifacts: RunDetailArtifactData[];
     /** Each phase output (`kind: output` records), oldest first, read for display. */

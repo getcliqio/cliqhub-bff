@@ -57,4 +57,25 @@ export interface HugPageData {
     content_url: string | null;
     /** The Hug's run for the workflow graph; null when it couldn't be read (the Hug still shows). */
     run: HugPageRunData | null;
+    /**
+     * The rounds of this Hug's phase, oldest first (a gate sent back asks again: each round is its own Hug), this one
+     * included; empty when the run's Hugs couldn't be read. Best-effort.
+     */
+    rounds?: HugRoundData[];
+}
+
+/** One round of a phase's asking: its Hug, how it ended, and (before this one) who answered what. */
+export interface HugRoundData {
+    hug_id: string;
+    /** From 1. */
+    round: number;
+    status: string;
+    /** How it ended ("Rejected by Ann"), or null while open. */
+    outcome: string | null;
+    created_at: number | null;
+    closed_at: number | null;
+    /** For the Hug being viewed: true (its answers are on the page). */
+    current: boolean;
+    /** Earlier rounds' answers: who, the one-line summary, and a note (an approval's reason or comment). */
+    answers: Array<{ responder: string; summary: string | null; note: string | null; responded_at: string | null }>;
 }
