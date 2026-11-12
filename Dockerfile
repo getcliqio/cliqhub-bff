@@ -23,7 +23,9 @@ RUN apk add --no-cache git \
     fi \
  && echo "cloned=$(git -C /repo rev-parse HEAD)"
 WORKDIR /repo
-RUN npm ci && npm run build
+# @getcliqio/hug-frontend comes from GitHub Packages: the SPA's .npmrc reads GITHUB_TOKEN — GH_TOKEN, for this step
+# only (this stage is discarded; only dist/ reaches the image).
+RUN GITHUB_TOKEN="$GH_TOKEN" npm ci && rm -f .npmrc && npm run build
 
 FROM node:20-alpine AS bff-build
 WORKDIR /app
