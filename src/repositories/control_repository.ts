@@ -85,13 +85,13 @@ export class ControlRepository {
         return res.realm;
     }
 
-    /** `POST /v1/hugs/get { realm_id, statuses: [open] }` — one page of a realm's open Hugs (those that reached the caller). */
     /** `POST /v1/hugs/get { run_id }` — every Hug of one run (each round of each phase), oldest first. */
     async run_hugs(run_id: string, token: string): Promise<ControlHugVO[]> {
         const res = await this._core.post_body<{ data: ControlPageVO<ControlHugVO> }>('/v1/hugs/get', { run_id, limit: 100 }, token);
         return res.data.items;
     }
 
+    /** `POST /v1/hugs/get { realm_id, statuses: [open] }` — one page of a realm's open Hugs (those that reached the caller). */
     async open_hugs(realm_id: string, token: string, limit = 50): Promise<ControlPageVO<ControlHugVO>> {
         const res = await this._core.post_body<{ data: ControlPageVO<ControlHugVO> }>(
             '/v1/hugs/get', { realm_id, statuses: ['open'], limit }, token,
