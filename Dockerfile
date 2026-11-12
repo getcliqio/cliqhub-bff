@@ -6,12 +6,16 @@ ARG FRONTEND_REF=main
 # caches the git clone layer and ships a stale SPA after frontend-only pushes).
 ARG FRONTEND_SHA=263006970a0b31afb21bec0b92792c30f51d9e23
 ARG GH_TOKEN=
+# GitHub Packages (@getcliqio/hug-frontend): the service's GITHUB_TOKEN variable (Railway passes it as this ARG; on
+# cliqhub-bff it references cliqhub-backend's). GH_TOKEN is the fallback.
+ARG GITHUB_TOKEN=
 
 FROM node:20-alpine AS frontend-build
 ARG FRONTEND_REPO
 ARG FRONTEND_REF
 ARG FRONTEND_SHA
 ARG GH_TOKEN
+ARG GITHUB_TOKEN
 WORKDIR /repo
 RUN apk add --no-cache git \
  && echo "frontend_sha=${FRONTEND_SHA}" \
@@ -23,9 +27,9 @@ RUN apk add --no-cache git \
     fi \
  && echo "cloned=$(git -C /repo rev-parse HEAD)"
 WORKDIR /repo
-# @getcliqio/hug-frontend comes from GitHub Packages: the SPA's .npmrc reads GITHUB_TOKEN — GH_TOKEN, for this step
-# only (this stage is discarded; only dist/ reaches the image).
-RUN GITHUB_TOKEN="$GH_TOKEN" npm ci && rm -f .npmrc && npm run build
+# @getcliqio/hug-frontend comes from GitHub Packages: the SPA's .npmrc reads GITHUB_TOKEN (else GH_TOKEN), for this
+# step only (this stage is discarded; only dist/ reaches the image).
+RUN GITHUB_TOKEN="${GITHUB_TOKEN:-$GH_TOKEN}" npm ci && rm -f .npmrc && npm run build
 
 FROM node:20-alpine AS bff-build
 WORKDIR /app
